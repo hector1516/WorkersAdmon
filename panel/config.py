@@ -63,7 +63,7 @@ TABS = [
     {"id": "config", "label": "⚙️ Configuración",
      "href": "/configuracion", "enabled": True},
     {"id": "notificaciones", "label": "🔔 Notificaciones",
-     "href": "/notificaciones", "enabled": False},
+     "href": "/notificaciones", "enabled": True},
     {"id": "apps", "label": "⚙️ Apps", "href": "/apps", "enabled": False},
 ]
 

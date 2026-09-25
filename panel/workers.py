@@ -24,30 +24,130 @@ from . import config
 
 _NAME_RE = re.compile(r"^[a-z0-9_]{2,40}$")
 
-# Metadatos visibles en la tabla (descripción corta + cadencia esperada).
+# Metadatos visibles en la tabla.
+#   desc        → una línea (se muestra siempre en la columna "Programa")
+#   descripcion → párrafo "qué hace" (se pliega con <details> en la tabla y
+#                 se muestra completo en la tarjeta del módulo Configuración)
+# Fuente de cada texto: el docstring/comentario de cada worker en este repo.
 CATALOGO = {
-    "status_web": {"desc": "Este panel de control", "cadencia": "siempre activo",
-                   "app": "workersadmon"},
-    "tipo_cambio_worker": {"desc": "Tipo de cambio USD/MXN (Banxico + fallback)",
-                           "cadencia": "diario 6:00 AM", "app": "HUB"},
-    "bing_worker": {"desc": "Fondos de pantalla de Bing", "cadencia": "cada 6 h",
-                    "app": "HUB"},
-    "oxxogas_contactos_worker": {"desc": "Contactos OxxoGas (playwright)",
-                                 "cadencia": "cada 6 h", "app": "HUB"},
-    "network_scanner_worker": {"desc": "Escaneo de red / inventario de IPs",
-                               "cadencia": "cada 3 min", "app": "HUB"},
-    "telegram_worker": {"desc": "Alertas por Telegram (cola outbox)",
-                        "cadencia": "cada 20 s", "app": "HUB"},
-    "pdf_storage_worker": {"desc": "Respaldo de PDFs de reportes a SMB",
-                           "cadencia": "diario 3:00 AM", "app": "HUB"},
-    "oxxogas_worker": {"desc": "Vales OxxoGas vía correo IMAP", "cadencia": "cada 1 h",
-                       "app": "HUB"},
-    "vales_worker": {"desc": "Vales autogenerados (playwright)",
-                     "cadencia": "cada 5 min", "app": "HUB"},
-    "govale_vouchers_worker": {"desc": "Vouchers GoVale (playwright)",
-                               "cadencia": "cada 5 min", "app": "HUB"},
-    "mcp_server": {"desc": "Servidor MCP (passkeys, push, /message) — puerto 8000",
-                   "cadencia": "siempre activo", "app": "HUB / Field"},
+    "status_web": {
+        "desc": "Este panel de control",
+        "cadencia": "siempre activo",
+        "app": "workersadmon",
+        "descripcion": (
+            "Punto de entrada del panel: servidor HTTP con el módulo estándar "
+            "de Python en el 8080 interno (8200 en el host). Sirve el login con "
+            "cuenta del HUB, la tabla de estado, los logs y la configuración. "
+            "Solo toca SQL Server para el login, la sesión, la bitácora y "
+            "HUB_Config."),
+    },
+    "tipo_cambio_worker": {
+        "desc": "Tipo de cambio USD/MXN (Banxico + fallback)",
+        "cadencia": "diario 6:00 AM",
+        "app": "HUB",
+        "descripcion": (
+            "Cada mañana consulta el dólar FIX de Banxico (serie SF51158, con "
+            "token) y, si falla, la API gratuita open.er-api.com. Guarda el "
+            "resultado en HUB_Config.tipo_cambio_usd, que leen Cotizaciones, "
+            "Órdenes de Compra y el Dashboard del HUB."),
+    },
+    "bing_worker": {
+        "desc": "Fondos de pantalla de Bing",
+        "cadencia": "cada 6 h",
+        "app": "HUB",
+        "descripcion": (
+            "Descarga los wallpapers de Bing y rota los últimos N en la tabla "
+            "HUB_BingWallpapers (por defecto 5). La app solo llama a "
+            "bing_wallpaper.get_active_background(), que lee la BD: el "
+            "descargado ocurre únicamente aquí."),
+    },
+    "oxxogas_contactos_worker": {
+        "desc": "Contactos OxxoGas (playwright)",
+        "cadencia": "cada 6 h",
+        "app": "HUB",
+        "descripcion": (
+            "Entra con Playwright a Go Vale y refresca el caché de "
+            "empresas/contactos de OxxoGas que usa el HUB como catálogo al "
+            "registrar vales. Requiere la imagen con Playwright instalado y "
+            "las credenciales govale_user / govale_password."),
+    },
+    "network_scanner_worker": {
+        "desc": "Escaneo de red / inventario de IPs",
+        "cadencia": "cada 3 min",
+        "app": "HUB",
+        "descripcion": (
+            "Procesa los ARP scan de la subred (los escribe "
+            "network_scanner_host fuera del contenedor), detecta entradas y "
+            "salidas exigiendo N escaneos consecutivos, filtra MACs "
+            "multicast, marca las IPs ZeroTier, limpia escaneos de más de 7 "
+            "días y dispara alertas de presencia por Telegram. Alimenta el "
+            "módulo Detección de red del HUB."),
+    },
+    "telegram_worker": {
+        "desc": "Alertas por Telegram (cola outbox)",
+        "cadencia": "cada 20 s",
+        "app": "HUB",
+        "descripcion": (
+            "Consume la cola HUB_TelegramQueue: atiende los /start entrantes "
+            "(vinculación automática de usuarios), envía hasta 10 mensajes por "
+            "ciclo —texto con sendMessage o adjunto con sendDocument—, marca "
+            "ENVIADO o FALLADO con máximo 3 reintentos y limpia el historial "
+            "de más de 30 días. Es quien materializa las alertas de "
+            "telegram_alerts.py."),
+    },
+    "pdf_storage_worker": {
+        "desc": "Respaldo de PDFs de reportes a SMB",
+        "cadencia": "diario 3:00 AM",
+        "app": "HUB",
+        "descripcion": (
+            "Cada madrugada regenera los PDFs del día anterior de los cinco "
+            "módulos (Cotizaciones Materiales, CSP, Reportes, Órdenes de "
+            "Compra y Remisiones) y los sube al Fileserver con smbclient en "
+            "carpetas por año/mes. Deja la fecha de la última corrida en "
+            "HUB_Config.pdf_worker_last_run."),
+    },
+    "oxxogas_worker": {
+        "desc": "Vales OxxoGas vía correo IMAP",
+        "cadencia": "cada 1 h",
+        "app": "HUB",
+        "descripcion": (
+            "Revisa la bandeja IMAP de cada usuario con AccesoValesOxxoGas y "
+            "sincroniza los correos de vales de OxxoGas al HUB (búsqueda "
+            "SINCE optimizada + cabecera Message-ID para saltar los ya "
+            "guardados). La última sincronización queda en "
+            "HUB_GmailTokens.LastSyncTime."),
+    },
+    "vales_worker": {
+        "desc": "Vales autogenerados (playwright)",
+        "cadencia": "cada 5 min",
+        "app": "HUB",
+        "descripcion": (
+            "Busca vales en estatus APROBADO que todavía no tienen "
+            "CodigoQR —p. ej. los aprobados desde Field— y los genera en Go "
+            "Vale con Playwright (crear_vale), guardando el QR en la BD. "
+            "Usa las mismas credenciales que govale_vouchers_worker."),
+    },
+    "govale_vouchers_worker": {
+        "desc": "Vouchers GoVale (playwright)",
+        "cadencia": "cada 5 min",
+        "app": "HUB",
+        "descripcion": (
+            "Hace login en el portal de Go Vale, extrae de forma incremental "
+            "los vales nuevos desde la última sincronización, genera su imagen "
+            "QR con la librería qrcode y los vincula con las solicitudes "
+            "pendientes del HUB."),
+    },
+    "mcp_server": {
+        "desc": "Servidor MCP (passkeys, push, /message) — puerto 8000",
+        "cadencia": "siempre activo",
+        "app": "HUB / Field",
+        "descripcion": (
+            "Servidor HTTP del protocolo MCP en el puerto 8000 del host: "
+            "expone run_command, write_file y read_file, resuelve el reto de "
+            "passkeys (JWT) y el envío de notificaciones push VAPID. Lo "
+            "consumen Field y las integraciones; de aquí sale la ayuda remota "
+            "de opencode (http://ServerVM:8000/message)."),
+    },
 }
 
 PROTECTED = {"status_web"}   # programas que el panel no manipula
@@ -224,6 +324,7 @@ def build_status():
         entry["running"] = entry.get("state") in ("RUNNING", "STARTING")
         meta = CATALOGO.get(entry["name"], {})
         entry["desc"] = meta.get("desc", "")
+        entry["descripcion"] = meta.get("descripcion", "")
         entry["cadencia"] = meta.get("cadencia", "")
         entry["app"] = meta.get("app", "")
         entry["protected"] = entry["name"] in PROTECTED

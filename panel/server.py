@@ -14,7 +14,9 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
   GET  /configuracion                  → pestaña Configuración (por worker)
   POST /configuracion/<nombre>         → guarda env + HUB_Config de un worker
   POST /configuracion/<nombre>/probar  → prueba un token (bot de Telegram)
-  GET  /notificaciones | /apps         → marcador de fase (pestañas aún no libres)
+  GET  /notificaciones                 → pestaña Notificaciones (Fase C)
+  POST /notificaciones/<bloque>[/...]  → guarda / prueba (telegram|push|correo|ia)
+  GET  /apps                           → marcador de fase (Fase D)
 
 Seguridad: cookie `ecsa_token` (HttpOnly), CSRF de doble envío, límite de
 intentos de login, cabeceras anti-clickjacking y permiso `AccesoConfiguracion`.
@@ -24,18 +26,16 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import auth, config, db, envconf, spec, workers
+from . import auth, config, db, envconf, probes, spec, workers
 from .templates import esc, forbidden_page, login_page, page
 from .views import config as config_view
+from .views import notifications as notif_view
 from .views import workers as workers_view
 
 MAX_BODY = 64 * 1024          # límite del cuerpo de un POST
 LOG_LINES = 300               # líneas de log mostradas
 
 _FUTURE_TABS = {
-    "notificaciones": ("🔔 Notificaciones",
-                       "Fase C — Telegram, Push, SMTP e IA con pruebas de envío.",
-                       "notificaciones"),
     "apps": ("⚙️ Apps",
              "Fase D — catálogo de claves de configuración por app "
              "(HUB, admon, Field y futuras).", "apps"),
@@ -178,7 +178,16 @@ class Handler(BaseHTTPRequestHandler):
                 workers.build_status(), user, flash_ok=ok, flash_err=err,
                 csrf=self._csrf()))
 
-        if path in ("/notificaciones", "/apps"):
+        if path == "/notificaciones":
+            user, done = self._require()
+            if done:
+                return
+            ok, err = self._flash(query)
+            return self._html(notif_view.render(
+                user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                correo_prueba=query.get("para", [""])[0] or user.get("email", "")))
+
+        if path in ("/apps",):
             user, done = self._require()
             if done:
                 return
@@ -223,6 +232,10 @@ class Handler(BaseHTTPRequestHandler):
             rest = path[len("/configuracion/"):]
             name, _, action = rest.partition("/")
             return self._config_action(user, name, action, form)
+
+        if path.startswith("/notificaciones/"):
+            segs = [s for s in path[len("/notificaciones/"):].split("/") if s]
+            return self._notif_action(user, segs, form)
 
         return self._send(404, "No encontrado", "text/plain")
 
@@ -304,6 +317,155 @@ class Handler(BaseHTTPRequestHandler):
                 {"err": f"No se pudo {accion_txt} '{name}': {output or 'error'}"})
         return self._redirect(url)
 
+
+    def _notif_action(self, user, segs, form):
+        """Guarda o prueba un bloque de la pestaña Notificaciones."""
+        bloque = (segs[0] if segs else "").strip()
+        accion = segs[1] if len(segs) > 1 else "guardar"
+        perm, perm_label = notif_view.PERMISOS.get(bloque, (None, ""))
+        if perm and not auth.has_perm(user, perm):
+            return self._html(forbidden_page(
+                f"El bloque '{bloque}' requiere el permiso {perm_label}."), 403)
+
+        handler = {
+            ("telegram", "guardar"): self._notif_telegram_token,
+            ("telegram", "probar"): self._notif_telegram_probar,
+            ("telegram", "evento"): self._notif_telegram_evento,
+            ("telegram", "destinatarios"): self._notif_telegram_dest,
+            ("push", "guardar"): self._notif_push,
+            ("push", "probar"): self._notif_push_probar,
+            ("correo", "guardar"): self._notif_correo,
+            ("correo", "probar"): self._notif_correo_probar,
+            ("ia", "guardar"): self._notif_ia,
+            ("ia", "probar"): self._notif_ia_probar,
+        }.get((bloque, accion))
+        if handler is None:
+            return self._send(404, "Bloque/acción no válidos", "text/plain")
+        return handler(user, form)
+
+    # ── Telegram ───────────────────────────────────────────────────────────
+    def _notif_telegram_token(self, user, form):
+        token = (form.get("telegram_bot_token", [""])[0] or "").strip()
+        if not token:
+            return self._notif_flash("Sin cambios: el token quedó vacío (no se borra lo guardado).")
+        ok, err = db.set_config_values({"telegram_bot_token": token})
+        if not ok:
+            return self._notif_flash(f"No se pudo guardar el token: {err}", err=True)
+        self._notif_log(user, "Token de Telegram actualizado")
+        return self._notif_flash("Token de Telegram guardado.")
+
+    def _notif_telegram_probar(self, user, form):
+        ok, msg = workers.test_telegram_bot()
+        self._notif_log(user, f"Prueba de token de Telegram: {'OK' if ok else 'ERROR'}")
+        return self._notif_flash(f"Token de Telegram: {msg}", err=not ok)
+
+    def _notif_telegram_evento(self, user, form):
+        eid = (form.get("IdEvento", [""])[0] or "").strip()
+        plantilla = (form.get("PlantillaMensaje", [""])[0] or "")
+        adjunto = (form.get("AdjuntarArchivo", ["0"])[0] or "0") == "1"
+        activo = (form.get("Activo", ["0"])[0] or "0") == "1"
+        if not eid:
+            return self._notif_flash("Falta el evento.", err=True)
+        ok, err = db.update_telegram_evento(eid, plantilla, adjunto, activo)
+        if not ok:
+            return self._notif_flash(f"No se pudo guardar el evento: {err}", err=True)
+        self._notif_log(user, f"Plantilla del evento '{eid}' actualizada")
+        return self._notif_flash(f"Evento '{eid}' guardado.")
+
+    def _notif_telegram_dest(self, user, form):
+        eid = (form.get("IdEvento", [""])[0] or "").strip()
+        ids = [i for i in form.get("ids", []) if str(i).isdigit()]
+        if not eid:
+            return self._notif_flash("Falta el evento.", err=True)
+        ok, err = db.set_telegram_destinatarios(eid, ids)
+        if not ok:
+            return self._notif_flash(f"No se pudieron guardar los destinatarios: {err}", err=True)
+        self._notif_log(user, f"Destinatarios de '{eid}' actualizados ({len(ids)})")
+        return self._notif_flash(f"Destinatarios de '{eid}' guardados ({len(ids)}).")
+
+    # ── Push ───────────────────────────────────────────────────────────────
+    def _notif_push(self, user, form):
+        cfg = db.get_push_config()
+        public = (form.get("VapidPublicKey", [""])[0] or "").strip()
+        privada = (form.get("VapidPrivateKey", [""])[0] or "").strip()
+        email = (form.get("VapidEmail", [""])[0] or "").strip()
+        if not privada:
+            privada = cfg.get("private", "")          # en blanco = no cambiar
+        if not public:
+            public = cfg.get("public", "")
+        ok, err = db.save_push_config(public, privada, email)
+        if not ok:
+            return self._notif_flash(f"No se pudieron guardar las claves VAPID: {err}", err=True)
+        self._notif_log(user, "Claves VAPID actualizadas")
+        return self._notif_flash("Claves VAPID guardadas.")
+
+    def _notif_push_probar(self, user, form):
+        ok, msg = probes.probe_push()
+        self._notif_log(user, f"Push de prueba: {'OK' if ok else 'ERROR'}")
+        return self._notif_flash(msg, err=not ok)
+
+    # ── Correo SMTP ────────────────────────────────────────────────────────
+    def _notif_correo(self, user, form):
+        puerto = (form.get("port", [""])[0] or "").strip()
+        try:
+            puerto = int(puerto)
+            if not 1 <= puerto <= 65535:
+                raise ValueError
+        except ValueError:
+            return self._notif_flash("El puerto debe estar entre 1 y 65535.", err=True)
+        cfg = db.get_email_config()
+        password = (form.get("password", [""])[0] or "").strip()
+        if not password:
+            password = cfg.get("password", "")        # en blanco = no cambiar
+        ok, err = db.save_email_config(
+            (form.get("smtp_server", [""])[0] or "").strip(),
+            puerto,
+            (form.get("username", [""])[0] or "").strip(),
+            password,
+            (form.get("use_ssl", ["0"])[0] or "0") == "1",
+            (form.get("use_tls", ["0"])[0] or "0") == "1",
+            (form.get("require_auth", ["0"])[0] or "0") == "1")
+        if not ok:
+            return self._notif_flash(f"No se pudo guardar la config SMTP: {err}", err=True)
+        self._notif_log(user, "Configuración SMTP actualizada")
+        return self._notif_flash("Configuración SMTP guardada.")
+
+    def _notif_correo_probar(self, user, form):
+        destino = (form.get("destino", [""])[0] or "").strip()
+        ok, msg = probes.probe_smtp(db.get_email_config(), destino)
+        self._notif_log(user, f"Prueba de correo a '{destino}': {'OK' if ok else 'ERROR'}")
+        url = "/notificaciones?" + urllib.parse.urlencode(
+            {("ok" if ok else "err"): msg, "para": destino})
+        return self._redirect(url)
+
+    # ── IA ─────────────────────────────────────────────────────────────────
+    def _notif_ia(self, user, form):
+        cfg = db.get_ai_config()
+        api_key = (form.get("api_key", [""])[0] or "").strip()
+        if not api_key:
+            api_key = cfg.get("api_key", "")          # en blanco = no cambiar
+        ok, err = db.save_ai_config(
+            (form.get("provider", [""])[0] or "").strip() or "google_gemini",
+            api_key,
+            (form.get("model", [""])[0] or "").strip() or "gemini-2.0-flash")
+        if not ok:
+            return self._notif_flash(f"No se pudo guardar la config de IA: {err}", err=True)
+        self._notif_log(user, "Configuración de IA actualizada")
+        return self._notif_flash("Configuración de IA guardada.")
+
+    def _notif_ia_probar(self, user, form):
+        ok, msg = probes.probe_ai(db.get_ai_config())
+        self._notif_log(user, f"Prueba de IA: {'OK' if ok else 'ERROR'}")
+        return self._notif_flash(msg, err=not ok)
+
+    # ── utilidades comunes ─────────────────────────────────────────────────
+    def _notif_flash(self, message, err=False):
+        url = "/notificaciones?" + urllib.parse.urlencode(
+            {"err" if err else "ok": message})
+        return self._redirect(url)
+
+    def _notif_log(self, user, accion):
+        db.log_activity(user["email"], "Panel Workers", accion)
 
     def _config_action(self, user, name, action, form):
         """

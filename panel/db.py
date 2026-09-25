@@ -264,3 +264,246 @@ def set_config_values(valores):
             conn.close()
     except Exception as exc:
         return False, str(exc)
+
+
+# ─── Notificaciones (Fase C) ─────────────────────────────────────────────────
+# Telegram → HUB_Telegram* · Push → HUB_PushConfig/HUB_PushSubscriptions ·
+# Correo → HUB_EmailConfig · IA → HUB_AIConfig. Mismas tablas y mismos
+# criterios de actualización que eccsa_db.py del HUB.
+
+# ── Telegram ─────────────────────────────────────────────────────────────────
+def get_telegram_eventos():
+    """Eventos de alerta con su plantilla (mismo SELECT que el HUB)."""
+    try:
+        return _rows("SELECT IdEvento, Nombre, PlantillaMensaje, AdjuntarArchivo, "
+                     "Activo FROM HUB_TelegramEventos ORDER BY Nombre ASC")
+    except Exception:
+        return []
+
+
+def update_telegram_evento(id_evento, plantilla, adjuntar_archivo, activo):
+    """Actualiza plantilla/adjunto/estado de un evento. Devuelve (ok, err)."""
+    try:
+        n = _execute(
+            "UPDATE HUB_TelegramEventos SET PlantillaMensaje = %s, "
+            "AdjuntarArchivo = %s, Activo = %s WHERE IdEvento = %s",
+            (str(plantilla or "").strip()[:1000], int(bool(adjuntar_archivo)),
+             int(bool(activo)), str(id_evento or "").strip()))
+        if n == 0:
+            return False, f"evento '{id_evento}' no existe"
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def get_telegram_destinatarios(id_evento):
+    """Ids de usuario que reciben un evento."""
+    try:
+        return [r["IdUsuario"] for r in _rows(
+            "SELECT IdUsuario FROM HUB_TelegramDestinatarios WHERE IdEvento = %s",
+            (str(id_evento or "").strip(),))]
+    except Exception:
+        return []
+
+
+def set_telegram_destinatarios(id_evento, lista_ids):
+    """Reemplaza la lista completa de destinatarios de un evento."""
+    id_evento = str(id_evento or "").strip()
+    ids = [int(i) for i in dict.fromkeys(lista_ids or [])]
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM HUB_TelegramDestinatarios "
+                            "WHERE IdEvento = %s", (id_evento,))
+                for uid in ids:
+                    cur.execute("INSERT INTO HUB_TelegramDestinatarios "
+                                "(IdEvento, IdUsuario) VALUES (%s, %s)",
+                                (id_evento, uid))
+            conn.commit()
+            return True, ""
+        finally:
+            conn.close()
+    except Exception as exc:
+        return False, str(exc)
+
+
+def get_active_users():
+    """Usuarios activos (para los select multiple de destinatarios)."""
+    try:
+        return _rows("SELECT Id, Nombre, Email FROM HUB_Users WHERE Activo = 1 "
+                     "ORDER BY Nombre ASC")
+    except Exception:
+        return []
+
+
+def telegram_metrics():
+    """Contadores en una sola consulta (tarjeta de resumen)."""
+    try:
+        rows = _rows(
+            "SELECT "
+            "(SELECT COUNT(*) FROM HUB_TelegramUsuarios WHERE Activo=1) AS vinculados, "
+            "(SELECT COUNT(*) FROM HUB_TelegramEventos) AS eventos, "
+            "(SELECT COUNT(*) FROM HUB_TelegramDestinatarios) AS destinatarios, "
+            "(SELECT COUNT(*) FROM HUB_TelegramQueue WHERE Estado='PENDIENTE') AS pendientes, "
+            "(SELECT COUNT(*) FROM HUB_TelegramQueue WHERE Estado='FALLADO') AS fallados, "
+            "(SELECT COUNT(*) FROM HUB_TelegramQueue WHERE Estado='ENVIADO') AS enviados")
+        return rows[0] if rows else {}
+    except Exception:
+        return {}
+
+
+# ── Push (Web Push / VAPID) ──────────────────────────────────────────────────
+def get_push_config():
+    """Claves VAPID guardadas (nunca se devuelven completas a la UI)."""
+    try:
+        rows = _rows("SELECT TOP 1 Id, VapidPublicKey, VapidPrivateKey, "
+                     "VapidEmail, UpdatedAt FROM HUB_PushConfig ORDER BY Id ASC")
+        if not rows:
+            return {"public": "", "private": "", "email": "", "updated": None}
+        r = rows[0]
+        return {"public": (r.get("VapidPublicKey") or "").strip(),
+                "private": (r.get("VapidPrivateKey") or "").strip(),
+                "email": (r.get("VapidEmail") or "").strip(),
+                "updated": r.get("UpdatedAt")}
+    except Exception:
+        return {"public": "", "private": "", "email": "", "updated": None}
+
+
+def save_push_config(public, private, email):
+    """Upsert de las claves VAPID (Id=1). Devuelve (ok, err)."""
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "IF EXISTS (SELECT 1 FROM HUB_PushConfig WHERE Id = 1) "
+                    "UPDATE HUB_PushConfig SET VapidPublicKey = %s, "
+                    "VapidPrivateKey = %s, VapidEmail = %s, UpdatedAt = GETDATE() "
+                    "WHERE Id = 1 "
+                    "ELSE INSERT HUB_PushConfig (Id, VapidPublicKey, VapidPrivateKey, "
+                    "VapidEmail, UpdatedAt) VALUES (1, %s, %s, %s, GETDATE())",
+                    (str(public or "").strip()[:512], str(private or "").strip()[:512],
+                     str(email or "").strip()[:512],
+                     str(public or "").strip()[:512], str(private or "").strip()[:512],
+                     str(email or "").strip()[:512]))
+            conn.commit()
+            return True, ""
+        finally:
+            conn.close()
+    except Exception as exc:
+        return False, str(exc)
+
+
+def get_push_subscriptions():
+    """Suscripciones activas (endpoint/p256dh/auth) para enviar una prueba."""
+    try:
+        return _rows("SELECT Endpoint, P256dhKey, AuthKey, UserEmail "
+                     "FROM HUB_PushSubscriptions")
+    except Exception:
+        return []
+
+
+def remove_push_subscription(endpoint):
+    """Borra una suscripción caducada (410/404) como hace el HUB."""
+    try:
+        return _execute("DELETE FROM HUB_PushSubscriptions WHERE Endpoint = %s",
+                        (str(endpoint or "")[:2000],))
+    except Exception:
+        return 0
+
+
+# ── Correo SMTP ──────────────────────────────────────────────────────────────
+def get_email_config():
+    """Config SMTP (misma lectura que eccsa_db.get_email_config)."""
+    try:
+        rows = _rows("SELECT TOP 1 SmtpServer, Port, Username, Password, UseSSL, "
+                     "UseTLS, RequireAuth FROM HUB_EmailConfig ORDER BY Id ASC")
+        if not rows:
+            return {"smtp_server": "", "port": 465, "username": "", "password": "",
+                    "use_ssl": True, "use_tls": False, "require_auth": True}
+        r = rows[0]
+        return {"smtp_server": (r.get("SmtpServer") or "").strip(),
+                "port": int(r.get("Port") or 465),
+                "username": (r.get("Username") or "").strip(),
+                "password": (r.get("Password") or "").strip(),
+                "use_ssl": bool(r.get("UseSSL")),
+                "use_tls": bool(r.get("UseTLS")),
+                "require_auth": bool(r.get("RequireAuth"))}
+    except Exception:
+        return {"smtp_server": "", "port": 465, "username": "", "password": "",
+                "use_ssl": True, "use_tls": False, "require_auth": True}
+
+
+def save_email_config(smtp_server, port, username, password, use_ssl, use_tls,
+                      require_auth):
+    """UPDATE con INSERT si no existe la fila (Id=1). Devuelve (ok, err)."""
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE HUB_EmailConfig SET SmtpServer = %s, Port = %s, "
+                    "Username = %s, Password = %s, UseSSL = %s, UseTLS = %s, "
+                    "RequireAuth = %s",
+                    (str(smtp_server or "").strip()[:255], int(port),
+                     str(username or "").strip()[:255], str(password or "").strip()[:255],
+                     int(bool(use_ssl)), int(bool(use_tls)), int(bool(require_auth))))
+                if int(cur.rowcount or 0) == 0:
+                    cur.execute(
+                        "IF NOT EXISTS (SELECT 1 FROM HUB_EmailConfig) "
+                        "INSERT HUB_EmailConfig (SmtpServer, Port, Username, Password, "
+                        "UseSSL, UseTLS, RequireAuth) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (str(smtp_server or "").strip()[:255], int(port),
+                         str(username or "").strip()[:255], str(password or "").strip()[:255],
+                         int(bool(use_ssl)), int(bool(use_tls)), int(bool(require_auth))))
+            conn.commit()
+            return True, ""
+        finally:
+            conn.close()
+    except Exception as exc:
+        return False, str(exc)
+
+
+# ── IA (Gemini) ──────────────────────────────────────────────────────────────
+def get_ai_config():
+    """Provider/ApiKey/Model (mismos defaults que eccsa_db.get_ai_config)."""
+    try:
+        rows = _rows("SELECT TOP 1 Provider, ApiKey, Model FROM HUB_AIConfig "
+                     "ORDER BY Id ASC")
+        if not rows:
+            return {"provider": "google_gemini", "api_key": "",
+                    "model": "gemini-2.0-flash"}
+        r = rows[0]
+        return {"provider": (r.get("Provider") or "google_gemini").strip(),
+                "api_key": (r.get("ApiKey") or "").strip(),
+                "model": (r.get("Model") or "gemini-2.0-flash").strip()}
+    except Exception:
+        return {"provider": "google_gemini", "api_key": "",
+                "model": "gemini-2.0-flash"}
+
+
+def save_ai_config(provider, api_key, model):
+    """Upsert Id=1 (mismo patrón que eccsa_db.update_ai_config)."""
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "IF EXISTS (SELECT 1 FROM HUB_AIConfig WHERE Id = 1) "
+                    "UPDATE HUB_AIConfig SET Provider = %s, ApiKey = %s, "
+                    "Model = %s, UpdatedAt = GETDATE() WHERE Id = 1 "
+                    "ELSE INSERT HUB_AIConfig (Id, Provider, ApiKey, Model, UpdatedAt) "
+                    "VALUES (1, %s, %s, %s, GETDATE())",
+                    (str(provider or "google_gemini").strip()[:100],
+                     str(api_key or "").strip()[:500],
+                     str(model or "").strip()[:200],
+                     str(provider or "google_gemini").strip()[:100],
+                     str(api_key or "").strip()[:500],
+                     str(model or "").strip()[:200]))
+            conn.commit()
+            return True, ""
+        finally:
+            conn.close()
+    except Exception as exc:
+        return False, str(exc)

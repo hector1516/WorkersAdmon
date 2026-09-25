@@ -113,6 +113,10 @@ background:var(--orange);color:#0F172A;font-weight:700;font-size:1rem;cursor:poi
 select{width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--line);
 background:#0B1220;color:var(--txt);font-size:.95rem;font-family:inherit}
 select:focus{outline:none;border-color:var(--orange)}
+textarea{width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--line);
+background:#0B1220;color:var(--txt);font-size:.95rem;font-family:inherit;
+resize:vertical;line-height:1.45}
+textarea:focus{outline:none;border-color:var(--orange)}
 .cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
 gap:16px;padding:18px}
 .cfg-field label{margin-top:0}
@@ -122,6 +126,15 @@ padding:11px 13px;color:#CBD5E1;word-break:break-word;font-size:.9rem;min-height
 .cfg-save{padding:0 18px 18px;display:flex;gap:8px;align-items:center}
 .cfg-note{padding:12px 18px;border-top:1px solid var(--line);color:var(--muted);
 font-size:.78rem;background:var(--panel2)}
+.card-desc{padding:14px 18px 2px;color:var(--muted);font-size:.86rem;line-height:1.55}
+.wdesc{margin-top:7px;font-size:.78rem}
+.wdesc summary{cursor:pointer;color:var(--muted);font-weight:600;list-style:none}
+.wdesc summary::-webkit-details-marker{display:none}
+.wdesc summary:hover{color:var(--yellow)}
+.wdesc[open] summary{color:var(--orange)}
+.wdesc div{margin-top:6px;padding:9px 11px;background:#0B1220;
+border:1px solid var(--line);border-left:2px solid var(--orange);
+border-radius:8px;line-height:1.55;color:#CBD5E1}
 @media(max-width:820px){.hide-sm{display:none}table{font-size:.82rem}
 .wrap{padding:16px 12px 50px}}
 """

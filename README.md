@@ -85,7 +85,7 @@ configuración y notificaciones de todo el ecosistema.
 |---|---|---|
 | 🔧 **Workers** | ✅ Fase A | Estado + **Activar / Deshabilitar / Reiniciar** + ver **logs** |
 | ⚙️ **Configuración** | ✅ Fase B | **Config editable de cada worker** (entorno + `HUB_Config` + constantes) |
-| 🔔 Notificaciones | 🚧 Fase C | Telegram, Push, SMTP e IA con botón de prueba |
+| 🔔 **Notificaciones** | ✅ Fase C | **Telegram, Push, SMTP e IA** con pruebas de envío y permisos por bloque |
 | ⚙️ Apps | 🚧 Fase D | Catálogo de claves de config por app (HUB, admon, Field, futuras) |
 
 ### Pestaña Workers
@@ -102,6 +102,26 @@ Tema oscuro ECCSA, se recarga sola cada 15 s, y muestra por programa:
   inmutable desde su propia interfaz.
 * **Logs** — últimas 300 líneas de `/var/log/supervisor/<nombre>.log`
 * **⚙️ Config** — acceso directo a la pestaña de configuración de ese worker
+* **ℹ️ Qué hace** — párrafo plegado con el trabajo real del worker (mismo texto
+  que se muestra completo en su tarjeta de Configuración; fuente: los
+  docstrings de cada script en este repo). El texto vive en
+  `panel/workers.py` → `CATALOGO[nombre]["descripcion"]`.
+
+### Qué hace cada worker
+
+| Worker | Qué hace |
+|---|---|
+| `status_web` | Este panel: HTTP con el módulo estándar de Python (8080 interno → 8200 host). Login con cuenta del HUB, tabla de estado, logs y configuración; solo toca SQL para login, sesión, bitácora y `HUB_Config`. |
+| `tipo_cambio_worker` | Cada mañana consulta el dólar FIX de Banxico (SF51158) con fallback a `open.er-api.com` y guarda `HUB_Config.tipo_cambio_usd`, que leen Cotizaciones, Órdenes de Compra y el Dashboard. |
+| `bing_worker` | Descarga los wallpapers de Bing y rota los últimos N en `HUB_BingWallpapers`; la app solo lee el activo con `bing_wallpaper.get_active_background()`. |
+| `oxxogas_contactos_worker` | Con Playwright refresca el caché de empresas/contactos de Go Vale usado como catálogo al registrar vales (credenciales `govale_*`, imagen con Playwright). |
+| `network_scanner_worker` | Procesa los ARP scan de la subred, detecta entradas/salidas con N escaneos consecutivos, filtra MACs multicast, marca IPs ZeroTier, limpia escaneos de más de 7 días y alerta por Telegram. |
+| `telegram_worker` | Consume `HUB_TelegramQueue` cada 20 s: atiende `/start`, envía texto o adjunto, reintenta máximo 3 veces y limpia historial de más de 30 días. |
+| `pdf_storage_worker` | A las 3:00 AM regenera los PDFs del día anterior de los 5 módulos (Materiales, CSP, Reportes, OC, Remisiones) y los sube al Fileserver con `smbclient`; fecha en `HUB_Config.pdf_worker_last_run`. |
+| `oxxogas_worker` | Cada hora revisa la IMAP de cada usuario con `AccesoValesOxxoGas` y sincroniza los correos de vales (búsqueda `SINCE` + `Message-ID`); última sync en `HUB_GmailTokens.LastSyncTime`. |
+| `vales_worker` | Cada 5 min busca vales `APROBADO` sin `CodigoQR` (p. ej. los aprobados desde Field) y los genera en Go Vale con Playwright, guardando el QR. |
+| `govale_vouchers_worker` | Cada 5 min hace login en Go Vale, extrae los vales nuevos desde el último sync, genera su imagen QR (`qrcode`) y los vincula con las solicitudes pendientes del HUB. |
+| `mcp_server` | Servidor MCP en el 8000 del host: `run_command` / `write_file` / `read_file`, reto de passkeys (JWT) y push VAPID; lo consumen Field y las integraciones (`http://ServerVM:8000/message`). |
 
 ### Pestaña Configuración
 
@@ -126,6 +146,25 @@ Acciones: `GET /configuracion`, `POST /configuracion/<worker>` y
 
 JSON completo en `/api/status` (mismos datos, sin secretos, para monitoreo).
 
+### Pestaña Notificaciones
+
+Cuatro bloques, cada uno con **su permiso del HUB** y su botón de prueba:
+
+| Bloque | Permiso | Qué administra | Prueba |
+|---|---|---|---|
+| 🔔 **Telegram** | `AccesoTelegram` | Token (`HUB_Config.telegram_bot_token`), plantillas de los eventos (`HUB_TelegramEventos`) y destinatarios por evento (`HUB_TelegramDestinatarios`) | `getMe` de la API |
+| 🔔 **Push** | `AccesoConfiguracion` | Claves VAPID (`HUB_PushConfig`) + nº de suscriptores | envía un push a todas las suscripciones (borra las caducadas 404/410) |
+| 📧 **Correo SMTP** | `AccesoConfigurarCorreo` | Servidor, puerto, usuario, contraseña y flags SSL/TLS/auth (`HUB_EmailConfig`) | envía un correo de prueba a la dirección que indiques |
+| 🤖 **IA** | `AccesoConfigAI` | Provider, API key y modelo (`HUB_AIConfig`) | lista los modelos de Gemini (1 sola llamada) |
+
+Reglas: los **secretos jamás se pintan en el HTML** ni en la bitácora (blanco =
+*no cambiar*), los eventos/destinatarios se escriben en **las mismas tablas que
+el HUB** (aplican al próximo disparo, sin reiniciar) y las sondas de red viven
+en **`panel/probes.py`** (Telegram en `panel/workers.test_telegram_bot`).
+
+Acciones: `GET /notificaciones`, `POST /notificaciones/<bloque>` (guardar) y
+`POST /notificaciones/<bloque>/{probar|evento|destinatarios}`.
+
 ### Endpoints
 
 | Método | Ruta | Auth | Descripción |
@@ -140,7 +179,12 @@ JSON completo en `/api/status` (mismos datos, sin secretos, para monitoreo).
 | POST | `/configuracion/<worker>/probar` | sesión + CSRF | prueba (token Telegram) |
 | GET | `/workers/<n>/logs` | sesión | logs de un programa |
 | POST | `/workers/<n>/enable\|disable\|restart` | sesión + CSRF | acción + redirect |
-| GET | `/notificaciones`, `/apps` | sesión | marcador de fase |
+| GET | `/notificaciones` | sesión | pestaña Notificaciones |
+| POST | `/notificaciones/<bloque>` | sesión + CSRF | guardar bloque (`telegram\|push\|correo\|ia`) |
+| POST | `/notificaciones/<bloque>/probar` | sesión + CSRF | sonda de red (token, push, correo, IA) |
+| POST | `/notificaciones/telegram/evento` | sesión + CSRF | plantilla/adjunto/activo de un evento |
+| POST | `/notificaciones/telegram/destinatarios` | sesión + CSRF | destinatarios de un evento (multiselect) |
+| GET | `/apps` | sesión | marcador de fase (Fase D) |
 
 ---
 
@@ -208,17 +252,18 @@ WorkersAdmon/
 │   ├── conf.d.available/*.conf   # ←10 programas en standby (9 workers + mcp_server)
 │   └── bin/{enable_worker,disable_worker,workers_list}
 ├── status_server.py              # punto de entrada → panel/server.py
-├── panel/                        # ← paquete del panel de control (Fase A+B)
+├── panel/                        # ← paquete del panel de control (Fase A+B+C)
 │   ├── config.py                 # rutas, cookies, permisos, pestañas
 │   ├── spec.py                   # catálogo de config por worker (Fase B)
 │   ├── envconf.py                # overrides de entorno + /data/worker_env.json
-│   ├── db.py                     # HUB_Users / HUB_Sessions / bitácora (pymssql)
+│   ├── db.py                     # BD: usuarios/sesiones/bitácora + config + notificaciones
 │   ├── auth.py                   # sesión, CSRF, límite de intentos
-│   ├── workers.py                # estado + enable/disable/restart + logs
+│   ├── workers.py                # estado + enable/disable/restart + logs + CATALOGO
+│   ├── probes.py                 # sondas SMTP / IA / push (Fase C)
 │   ├── templates.py              # HTML tema oscuro + login
 │   ├── server.py                 # routing HTTP
-│   └── views/                    # pestaña Workers + Configuración (+ futuro C/D)
-├── tests/test_panel.py           # smoke test sin DB ni supervisord reales
+│   └── views/                    # workers.py · config.py · notifications.py
+├── tests/test_panel.py           # 33 pruebas, sin BD ni supervisord reales
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
 ├── cron_*.py, network_scanner.py # workers (código en standby)
@@ -260,8 +305,8 @@ Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
 ## 9. Pruebas
 
 ```bash
-# smoke test del panel (no necesita SQL Server ni supervisord reales):
-# usa un doble en memoria para la BD y un supervisorctl falso en un sandbox.
+# smoke test del panel (33 pruebas; no necesita SQL Server ni supervisord
+# reales): doble en memoria para la BD + supervisorctl falso en un sandbox.
 python tests/test_panel.py
 ```
 

@@ -115,26 +115,34 @@ USERS = {
                             "permiso": True},
     "sinpermiso@ecc-sa.com.mx": {"password": "s3cret", "nombre": "Sin Permiso",
                                  "permiso": False},
+    # Solo Telegram: no debe poder tocar Correo ni IA
+    "solo_telegram@ecc-sa.com.mx": {"password": "s3cret", "nombre": "Solo Telegram",
+                                    "permiso": True,
+                                    "solo": {"AccesoConfiguracion", "AccesoTelegram"}},
 }
 _SESSIONS = {}     # token -> email
 _ACTIVITY = []
 _TOKENS = {"n": 0}
 
 
-def _fake_user(email, permiso, nombre):
+def _fake_user(email, permiso, nombre, solo=None):
+    todos = {config.PANEL_PERMISSION: permiso,
+             "AccesoTelegram": permiso, "AccesoAppConfig": permiso,
+             "AccesoConfigurarCorreo": permiso, "AccesoConfigAI": permiso,
+             "AccesoUsuarios": permiso, "AccesoVM": False,
+             "AccesoEdicionBD": False}
+    if solo is not None:
+        todos = {k: (k in solo) for k in todos}
     return {"id": 1, "email": email, "nombre": nombre, "nickname": "",
-            "perms": {config.PANEL_PERMISSION: permiso,
-                      "AccesoTelegram": permiso, "AccesoAppConfig": permiso,
-                      "AccesoConfigurarCorreo": permiso, "AccesoConfigAI": permiso,
-                      "AccesoUsuarios": permiso, "AccesoVM": False,
-                      "AccesoEdicionBD": False}}
+            "perms": todos}
 
 
 def fake_authenticate(email, password):
     rec = USERS.get((email or "").strip().lower())
     if not rec or rec["password"] != password:
         return None
-    return _fake_user((email or "").strip().lower(), rec["permiso"], rec["nombre"])
+    return _fake_user((email or "").strip().lower(), rec["permiso"], rec["nombre"],
+                      rec.get("solo"))
 
 
 def fake_create_token(email):
@@ -151,7 +159,7 @@ def fake_validate(token):
     rec = USERS.get(email)
     if not rec:
         return None
-    return _fake_user(email, rec["permiso"], rec["nombre"])
+    return _fake_user(email, rec["permiso"], rec["nombre"], rec.get("solo"))
 
 
 def fake_delete_token(token):
@@ -185,6 +193,95 @@ db.delete_session_token = fake_delete_token
 db.log_activity = fake_activity
 db.get_config_values = fake_get_config_values
 db.set_config_values = fake_set_config_values
+
+# ── Doble de notificaciones (HUB_Telegram* / HUB_Push* / HUB_EmailConfig /
+#    HUB_AIConfig) y sondas de red ───────────────────────────────────────────
+_TG = {
+    "eventos": [{"IdEvento": "KILOMETROS", "Nombre": "Registro de Kilometros",
+                 "PlantillaMensaje": "*{Automovil}* — {Kilometros} km",
+                 "AdjuntarArchivo": 0, "Activo": 1}],
+    "dest": {"KILOMETROS": [1]},
+    "metricas": {"vinculados": 3, "eventos": 1, "destinatarios": 1,
+                 "pendientes": 2, "fallados": 0, "enviados": 40},
+}
+_PUSH = {"public": "BPUB", "private": "BPRIV", "email": "a@b.c",
+         "updated": "2026-01-01", "subs": [{"Endpoint": "https://x", "P256dhKey": "k",
+                                            "AuthKey": "a", "UserEmail": "u@e"}]}
+_EMAIL = {"smtp_server": "smtp.example.com", "port": 465, "username": "robot@x",
+          "password": "old-pass", "use_ssl": True, "use_tls": False,
+          "require_auth": True}
+_AI = {"provider": "google_gemini", "api_key": "AIza-old", "model": "gemini-3.5-flash-lite"}
+_USERS_ACTIVE = [{"Id": 1, "Nombre": "Admin", "Email": "admin@ecc-sa.com.mx"},
+                 {"Id": 3, "Nombre": "Otro", "Email": "otro@ecc-sa.com.mx"}]
+
+db.get_telegram_eventos = lambda: [dict(e) for e in _TG["eventos"]]
+db.get_telegram_destinatarios = lambda eid: list(_TG["dest"].get(eid, []))
+db.get_active_users = lambda: list(_USERS_ACTIVE)
+db.telegram_metrics = lambda: dict(_TG["metricas"])
+
+
+def fake_update_evento(eid, plantilla, adjunto, activo):
+    for e in _TG["eventos"]:
+        if e["IdEvento"] == eid:
+            e["PlantillaMensaje"] = plantilla
+            e["AdjuntarArchivo"] = int(bool(adjunto))
+            e["Activo"] = int(bool(activo))
+            return True, ""
+    return False, "no existe"
+
+
+def fake_set_dest(eid, ids):
+    _TG["dest"][eid] = list(ids)
+    return True, ""
+
+
+db.update_telegram_evento = fake_update_evento
+db.set_telegram_destinatarios = fake_set_dest
+db.get_push_config = lambda: dict(_PUSH)
+
+
+def fake_save_push(pub, priv, mail):
+    _PUSH.update({"public": pub, "private": priv, "email": mail})
+    return True, ""
+
+
+db.save_push_config = fake_save_push
+db.get_push_subscriptions = lambda: list(_PUSH["subs"])
+db.remove_push_subscription = lambda ep: 1
+db.get_email_config = lambda: dict(_EMAIL)
+
+
+def fake_save_email(server, port, username, password, use_ssl, use_tls, require_auth):
+    _EMAIL.update({"smtp_server": server, "port": port, "username": username,
+                   "password": password, "use_ssl": use_ssl, "use_tls": use_tls,
+                   "require_auth": require_auth})
+    return True, ""
+
+
+db.save_email_config = fake_save_email
+db.get_ai_config = lambda: dict(_AI)
+
+
+def fake_save_ai(prov, key, model):
+    _AI.update({"provider": prov, "api_key": key, "model": model})
+    return True, ""
+
+
+db.save_ai_config = fake_save_ai
+
+# Sondas de red: fuera de la red en los tests
+from panel import probes as _probes, workers as _workers  # noqa: E402
+_probes.probe_smtp = lambda cfg, dest: (True, f"Correo enviado a {dest}.")
+_probes.probe_ai = lambda cfg: (True, "3 modelos disponibles.")
+_probes.probe_push = lambda: (True, "Push enviado a 1 suscriptor(es).")
+def fake_test_bot():
+    # Imita al real: sin token en HUB_Config devuelve error con el nombre de la clave
+    if not (_CONFIG.get("telegram_bot_token") or "").strip():
+        return False, "No hay token guardado en HUB_Config (telegram_bot_token)."
+    return True, "Bot @prueba responde correctamente."
+
+
+_workers.test_telegram_bot = fake_test_bot
 
 # ── Servidor en hilo aparte ──────────────────────────────────────────────────
 HTTPD = None
@@ -224,7 +321,7 @@ class Client:
     def _req(self, url, data=None, method=None):
         body = None
         if data is not None:
-            body = urllib.parse.urlencode(data).encode()
+            body = urllib.parse.urlencode(data, doseq=True).encode()
         req = urllib.request.Request(
             url, data=body,
             method=method or ("POST" if data is not None else "GET"))
@@ -370,10 +467,12 @@ class PanelTest(unittest.TestCase):
 
     def test_12_pestanas_futuras(self):
         c = self._logged()
-        for path, marca in (("/notificaciones", "Fase C"), ("/apps", "Fase D")):
-            code, _, html = c.get(path)
-            self.assertEqual(code, 200)
-            self.assertIn(marca, html)
+        code, _, html = c.get("/apps")
+        self.assertEqual(code, 200)
+        self.assertIn("Fase D", html)        # Apps aún pendiente
+        code, _, html = c.get("/notificaciones")
+        self.assertEqual(code, 200)
+        self.assertNotIn("Fase C", html)     # ya es la pestaña real
 
     def test_13_logout(self):
         c = self._logged()
@@ -506,6 +605,172 @@ class PanelTest(unittest.TestCase):
     def test_24_worker_sin_spec_es_404(self):
         c = self._logged()
         code, _, _ = c.post("/configuracion/demo_off", csrf=c.csrf(), x="1")
+        self.assertEqual(code, 404)
+
+
+    # ── descripción de cada worker ──────────────────────────────────────────
+    def test_25_descripcion_de_cada_worker(self):
+        c = self._logged()
+        # pestaña Workers: párrafo plegado "ℹ️ Qué hace"
+        code, _, html = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn("Qué hace", html)
+        self.assertIn("Descarga los wallpapers de Bing", html)
+        self.assertIn("ℹ️ Qué hace", html)
+        # pestaña Configuración: el mismo texto en la tarjeta
+        code, _, html = c.get("/configuracion")
+        self.assertEqual(code, 200)
+        self.assertIn("regenera los PDFs del día anterior", html)
+        # /api/status la expone para monitoreo
+        code, _, body = c.get("/api/status")
+        progs = {p["name"]: p for p in json.loads(body)["programs"]}
+        self.assertTrue(progs["bing_worker"]["descripcion"])
+        self.assertTrue(progs["bing_worker"]["desc"])
+        # todo el catálogo queda documentado
+        from panel import workers as W
+        for nombre, meta in W.CATALOGO.items():
+            self.assertTrue(meta.get("descripcion"), f"falta descripción: {nombre}")
+            self.assertTrue(meta.get("desc"), f"falta desc corta: {nombre}")
+
+    # ── pestaña Notificaciones (Fase C) ─────────────────────────────────────
+    def test_26_pagina_notificaciones(self):
+        c = self._logged()
+        code, _, html = c.get("/notificaciones")
+        self.assertEqual(code, 200)
+        for trozo in ("Bot de Telegram", "Push Web", "Correo SMTP", "IA (Gemini)",
+                      "HUB_TelegramEventos", "KILOMETROS", 'name="ids"',
+                      "Usuarios que reciben esta alerta", "Clave privada VAPID"):
+            self.assertIn(trozo, html)
+        self.assertIn('name="csrf"', html)
+
+    def test_27_guardar_token_de_telegram(self):
+        c = self._logged()
+        code, headers, _ = c.post("/notificaciones/telegram", csrf=c.csrf(),
+                                  telegram_bot_token="SECRET-TG-123")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertEqual(_CONFIG.get("telegram_bot_token"), "SECRET-TG-123")
+        _, _, html = c.get("/notificaciones")
+        self.assertNotIn("SECRET-TG-123", html, "el token jamás se pinta en el HTML")
+        self.assertIn("(guardado)", html)
+        acciones = [a[2] for a in _ACTIVITY]
+        self.assertTrue(any("Token de Telegram actualizado" in a for a in acciones))
+        self.assertFalse(any("SECRET-TG-123" in a for a in acciones),
+                         "la bitácora no debe registrar secretos")
+        # en blanco = no cambia
+        c.post("/notificaciones/telegram", csrf=c.csrf(), telegram_bot_token="")
+        self.assertEqual(_CONFIG.get("telegram_bot_token"), "SECRET-TG-123")
+
+    def test_28_prueba_de_token_de_telegram(self):
+        c = self._logged()
+        code, headers, _ = c.post("/notificaciones/telegram/probar", csrf=c.csrf())
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote(headers.get("Location", ""))
+        self.assertIn("ok=", loc, loc)
+        self.assertIn("responde", loc)
+
+    def test_29_evento_y_destinatarios(self):
+        c = self._logged()
+        code, headers, _ = c.post("/notificaciones/telegram/evento", csrf=c.csrf(),
+                                  IdEvento="KILOMETROS",
+                                  PlantillaMensaje="Nuevo {Kilometros} km",
+                                  AdjuntarArchivo="1", Activo="0")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        ev = _TG["eventos"][0]
+        self.assertEqual(ev["PlantillaMensaje"], "Nuevo {Kilometros} km")
+        self.assertEqual((ev["AdjuntarArchivo"], ev["Activo"]), (1, 0))
+        # destinatarios (multiselect)
+        code, headers, _ = c.post("/notificaciones/telegram/destinatarios",
+                                  csrf=c.csrf(), IdEvento="KILOMETROS", ids="3")
+        self.assertEqual(code, 303)
+        self.assertEqual(_TG["dest"]["KILOMETROS"], ["3"])
+        # sin selección → limpia
+        c.post("/notificaciones/telegram/destinatarios", csrf=c.csrf(),
+               IdEvento="KILOMETROS")
+        self.assertEqual(_TG["dest"]["KILOMETROS"], [])
+
+    def test_30_guardar_push_y_correo(self):
+        c = self._logged()
+        code, headers, _ = c.post("/notificaciones/push", csrf=c.csrf(),
+                                  VapidPublicKey="BPUB-2", VapidPrivateKey="",
+                                  VapidEmail="nuevo@ecc-sa.com.mx")
+        self.assertEqual(code, 303)
+        self.assertEqual(_PUSH["public"], "BPUB-2")
+        self.assertEqual(_PUSH["private"], "BPRIV", "clave privada en blanco = no cambiar")
+        # puerto fuera de rango
+        code, headers, _ = c.post("/notificaciones/correo", csrf=c.csrf(),
+                                  smtp_server="smtp.nuevo", port="99999",
+                                  username="u", password="", use_ssl="1",
+                                  use_tls="0", require_auth="1")
+        self.assertEqual(code, 303)
+        self.assertIn("err=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertEqual(_EMAIL["smtp_server"], "smtp.example.com")
+        # guardado válido con contraseña en blanco
+        code, headers, _ = c.post("/notificaciones/correo", csrf=c.csrf(),
+                                  smtp_server="smtp.nuevo", port="587",
+                                  username="robot", password="", use_ssl="0",
+                                  use_tls="1", require_auth="1")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertEqual(_EMAIL["smtp_server"], "smtp.nuevo")
+        self.assertEqual(_EMAIL["port"], 587)
+        self.assertEqual(_EMAIL["password"], "old-pass", "conserva la contraseña")
+        acciones = [a[2] for a in _ACTIVITY]
+        self.assertFalse(any("old-pass" in a for a in acciones))
+
+    def test_31_guardar_ia_y_pruebas_de_sonda(self):
+        c = self._logged()
+        code, headers, _ = c.post("/notificaciones/ia", csrf=c.csrf(),
+                                  provider="google_gemini", api_key="",
+                                  model="gemini-3.5-flash-lite")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertEqual(_AI["api_key"], "AIza-old", "key en blanco = no cambiar")
+        self.assertEqual(_AI["model"], "gemini-3.5-flash-lite")
+        # las tres sondas (falsas) responden OK
+        for bloque in ("ia", "correo"):
+            data = {"csrf": c.csrf()}
+            if bloque == "correo":
+                data["destino"] = "prueba@ecc-sa.com.mx"
+            code, headers, _ = c.post(f"/notificaciones/{bloque}/probar", **data)
+            self.assertEqual(code, 303, bloque)
+            self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        code, headers, _ = c.post("/notificaciones/push/probar", csrf=c.csrf())
+        self.assertEqual(code, 303)
+        self.assertIn("suscriptor", urllib.parse.unquote(headers.get("Location", "")))
+        code, headers, _ = c.post("/notificaciones/correo/probar", csrf=c.csrf(),
+                                  destino="prueba@ecc-sa.com.mx")
+        self.assertIn("prueba@ecc-sa.com.mx",
+                      urllib.parse.unquote(headers.get("Location", "")),
+                      "el destino debe volver en la URL (se recarga la página)")
+        self.assertIn("para=", headers.get("Location", ""))
+
+    def test_32_bloques_según_permiso(self):
+        c = Client()
+        c.login("solo_telegram@ecc-sa.com.mx", "s3cret")
+        code, _, html = c.get("/notificaciones")
+        self.assertEqual(code, 200)
+        self.assertIn("Bot de Telegram", html)
+        self.assertIn("🔒 Requiere el permiso", html)
+        self.assertNotIn('name="smtp_server"', html, "sin permiso no hay formulario")
+        # y el POST correspondiente se rechaza
+        code, _, _ = c.post("/notificaciones/correo", csrf=c.csrf(),
+                            smtp_server="x", port="25")
+        self.assertEqual(code, 403)
+        code, _, _ = c.post("/notificaciones/telegram", csrf=c.csrf(),
+                            telegram_bot_token="OtroToken")
+        self.assertEqual(code, 303, "Telegram sí le está permitido")
+
+    def test_33_notificaciones_requiere_sesion_y_csrf(self):
+        c = Client()
+        code, headers, _ = c.get("/notificaciones")
+        self.assertEqual((code, headers.get("Location")), (303, "/login"))
+        c = self._logged()
+        code, _, _ = c.post("/notificaciones/telegram", csrf="",
+                            telegram_bot_token="X")
+        self.assertEqual(code, 403)
+        code, _, _ = c.post("/notificaciones/no_existe", csrf=c.csrf())
         self.assertEqual(code, 404)
 
 

@@ -123,6 +123,10 @@ def _card(name, estado, fields, env_vals, cfg_vals):
     logs = (f'<a class="btn log" href="/workers/{esc(name)}/logs">📄 Logs</a>'
             if workers.log_path(name) else "")
 
+    # Qué hace el worker (misimo texto que la pestaña Workers)
+    desc = workers.CATALOGO.get(name, {}).get("descripcion", "")
+    desc_html = (f'<div class="card-desc">{esc(desc)}</div>' if desc else "")
+
     hint = ""
     env_fields = [f for f in fields if f["origen"] == "env"]
     if env_fields:
@@ -151,6 +155,7 @@ def _card(name, estado, fields, env_vals, cfg_vals):
     <h2><code>{esc(name)}</code>
       <span class="tag {cls}">{esc(label)}</span>
       <span style="float:right">{logs}</span></h2>
+    {desc_html}
     {inner}
     {test_form}
     {hint}

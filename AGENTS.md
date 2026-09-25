@@ -50,9 +50,9 @@ Reglas del panel:
 - **Sin dependencias**: solo stdlib + `pymssql`. HTML generado en Python,
   formularios POST + Post/Redirect/Get (sin JS obligatorio).
 - **Fuente de verdad de la config**: reusar las tablas existentes
-  (`HUB_Config`, `HUB_EmailConfig`, `HUB_AiConfig`, `HUB_PushConfig`,
-  `HUB_Telegram*`); agregar metadatos solo con la migración nueva (fase C).
-  **No duplicar valores** en archivos del contenedor.
+  (`HUB_Config`, `HUB_EmailConfig`, `HUB_AIConfig`, `HUB_PushConfig`,
+  `HUB_Telegram*`); **no duplicar valores** en archivos del contenedor y no
+  crear tablas nuevas hasta la migración de la Fase D.
 - Lee 4 fuentes de estado: `supervisorctl status`, `/data/workers_enabled.txt`,
   `docker/conf.d.available/` y `/data/heartbeats/*.json`.
 - `/api/status` debe seguir devolviendo el mismo JSON (contrato de monitoreo).
@@ -64,6 +64,13 @@ Reglas del panel:
   - `HUB_Config` se escribe con el mismo `MERGE` del HUB y `Valor` admite 500 chars.
   - Los overrides de entorno viven en `/data/worker_env.json` y el entrypoint los
     reaplica antes de arrancar supervisord (`python3 -m panel.envconf --apply`).
+- Descripción de cada worker: párrafo en **`panel/workers.py` →
+  `CATALOGO[nombre]["descripcion"]`** (se muestra plegado con «ℹ️ Qué hace» en
+  la tabla y completo en su tarjeta de Configuración). Mantenerla sincronizada
+  con el docstring del script.
+- Notificaciones (Fase C): bloque propio en `panel/views/notifications.py` +
+  rutas `POST /notificaciones/<bloque>`; sondas en `panel/probes.py`. Mismas
+  tablas que el HUB, secretos nunca pintados, permiso por bloque.
 - Tests: `python tests/test_panel.py` (doble de BD + supervisorctl falso; no
   requiere BD ni supervisord).
 
@@ -94,7 +101,6 @@ Reglas del panel:
 
 ## Pendientes
 
-- **Fase C** del panel: pestaña Notificaciones.
 - **Fase D** del panel: pestaña Apps + migración `0036_config_catalogo.sql`
   (usar el runner de HUB, `apply_migrations.py`, con guard de DB de pruebas).
 - **Fase D**: hostname `workers.ecc-sa.com.mx` en el dashboard de Cloudflare.

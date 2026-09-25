@@ -74,6 +74,10 @@ def render(status, user, flash_ok="", flash_err="", csrf=""):
         if e.get("desc"):
             desc_html = ('<div class="muted" style="font-weight:400;font-size:.82rem">'
                          + esc(e["desc"]) + "</div>")
+        # Párrafo "qué hace" (plegado; sin JS, con <details> del navegador)
+        if e.get("descripcion"):
+            desc_html += (f'<details class="wdesc"><summary>ℹ️ Qué hace</summary>'
+                          f'<div>{esc(e["descripcion"])}</div></details>')
         meta_html = " ".join(meta_bits)
         logs = (f'<a class="btn log" href="/workers/{esc(e["name"])}/logs">📄 Logs</a>'
                 if e.get("log_ok") else "")
