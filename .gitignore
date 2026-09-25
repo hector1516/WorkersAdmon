@@ -19,3 +19,6 @@ workers_data/
 .idea/
 .DS_Store
 Thumbs.db
+
+# env-file temporal del despliegue (credenciales)
+env.workersadmon

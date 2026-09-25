@@ -26,28 +26,26 @@ volúmenes.
 ## 2. Construir y levantar (ServerVM)
 
 ```bat
-:: 1) clonar
-git clone https://github.com/hector1516/WorkersAdmon.git C:\WorkersAdmon
-cd C:\WorkersAdmon
+:: 1) subir el código (en este sandbox: tar + scp; en tu equipo: git clone)
+tar -czf WorkersAdmon.tar.gz -C WorkersAdmon .
+scp WorkersAdmon.tar.gz eccsa@10.188.141.31:C:/WorkersAdmon.tar.gz
+ssh eccsa@10.188.141.31 "if not exist C:\WorkersAdmon mkdir C:\WorkersAdmon & tar -xzf C:\WorkersAdmon.tar.gz -C C:\WorkersAdmon"
 
-:: 2) red dedicada (una sola vez)
-docker network create workersadmon_net
+:: 2) build DESACOPLADO (Windows mata los procesos al cerrar el SSH, por eso
+::    se lanza con el Programador de Tareas y se vigila el log)
+ssh eccsa@10.188.141.31 "schtasks /create /tn WorkersBuild /tr C:\WorkersAdmon\deploy\build.bat /sc once /st 23:59 /f & schtasks /run /tn WorkersBuild"
+::   → esperar hasta que C:\WorkersAdmon\build.log diga "FIN rc=0"
+::   (build con WITH_PLAYWRIGHT=1 solo cuando actives el primer worker de navegador:
+::    docker build --build-arg WITH_PLAYWRIGHT=1 -t workersadmon .)
 
-:: 3) build  (WITH_PLAYWRIGHT=1 solo cuando actives el primer worker de navegador)
-docker build -t workersadmon .
-
-:: 4) levantar  — SIN ningún worker, solo la página de estado
-docker run -d --name workersadmon --restart unless-stopped --network workersadmon_net ^
-  -p 8200:8080 ^
-  -v workersadmon_data:/data ^
-  -e TZ=America/Mexico_City ^
-  -e HUB_DB_SERVER=10.188.141.15 ^
-  -e HUB_DB_USER=sa ^
-  -e HUB_DB_PASSWORD=******** ^
-  -e HUB_DB_DATABASE=ECCSA_Admon ^
-  -e HUB_SMTP_PASSWORD=******** ^
-  workersadmon
+:: 3) red dedicada (una sola vez) + levantar el contenedor
+ssh eccsa@10.188.141.31 "powershell -ExecutionPolicy Bypass -File C:\WorkersAdmon\deploy\run_container.ps1"
 ```
+
+`deploy/run_container.ps1` toma las credenciales de **`hub_python`**
+(`/app/secretos_local.py`), las pasa en un `--env-file` temporal que **borra al
+terminar**, crea la red `workersadmon_net` si no existe y levanta el contenedor
+con `--restart unless-stopped` (0 workers activos: solo el panel).
 
 | Elemento | Valor |
 |---|---|
