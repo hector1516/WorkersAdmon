@@ -1,0 +1,19 @@
+#!/bin/sh
+# workers_list — resumen rápido: habilitados (lista persistente) + estado real.
+LIST="/data/workers_enabled.txt"
+AVAILABLE="/app/docker/conf.d.available"
+
+echo "=== Habilitados (lista persistente /data/workers_enabled.txt) ==="
+if [ -s "$LIST" ]; then sed 's/^/  - /' "$LIST"; else echo "  (ninguno)"; fi
+
+echo ""
+echo "=== Estado en supervisord ==="
+supervisorctl status 2>/dev/null || echo "  (supervisord no responde)"
+
+echo ""
+echo "=== Disponibles (sin habilitar) ==="
+for f in "$AVAILABLE"/*.conf; do
+    [ -e "$f" ] || continue
+    b="$(basename "$f" .conf)"
+    if ! grep -qxF "$b" "$LIST" 2>/dev/null; then printf '  - %s\n' "$b"; fi
+done

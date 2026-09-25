@@ -1,0 +1,21 @@
+.git
+__pycache__
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+venv/
+.env
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# Credenciales locales: el entrypoint las genera en el arranque
+secretos_local.py
+# Documentación que no corre dentro de la imagen
+*.md
+!requirements.txt
+workers_data/

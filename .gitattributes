@@ -1,0 +1,9 @@
+# Forzar LF en scripts shell (evita que el entrypoint falle por CRLF al correr en Linux)
+*.sh text eol=lf
+docker/bin/* text eol=lf
+*.py text eol=lf
+*.conf text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.png binary
+*.ttf binary

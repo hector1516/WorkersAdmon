@@ -1,0 +1,39 @@
+#!/bin/sh
+# enable_worker <nombre>
+# Habilita un worker: lo agrega a la lista persistente /data/workers_enabled.txt,
+# copia su conf a supervisord y lo arranca al instante.
+set -e
+
+NAME="${1:-}"
+AVAILABLE="/app/docker/conf.d.available"
+LIST="/data/workers_enabled.txt"
+
+if [ -z "$NAME" ]; then
+    echo "Uso: enable_worker <nombre>"
+    echo ""
+    echo "Workers disponibles:"
+    for f in "$AVAILABLE"/*.conf; do
+        [ -e "$f" ] || continue
+        b="$(basename "$f" .conf)"
+        printf '  - %s\n' "$b"
+    done
+    exit 1
+fi
+
+if [ ! -f "$AVAILABLE/$NAME.conf" ]; then
+    echo "ERROR: no existe $AVAILABLE/$NAME.conf"
+    echo "Disponibles:"
+    ls "$AVAILABLE" | sed 's/\.conf$//;s/^/  - /'
+    exit 1
+fi
+
+mkdir -p "$(dirname "$LIST")"
+touch "$LIST"
+grep -qxF "$NAME" "$LIST" || echo "$NAME" >> "$LIST"
+
+cp "$AVAILABLE/$NAME.conf" "/etc/supervisor/conf.d/$NAME.conf"
+supervisorctl reread > /dev/null
+supervisorctl update > /dev/null
+
+echo "OK: '$NAME' habilitado (lista: $LIST)"
+supervisorctl status "$NAME" || true

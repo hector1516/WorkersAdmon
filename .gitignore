@@ -1,0 +1,21 @@
+# Credenciales — NUNCA se suben a Git (el entrypoint las genera desde env vars)
+secretos_local.py
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime local (si se corre fuera de Docker)
+workers_data/
+/data/
+*.log
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

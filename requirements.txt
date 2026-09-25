@@ -1,0 +1,17 @@
+# Dependencias de WorkersAdmon.
+# Mismo set que HUB para que los workers migrados se comporten igual.
+streamlit==1.59.2
+pandas
+pymssql
+reportlab
+google-generativeai
+google.ai.generativelanguage
+pywebpush
+openpyxl
+altair
+six
+webauthn==3.0.0
+pyjwt==2.9.0
+qrcode[pil]
+# Playwright solo si el build se hace con --build-arg WITH_PLAYWRIGHT=1
+# (ver README: workers de navegador — Go Vale / OxxoGas)

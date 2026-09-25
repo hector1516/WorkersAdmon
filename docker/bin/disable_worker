@@ -1,0 +1,26 @@
+#!/bin/sh
+# disable_worker <nombre>
+# Detiene un worker, lo quita de supervisord y de la lista persistente.
+set -e
+
+NAME="${1:-}"
+LIST="/data/workers_enabled.txt"
+
+if [ -z "$NAME" ]; then
+    echo "Uso: disable_worker <nombre>"
+    echo "Habilitados ahora:"
+    sed 's/^/  - /' "$LIST" 2>/dev/null || echo "  (ninguno)"
+    exit 1
+fi
+
+supervisorctl stop "$NAME" 2>/dev/null || true
+rm -f "/etc/supervisor/conf.d/$NAME.conf"
+supervisorctl reread > /dev/null
+supervisorctl update > /dev/null
+
+if [ -f "$LIST" ]; then
+    grep -vxF "$NAME" "$LIST" > "$LIST.tmp" 2>/dev/null || true
+    mv "$LIST.tmp" "$LIST"
+fi
+
+echo "OK: '$NAME' deshabilitado y detenido"
