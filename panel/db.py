@@ -205,3 +205,62 @@ def log_activity(usuario, modulo, accion):
         return True
     except Exception:
         return False
+
+
+# ─── Configuración (HUB_Config) ──────────────────────────────────────────────
+# Misma tabla que usa el HUB para parámetros compartidos (tipo_cambio_usd,
+# govale_user, telegram_bot_token, net_*...). Los workers la leen en cada
+# ciclo, por lo que un cambio aplicado desde el panel surte efecto sin
+# reiniciar; los valores NUNCA se registran en la bitácora.
+MAX_CONFIG_VALUE = 500      # HUB_Config.Valor es NVARCHAR(500)
+
+
+def get_config_values(claves):
+    """{clave: valor} de HUB_Config para la lista de claves pedida."""
+    claves = [c for c in dict.fromkeys(claves) if c]
+    if not claves:
+        return {}
+    ph = ", ".join(["%s"] * len(claves))
+    try:
+        rows = _rows(f"SELECT Clave, Valor FROM HUB_Config WHERE Clave IN ({ph})",
+                     tuple(claves))
+        return {r["Clave"]: (r["Valor"] or "") for r in rows}
+    except Exception:
+        return {}
+
+
+def set_config_values(valores):
+    """
+    Upsert en HUB_Config (patrón idéntico a save_network_config del HUB).
+    `valores` = {clave: valor}. Devuelve (ok, mensaje_de_error).
+    """
+    if not valores:
+        return True, ""
+    for clave, valor in valores.items():
+        if not clave or len(str(clave)) > 50:
+            return False, f"clave inválida: {clave!r}"
+        if valor is None:
+            valor = ""
+        if len(str(valor)) > MAX_CONFIG_VALUE:
+            return False, (f"'{clave}': valor demasiado largo "
+                           f"({len(str(valor))} > {MAX_CONFIG_VALUE} caracteres)")
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                for clave, valor in valores.items():
+                    cur.execute("""
+                        MERGE HUB_Config AS target
+                        USING (SELECT %s AS Clave) AS source
+                        ON target.Clave = source.Clave
+                        WHEN MATCHED THEN
+                            UPDATE SET Valor = %s, Actualizado = GETDATE()
+                        WHEN NOT MATCHED THEN
+                            INSERT (Clave, Valor) VALUES (%s, %s);
+                    """, (clave, str(valor), clave, str(valor)))
+            conn.commit()
+            return True, ""
+        finally:
+            conn.close()
+    except Exception as exc:
+        return False, str(exc)

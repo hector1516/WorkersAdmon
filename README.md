@@ -84,8 +84,9 @@ configuración y notificaciones de todo el ecosistema.
 | Pestaña | Estado | Contenido |
 |---|---|---|
 | 🔧 **Workers** | ✅ Fase A | Estado + **Activar / Deshabilitar / Reiniciar** + ver **logs** |
-| 🔔 Notificaciones | 🚧 Fase B | Telegram, Push, SMTP e IA con botón de prueba |
-| ⚙️ Apps | 🚧 Fase C | Catálogo de claves de config por app (HUB, admon, Field, futuras) |
+| ⚙️ **Configuración** | ✅ Fase B | **Config editable de cada worker** (entorno + `HUB_Config` + constantes) |
+| 🔔 Notificaciones | 🚧 Fase C | Telegram, Push, SMTP e IA con botón de prueba |
+| ⚙️ Apps | 🚧 Fase D | Catálogo de claves de config por app (HUB, admon, Field, futuras) |
 
 ### Pestaña Workers
 
@@ -100,6 +101,28 @@ Tema oscuro ECCSA, se recarga sola cada 15 s, y muestra por programa:
   `disable_worker` / `supervisorctl restart`). `status_web` (el panel) es
   inmutable desde su propia interfaz.
 * **Logs** — últimas 300 líneas de `/var/log/supervisor/<nombre>.log`
+* **⚙️ Config** — acceso directo a la pestaña de configuración de ese worker
+
+### Pestaña Configuración
+
+Un catálogo por worker (`panel/spec.py`) con **todo lo necesario para
+editarlo**, marcando el **origen** de cada valor:
+
+| Etiqueta | Origen | Efecto al guardar |
+|---|---|---|
+| `ENTORNO` | variable de entorno del `.conf` (`CRON_*`, `HUB_JWT_SECRET`) | Se parchea `docker/conf.d.available/<worker>.conf` **y** el conf activo, `supervisorctl reread + update` (reinicia si estaba corriendo) y se persiste en **`/data/worker_env.json`** → el **entrypoint la reaplica en cada arranque** (sobrevive a un rebuild de la imagen) |
+| `HUB_CONFIG` | tabla `HUB_Config` en SQL Server | Upsert (mismo `MERGE` que el HUB); los workers la leen en cada ciclo → **aplica de inmediato, sin reiniciar** |
+| `CÓDIGO` | constante del worker | **Solo lectura**: la fuente de verdad es el repo HUB |
+| `INFO` | nota | Solo lectura |
+
+Reglas de seguridad: los **secretos nunca viajan al navegador** (campo en
+blanco = *no cambiar*), no se registran en la bitácora ni en el mensaje flash
+(solo el nombre del campo), los números validan rango y `HUB_Config.Valor`
+respeta su límite de 500 caracteres. La pestaña está bajo el mismo permiso
+`AccesoConfiguracion`.
+
+Acciones: `GET /configuracion`, `POST /configuracion/<worker>` y
+`POST /configuracion/telegram_worker/probar` (getMe sin exponer el token).
 
 JSON completo en `/api/status` (mismos datos, sin secretos, para monitoreo).
 
@@ -112,6 +135,9 @@ JSON completo en `/api/status` (mismos datos, sin secretos, para monitoreo).
 | GET/POST | `/login` | no | formulario y creación de sesión |
 | POST | `/logout` | sesión | cierra la sesión |
 | GET | `/` | sesión | pestaña Workers |
+| GET | `/configuracion` | sesión | pestaña Configuración |
+| POST | `/configuracion/<worker>` | sesión + CSRF | guarda env + `HUB_Config` |
+| POST | `/configuracion/<worker>/probar` | sesión + CSRF | prueba (token Telegram) |
 | GET | `/workers/<n>/logs` | sesión | logs de un programa |
 | POST | `/workers/<n>/enable\|disable\|restart` | sesión + CSRF | acción + redirect |
 | GET | `/notificaciones`, `/apps` | sesión | marcador de fase |
@@ -182,14 +208,16 @@ WorkersAdmon/
 │   ├── conf.d.available/*.conf   # ←10 programas en standby (9 workers + mcp_server)
 │   └── bin/{enable_worker,disable_worker,workers_list}
 ├── status_server.py              # punto de entrada → panel/server.py
-├── panel/                        # ← paquete del panel de control (Fase A)
+├── panel/                        # ← paquete del panel de control (Fase A+B)
 │   ├── config.py                 # rutas, cookies, permisos, pestañas
+│   ├── spec.py                   # catálogo de config por worker (Fase B)
+│   ├── envconf.py                # overrides de entorno + /data/worker_env.json
 │   ├── db.py                     # HUB_Users / HUB_Sessions / bitácora (pymssql)
 │   ├── auth.py                   # sesión, CSRF, límite de intentos
 │   ├── workers.py                # estado + enable/disable/restart + logs
 │   ├── templates.py              # HTML tema oscuro + login
 │   ├── server.py                 # routing HTTP
-│   └── views/                    # pestaña Workers (+ futuro B/C)
+│   └── views/                    # pestaña Workers + Configuración (+ futuro C/D)
 ├── tests/test_panel.py           # smoke test sin DB ni supervisord reales
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)

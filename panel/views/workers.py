@@ -77,6 +77,8 @@ def render(status, user, flash_ok="", flash_err="", csrf=""):
         meta_html = " ".join(meta_bits)
         logs = (f'<a class="btn log" href="/workers/{esc(e["name"])}/logs">📄 Logs</a>'
                 if e.get("log_ok") else "")
+        cfg = (f'<a class="btn ghost" href="/configuracion#cfg-{esc(e["name"])}" '
+               f'title="Configuración de {esc(e["name"])}">⚙️ Config</a>')
         rows.append(f"""<tr>
   <td class="name">{esc(e['name'])}
     {desc_html}
@@ -86,7 +88,7 @@ def render(status, user, flash_ok="", flash_err="", csrf=""):
   <td>{started}</td>
   <td>{last}</td>
   <td class="actions-cell">{_actions(e)}</td>
-  <td class="hide-sm">{logs or '<span class="muted">—</span>'}</td>
+  <td class="hide-sm">{cfg} {logs}</td>
 </tr>""")
 
     body_rows = "\n".join(rows) if rows else ""

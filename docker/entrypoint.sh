@@ -6,7 +6,8 @@
 #  3. directorio de datos persistente (/data en el volumen)
 #  4. habilita los workers listados en /data/workers_enabled.txt
 #     (la lista vive en el VOLUMEN → sobrevive a recrear el contenedor)
-#  5. arranca supervisord (status_web siempre + los habilitados)
+#  5. reaplica los ajustes de entorno del panel (/data/worker_env.json)
+#  6. arranca supervisord (status_web siempre + los habilitados)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # 1) Resolución del Fileserver para smbclient / mounts
@@ -36,6 +37,13 @@ echo "[entrypoint] secretos_local.py generado"
 # 3) Datos persistentes (volumen workersadmon_data → /data)
 mkdir -p /data/heartbeats
 touch /data/workers_enabled.txt
+
+# 3b) Reaplica los ajustes de entorno guardados desde el panel
+#     (/data/worker_env.json vive en el VOLUMEN: sobrevive a rebuild de imagen)
+if [ -f /data/worker_env.json ]; then
+    (cd /app && python3 -m panel.envconf --apply) \
+        || echo "[entrypoint] AVISO: no se pudo reaplicar worker_env.json"
+fi
 
 # 4) Activar los workers marcados en la lista persistente
 AVAILABLE="/app/docker/conf.d.available"

@@ -11,6 +11,9 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
   GET  /                               → pestaña Workers (requiere sesión + permiso)
   GET  /workers/<nombre>/logs          → logs de un programa
   POST /workers/<nombre>/enable|disable|restart → acción + redirección
+  GET  /configuracion                  → pestaña Configuración (por worker)
+  POST /configuracion/<nombre>         → guarda env + HUB_Config de un worker
+  POST /configuracion/<nombre>/probar  → prueba un token (bot de Telegram)
   GET  /notificaciones | /apps         → marcador de fase (pestañas aún no libres)
 
 Seguridad: cookie `ecsa_token` (HttpOnly), CSRF de doble envío, límite de
@@ -21,8 +24,9 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import auth, config, db, workers
+from . import auth, config, db, envconf, spec, workers
 from .templates import esc, forbidden_page, login_page, page
+from .views import config as config_view
 from .views import workers as workers_view
 
 MAX_BODY = 64 * 1024          # límite del cuerpo de un POST
@@ -30,10 +34,10 @@ LOG_LINES = 300               # líneas de log mostradas
 
 _FUTURE_TABS = {
     "notificaciones": ("🔔 Notificaciones",
-                       "Fase B — Telegram, Push, SMTP e IA con pruebas de envío.",
+                       "Fase C — Telegram, Push, SMTP e IA con pruebas de envío.",
                        "notificaciones"),
     "apps": ("⚙️ Apps",
-             "Fase C — catálogo de claves de configuración por app "
+             "Fase D — catálogo de claves de configuración por app "
              "(HUB, admon, Field y futuras).", "apps"),
 }
 
@@ -165,6 +169,15 @@ class Handler(BaseHTTPRequestHandler):
             text, error = workers.tail_log(name, LOG_LINES)
             return self._html(workers_view.logs_page(name, text, error, user))
 
+        if path == "/configuracion":
+            user, done = self._require()
+            if done:
+                return
+            ok, err = self._flash(query)
+            return self._html(config_view.render(
+                workers.build_status(), user, flash_ok=ok, flash_err=err,
+                csrf=self._csrf()))
+
         if path in ("/notificaciones", "/apps"):
             user, done = self._require()
             if done:
@@ -205,6 +218,11 @@ class Handler(BaseHTTPRequestHandler):
             rest = path[len("/workers/"):]
             name, _, action = rest.partition("/")
             return self._worker_action(user, name, action)
+
+        if path.startswith("/configuracion/"):
+            rest = path[len("/configuracion/"):]
+            name, _, action = rest.partition("/")
+            return self._config_action(user, name, action, form)
 
         return self._send(404, "No encontrado", "text/plain")
 
@@ -285,6 +303,115 @@ class Handler(BaseHTTPRequestHandler):
             url = "/?" + urllib.parse.urlencode(
                 {"err": f"No se pudo {accion_txt} '{name}': {output or 'error'}"})
         return self._redirect(url)
+
+
+    def _config_action(self, user, name, action, form):
+        """
+        Guarda la configuración de un worker (o ejecuta una prueba).
+        Los valores secretos en blanco significan "no cambiar" y por eso
+        nunca se registran en la bitácora ni en el mensaje flash.
+        """
+        if not auth.has_perm(user, config.PANEL_PERMISSION):
+            return self._html(forbidden_page(
+                "Falta el permiso AccesoConfiguracion para editar la "
+                "configuración de los workers."), 403)
+        if not spec.spec_for(name):
+            return self._send(404, "Worker sin configuración declarada", "text/plain")
+
+        if action == "probar":
+            if name != "telegram_worker":
+                return self._send(404, "Prueba no disponible", "text/plain")
+            ok, msg = workers.test_telegram_bot()
+            db.log_activity(user["email"], "Panel Workers",
+                            f"Prueba de token de Telegram: {'OK' if ok else 'ERROR'}")
+            url = "/configuracion?" + urllib.parse.urlencode(
+                {"ok" if ok else "err": f"Token de Telegram: {msg}"})
+            return self._redirect(url)
+
+        if action:
+            return self._send(404, "Acción no válida", "text/plain")
+
+        env_updates, cfg_updates, error = _parse_config_form(name, form)
+        if error:
+            url = "/configuracion?" + urllib.parse.urlencode({"err": error})
+            return self._redirect(url)
+
+        detalles = []
+        if env_updates:
+            ok, out = envconf.write_env(name, env_updates)
+            if not ok:
+                url = "/configuracion?" + urllib.parse.urlencode(
+                    {"err": f"No se pudo guardar la configuración de '{name}': "
+                            f"{out or 'error'}"})
+                return self._redirect(url)
+            detalles.append(f"{len(env_updates)} variable(s) de entorno")
+        if cfg_updates:
+            ok, out = db.set_config_values(cfg_updates)
+            if not ok:
+                url = "/configuracion?" + urllib.parse.urlencode(
+                    {"err": f"HUB_Config rechazó los valores: {out}"})
+                return self._redirect(url)
+            detalles.append(f"{len(cfg_updates)} clave(s) HUB_Config")
+
+        if not detalles:
+            msg = f"Sin cambios en '{name}' (campos vacíos)."
+        else:
+            msg = f"Configuración de '{name}' guardada: {' + '.join(detalles)}."
+            db.log_activity(user["email"], "Panel Workers",
+                            f"Config '{name}' actualizada: "
+                            f"{', '.join(sorted(list(env_updates) + list(cfg_updates)))}")
+        url = "/configuracion?" + urllib.parse.urlencode({"ok": msg})
+        return self._redirect(url)
+
+
+def _parse_config_form(name, form):
+    """
+    Valida el formulario de un worker.
+    Devuelve (env_updates, hub_config_updates, error).
+    Convierte/tacha según el tipo: números con rango, booleanos 0/1,
+    secretos en blanco = sin cambios y límite de 500 caracteres de HUB_Config.
+    """
+    env_updates, cfg_updates, error = {}, {}, None
+    for f in spec.editable_fields(name):
+        raw = form.get(f["id"])
+        if raw is None:                     # el campo no vino en el POST
+            continue
+        value = str(raw[0] or "").strip()
+        tipo, origen = f["tipo"], f["origen"]
+        key = f.get("clave") if origen == "hub_config" else f["id"]
+
+        if tipo == "secret" and value == "":
+            continue                        # no cambiar el secreto guardado
+
+        if tipo in ("number", "hour", "minute"):
+            if value == "":
+                value = str(f.get("default", ""))
+            try:
+                number = int(value)
+            except ValueError:
+                error = f"{f['label']}: debe ser un número entero."
+                break
+            if f.get("min") is not None and number < f["min"]:
+                error = f"{f['label']}: mínimo {f['min']}."
+                break
+            if f.get("max") is not None and number > f["max"]:
+                error = f"{f['label']}: máximo {f['max']}."
+                break
+            value = str(number)
+
+        if tipo == "bool" and value not in ("0", "1"):
+            error = f"{f['label']}: valor no válido."
+            break
+        if len(value) > db.MAX_CONFIG_VALUE:
+            error = (f"{f['label']}: demasiado largo "
+                     f"({len(value)} > {db.MAX_CONFIG_VALUE}).")
+            break
+
+        if origen == "env":
+            env_updates[key] = value
+        else:
+            cfg_updates[key] = value
+    return env_updates, cfg_updates, error
 
 
 def run_server(host="0.0.0.0", port=None):

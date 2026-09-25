@@ -304,7 +304,6 @@ def log_path(name):
         return None
     return os.path.join(config.SUPERVISOR_LOG_DIR, f"{name}.log")
 
-
 def tail_log(name, lines=300):
     """Últimas N líneas del log de un programa. Devuelve (texto, error)."""
     path = log_path(name)
@@ -319,3 +318,27 @@ def tail_log(name, lines=300):
         return "", str(exc)
     rows = data.splitlines()
     return "\n".join(rows[-int(lines):]), ""
+
+
+def test_telegram_bot():
+    """
+    Comprueba el token guardado contra la API de Telegram (getMe).
+    Devuelve (ok, mensaje). El token jamás aparece en el mensaje ni en la
+    bitácora: solo se informa si el bot responde.
+    """
+    from . import db
+    token = ((db.get_config_values(["telegram_bot_token"]) or {})
+             .get("telegram_bot_token", "") or "").strip()
+    if not token:
+        return False, "No hay token guardado en HUB_Config (telegram_bot_token)."
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+                f"https://api.telegram.org/bot{token}/getMe", timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as exc:                     # noqa: BLE001
+        return False, f"Sin respuesta de api.telegram.org ({exc})."
+    if not isinstance(data, dict) or not data.get("ok"):
+        return False, "Telegram rechazó el token (getMe no responde)."
+    user = (data.get("result") or {}).get("username") or "?"
+    return True, f"Bot @{user} responde correctamente."

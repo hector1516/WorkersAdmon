@@ -34,6 +34,9 @@ BIN_DIR = os.environ.get("WORKERS_BIN_DIR", "/app/docker/bin")
 SUPERVISOR_CONF = os.environ.get("SUPERVISOR_CONF", "/etc/supervisor/supervisord.conf")
 SUPERVISOR_LOG_DIR = os.environ.get("SUPERVISOR_LOG_DIR", "/var/log/supervisor")
 SUPERVISORCTL = os.environ.get("SUPERVISORCTL", "supervisorctl")
+# Donde supervisord tiene los .conf ACTIVOS de los programas (los que copia
+# enable_worker desde conf.d.available). El panel lo parchea al editar env.
+ACTIVE_CONF_DIR = os.environ.get("SUPERVISOR_PROGRAM_DIR", "/etc/supervisor/conf.d")
 
 # ─── Red ──────────────────────────────────────────────────────────────────────
 PANEL_PORT = int(os.environ.get("STATUS_PORT", "8080"))
@@ -57,6 +60,8 @@ LOGIN_LOCK_SECONDS = 60
 # "disabled": la pestaña se muestra grisada hasta que llegue su fase.
 TABS = [
     {"id": "workers", "label": "🔧 Workers", "href": "/", "enabled": True},
+    {"id": "config", "label": "⚙️ Configuración",
+     "href": "/configuracion", "enabled": True},
     {"id": "notificaciones", "label": "🔔 Notificaciones",
      "href": "/notificaciones", "enabled": False},
     {"id": "apps", "label": "⚙️ Apps", "href": "/apps", "enabled": False},

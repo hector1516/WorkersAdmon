@@ -101,7 +101,8 @@ padding:26px 24px;max-width:430px;margin:36px auto}
 .box h1{font-size:1.3rem;margin-bottom:6px}
 label{display:block;font-size:.8rem;color:var(--muted);margin:14px 0 6px;
 text-transform:uppercase;letter-spacing:.6px}
-input[type=email],input[type=password],input[type=text]{width:100%;padding:11px 13px;
+input[type=email],input[type=password],input[type=text],
+input[type=number]{width:100%;padding:11px 13px;
 border-radius:10px;border:1px solid var(--line);background:#0B1220;color:var(--txt);
 font-size:.95rem;font-family:inherit}
 input:focus{outline:none;border-color:var(--orange)}
@@ -109,6 +110,18 @@ input:focus{outline:none;border-color:var(--orange)}
 background:var(--orange);color:#0F172A;font-weight:700;font-size:1rem;cursor:pointer}
 .submit:hover{background:var(--yellow)}
 .err{color:#FCA5A5;font-size:.87rem;margin-top:12px}
+select{width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--line);
+background:#0B1220;color:var(--txt);font-size:.95rem;font-family:inherit}
+select:focus{outline:none;border-color:var(--orange)}
+.cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
+gap:16px;padding:18px}
+.cfg-field label{margin-top:0}
+.cfg-field .help{color:var(--muted);font-size:.78rem;margin-top:5px;line-height:1.45}
+.ro{background:#0B1220;border:1px solid var(--line);border-radius:10px;
+padding:11px 13px;color:#CBD5E1;word-break:break-word;font-size:.9rem;min-height:42px}
+.cfg-save{padding:0 18px 18px;display:flex;gap:8px;align-items:center}
+.cfg-note{padding:12px 18px;border-top:1px solid var(--line);color:var(--muted);
+font-size:.78rem;background:var(--panel2)}
 @media(max-width:820px){.hide-sm{display:none}table{font-size:.82rem}
 .wrap{padding:16px 12px 50px}}
 """

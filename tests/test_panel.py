@@ -38,6 +38,7 @@ os.environ.update({
     "SUPERVISOR_CONF": os.path.join(ROOT, "supervisord.conf"),
     "SUPERVISOR_LOG_DIR": os.path.join(ROOT, "logs"),
     "SUPERVISORCTL": os.path.join(ROOT, "supervisorctl"),
+    "SUPERVISOR_PROGRAM_DIR": os.path.join(ROOT, "conf.d"),
     "STATUS_PORT": "0",
     "STATUS_TITLE": "Workers Admon (test)",
 })
@@ -87,6 +88,15 @@ for script in ("enable_worker", "disable_worker"):
            .replace("/etc/supervisor/conf.d", os.path.join(ROOT, "conf.d"))
            .replace("supervisorctl ", f'"{os.environ["SUPERVISORCTL"]}" '))
     _write(os.path.join(ROOT, "bin", script), src, 0o755)
+
+# Dos workers que SÍ tienen configuración declarada en panel/spec.py
+_write(os.path.join(ROOT, "available", "bing_worker.conf"),
+       "[program:bing_worker]\ncommand=/bin/true\nautostart=true\n"
+       "environment=PYTHONUNBUFFERED=\"1\"\n")
+_write(os.path.join(ROOT, "conf.d", "bing_worker.conf"),   # habilitado
+       open(os.path.join(ROOT, "available", "bing_worker.conf"), encoding="utf-8").read())
+_write(os.path.join(ROOT, "available", "tipo_cambio_worker.conf"),
+       "[program:tipo_cambio_worker]\ncommand=/bin/true\nautostart=false\n")
 
 # Log de un worker (para la página de logs)
 _write(os.path.join(ROOT, "logs", "demo_on.log"),
@@ -153,11 +163,28 @@ def fake_activity(usuario, modulo, accion):
     return True
 
 
+_CONFIG = {"tipo_cambio_usd": "17.1409"}       # doble de HUB_Config
+
+
+def fake_get_config_values(claves):
+    return {c: _CONFIG[c] for c in claves if c in _CONFIG}
+
+
+def fake_set_config_values(valores):
+    for clave, valor in valores.items():
+        if len(str(valor)) > db.MAX_CONFIG_VALUE:
+            return False, f"'{clave}': valor demasiado largo"
+        _CONFIG[clave] = str(valor)
+    return True, ""
+
+
 db.authenticate = fake_authenticate
 db.create_session_token = fake_create_token
 db.validate_session_token = fake_validate
 db.delete_session_token = fake_delete_token
 db.log_activity = fake_activity
+db.get_config_values = fake_get_config_values
+db.set_config_values = fake_set_config_values
 
 # ── Servidor en hilo aparte ──────────────────────────────────────────────────
 HTTPD = None
@@ -246,7 +273,7 @@ class PanelTest(unittest.TestCase):
         names = [p["name"] for p in data["programs"]]
         self.assertIn("demo_on", names)
         self.assertIn("demo_off", names)
-        self.assertEqual(data["totals"]["available"], 2)
+        self.assertEqual(data["totals"]["available"], 4)
 
     def test_02_sin_sesion_redirige_a_login(self):
         code, headers, _ = Client().get("/")
@@ -343,7 +370,7 @@ class PanelTest(unittest.TestCase):
 
     def test_12_pestanas_futuras(self):
         c = self._logged()
-        for path, marca in (("/notificaciones", "Fase B"), ("/apps", "Fase C")):
+        for path, marca in (("/notificaciones", "Fase C"), ("/apps", "Fase D")):
             code, _, html = c.get(path)
             self.assertEqual(code, 200)
             self.assertIn(marca, html)
@@ -360,6 +387,126 @@ class PanelTest(unittest.TestCase):
     def test_14_bitacora(self):
         mods = [a[1] for a in _ACTIVITY]
         self.assertIn("Panel Workers", mods)
+
+    # ── pestaña Configuración ───────────────────────────────────────────────
+    def test_15_pagina_configuracion(self):
+        c = self._logged()
+        code, _, html = c.get("/configuracion")
+        self.assertEqual(code, 200)
+        self.assertIn("bing_worker", html)
+        self.assertIn("Intervalo de sincronización", html)
+        self.assertIn("HUB_CONFIG", html)
+        self.assertIn("ENTORNO", html)
+        self.assertIn("CÓDIGO", html)
+        # el valor de HUB_Config (tipo_cambio_usd) sí se muestra: es readonly
+        self.assertIn("17.1409", html)
+        self.assertIn('name="csrf"', html)
+        # la pestaña ya está habilitada en la barra
+        self.assertIn("/configuracion", html)
+
+    def test_16_guardar_variable_entorno(self):
+        c = self._logged()
+        code, headers, _ = c.post("/configuracion/bing_worker", csrf=c.csrf(),
+                                  CRON_BING_INTERVAL="7200", CRON_BING_MAX="9")
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote(headers.get("Location", ""))
+        self.assertIn("ok=", loc, loc)
+        conf = Path(os.path.join(ROOT, "available", "bing_worker.conf")).read_text()
+        self.assertIn('CRON_BING_INTERVAL="7200"', conf)
+        self.assertIn('CRON_BING_MAX="9"', conf)
+        self.assertIn('PYTHONUNBUFFERED="1"', conf, "conserva la base del conf")
+        # el conf ACTIVO (lo usa supervisord) también quedó parcheado
+        active = Path(os.path.join(ROOT, "conf.d", "bing_worker.conf")).read_text()
+        self.assertIn('CRON_BING_INTERVAL="7200"', active)
+        # persistido en el volumen para sobrevivir a un rebuild
+        overlay = json.loads(Path(
+            os.path.join(ROOT, "data", "worker_env.json")).read_text())
+        self.assertEqual(overlay["bing_worker"]["CRON_BING_INTERVAL"], "7200")
+        # supervisord recargó la sección
+        self.assertIn("reread", Path(FAKE_CALLS).read_text())
+
+    def test_17_guardar_hub_config(self):
+        c = self._logged()
+        code, headers, _ = c.post("/configuracion/tipo_cambio_worker",
+                                  csrf=c.csrf(), CRON_TC_HORA="7",
+                                  CRON_TC_MIN="15", banxico_token="TOK-PRUEBA-1")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertEqual(_CONFIG.get("banxico_token"), "TOK-PRUEBA-1")
+        conf = Path(os.path.join(ROOT, "available",
+                                 "tipo_cambio_worker.conf")).read_text()
+        self.assertIn('CRON_TC_HORA="7"', conf)
+        self.assertIn('CRON_TC_MIN="15"', conf)
+
+    def test_18_secreto_en_blanco_no_cambia(self):
+        c = self._logged()
+        code, headers, _ = c.post("/configuracion/tipo_cambio_worker",
+                                  csrf=c.csrf(), CRON_TC_HORA="6",
+                                  banxico_token="")          # en blanco = sin cambios
+        self.assertEqual(code, 303)
+        self.assertEqual(_CONFIG.get("banxico_token"), "TOK-PRUEBA-1",
+                         "un secreto en blanco no debe borrar lo guardado")
+
+    def test_19_validacion_de_numeros(self):
+        c = self._logged()
+        # no numérico
+        code, headers, _ = c.post("/configuracion/bing_worker", csrf=c.csrf(),
+                                  CRON_BING_INTERVAL="abc")
+        self.assertEqual(code, 303)
+        self.assertIn("err=", urllib.parse.unquote(headers.get("Location", "")))
+        conf = Path(os.path.join(ROOT, "available", "bing_worker.conf")).read_text()
+        self.assertNotIn('CRON_BING_INTERVAL="abc"', conf)
+        # fuera de rango (min 60)
+        code, headers, _ = c.post("/configuracion/bing_worker", csrf=c.csrf(),
+                                  CRON_BING_INTERVAL="5")
+        self.assertEqual(code, 303)
+        self.assertIn("mínimo 60",
+                          urllib.parse.unquote_plus(headers.get("Location", "")))
+
+    def test_20_config_requiere_sesion_y_csrf(self):
+        c = Client()                       # sin sesión
+        code, headers, _ = c.get("/configuracion")
+        self.assertEqual(code, 303)
+        self.assertEqual(headers.get("Location"), "/login")
+        c = self._logged()
+        code, _, _ = c.post("/configuracion/bing_worker", csrf="",
+                            CRON_BING_INTERVAL="9000")
+        self.assertEqual(code, 403)
+
+    def test_21_apply_all_sobrevive_rebuild(self):
+        # Simula un rebuild: los confs vuelven al original sin overrides
+        _write(os.path.join(ROOT, "available", "bing_worker.conf"),
+               "[program:bing_worker]\ncommand=/bin/true\n")
+        from panel import envconf
+        applied, errors = envconf.apply_all()
+        self.assertEqual(errors, [])
+        self.assertGreaterEqual(applied, 1)
+        conf = Path(os.path.join(ROOT, "available", "bing_worker.conf")).read_text()
+        self.assertIn('CRON_BING_INTERVAL="7200"', conf,
+                      "apply_all debe reaplicar el overlay del volumen")
+
+    def test_22_bitacora_de_configuracion(self):
+        c = self._logged()
+        c.post("/configuracion/bing_worker", csrf=c.csrf(), CRON_BING_MAX="12")
+        acciones = [a[2] for a in _ACTIVITY]
+        self.assertTrue(any("Config 'bing_worker' actualizada" in a
+                            for a in acciones), acciones)
+        # jamás se registra el valor de un secreto en la bitácora
+        self.assertFalse(any("TOK-PRUEBA-1" in a for a in acciones))
+
+    def test_23_prueba_token_telegram_sin_token(self):
+        c = self._logged()
+        code, headers, _ = c.post("/configuracion/telegram_worker/probar",
+                                  csrf=c.csrf())
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote(headers.get("Location", ""))
+        self.assertIn("err=", loc, "sin token debe reportar error")
+        self.assertIn("telegram_bot_token", loc)
+
+    def test_24_worker_sin_spec_es_404(self):
+        c = self._logged()
+        code, _, _ = c.post("/configuracion/demo_off", csrf=c.csrf(), x="1")
+        self.assertEqual(code, 404)
 
 
 if __name__ == "__main__":
