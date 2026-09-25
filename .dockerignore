@@ -19,3 +19,6 @@ secretos_local.py
 *.md
 !requirements.txt
 workers_data/
+
+# Pruebas (no corren dentro de la imagen)
+tests/

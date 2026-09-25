@@ -12,7 +12,7 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
 | Programas activos | `docker/conf.d/*.conf` | **hoy solo `status_web`** (la página de estado) |
 | Programas en standby | `docker/conf.d.available/*.conf` | 9 workers + `mcp_server`. **Ninguno corre hasta que se active** |
 | Helpers | `docker/bin/` | `enable_worker`, `disable_worker`, `workers_list` |
-| Estado | `status_server.py` | `GET /` (HTML) y `GET /api/status` (JSON) en el puerto `STATUS_PORT` (8080) |
+| Panel | `status_server.py` → `panel/` | **Interfaz de control** en `STATUS_PORT` (8080): login HUB, pestaña Workers (activar/desactivar/reiniciar/logs), `GET /api/status` (JSON) |
 | Heartbeats | `worker_heartbeat.py` | escribe `/data/heartbeats/<worker>.json` con la última ejecución |
 | Datos | `eccsa_db.py`, `config_db.py` | snapshot de la capa de datos de HUB (misma BD `ECCSA_Admon`) |
 
@@ -28,16 +28,36 @@ Nada corre solo por existir: hay que ejecutar
 `/data/workers_enabled.txt`, que vive en el **volumen** y sobrevive a recrear
 el contenedor).
 
-## Página de estado
+## Panel de control (`panel/`)
 
-- Lee 4 fuentes: `supervisorctl status` (estado + uptime → "activo desde"),
-  `/data/workers_enabled.txt` (habilitado sí/no),
-  `docker/conf.d.available/` (disponibles) y `/data/heartbeats/*.json`
-  ("última ejecución").
-- Sin dependencias externas (stdlib). Si cambias la UI, mantener tema oscuro
-  ECCSA (`#0F172A`, `#1E293B`, acento `#FF6B00`/`#FFAE00`).
-- `/api/status` debe seguir devolviendo el mismo JSON (es el contrato para
-  monitoreo futuro).
+Es el **centro de configuración** del ecosistema (workers + notificaciones +
+config de apps de HUB/admon/Field/futuras). Fases:
+
+| Fase | Contenido | Estado |
+|---|---|---|
+| **A** | `panel/` + login HUB + pestaña Workers (acciones y logs) | ✅ |
+| **B** | pestaña Notificaciones (Telegram `HUB_Telegram*`, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón "Enviar prueba" | 🚧 |
+| **C** | pestaña Apps: catálogo `HUB_ConfigCatalogo` (metadatos) + valores en `HUB_Config`, agrupados por app | 🚧 |
+| **D** | subdominio `workers.ecc-sa.com.mx` vía Cloudflare (dashboard Zero Trust → Add public hostname → `http://10.188.141.31:8200`) | 🚧 |
+
+Reglas del panel:
+
+- **Auth**: cookie `ecsa_token` + tabla `HUB_Sessions` (mismo mecanismo que el
+  HUB; `HUB_Users.Password` está en texto plano y se compara igual). Permiso
+  requerido: `AccesoConfiguracion`. CSRF de doble envío en **todo** POST.
+  Nunca guardar passwords ni tokens en el repo: se leen de BD/env.
+- **Sin dependencias**: solo stdlib + `pymssql`. HTML generado en Python,
+  formularios POST + Post/Redirect/Get (sin JS obligatorio).
+- **Fuente de verdad de la config**: reusar las tablas existentes
+  (`HUB_Config`, `HUB_EmailConfig`, `HUB_AiConfig`, `HUB_PushConfig`,
+  `HUB_Telegram*`); agregar metadatos solo con la migración nueva (fase C).
+  **No duplicar valores** en archivos del contenedor.
+- Lee 4 fuentes de estado: `supervisorctl status`, `/data/workers_enabled.txt`,
+  `docker/conf.d.available/` y `/data/heartbeats/*.json`.
+- `/api/status` debe seguir devolviendo el mismo JSON (contrato de monitoreo).
+- UI: tema oscuro ECCSA (`#0F172A`, `#1E293B`, acento `#FF6B00`/`#FFAE00`).
+- Tests: `python tests/test_panel.py` (doble de BD + supervisorctl falso; no
+  requiere BD ni supervisord).
 
 ## Credenciales (CRÍTICO)
 
@@ -66,6 +86,10 @@ el contenedor).
 
 ## Pendientes
 
+- **Fase B** del panel: pestaña Notificaciones.
+- **Fase C** del panel: pestaña Apps + migración `0036_config_catalogo.sql`
+  (usar el runner de HUB, `apply_migrations.py`, con guard de DB de pruebas).
+- **Fase D**: hostname `workers.ecc-sa.com.mx` en el dashboard de Cloudflare.
 - CI (`.github/workflows/deploy.yml` + runner self-hosted para este repo):
   fase posterior, mientras tanto el deploy es manual (`docker build` + `docker run`).
-- Activar el primer worker con `enable_worker` (hoy: ninguno activo).
+- Activar el primer worker (hoy: ninguno activo) — ya puede hacerse desde el panel.

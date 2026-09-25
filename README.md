@@ -6,9 +6,10 @@ página de estado de los mismos. **Separado por completo de `field`, `admon` y
 volúmenes.
 
 > **Estado actual: SIN WORKERS ACTIVOS.**
-> Solo corre `status_web` (la página de estado). Los 10 programas de
+> Solo corre `status_web` (el **panel de control**). Los 10 programas de
 > `docker/conf.d.available/` están *en standby*: el código está en la imagen,
-> pero ninguno está habilitado. Se activan uno a uno con `enable_worker`.
+> pero ninguno está habilitado. Se activan uno a uno **desde el panel** o con
+> `enable_worker`.
 
 ---
 
@@ -50,7 +51,7 @@ docker run -d --name workersadmon --restart unless-stopped --network workersadmo
 
 | Elemento | Valor |
 |---|---|
-| Página de estado | `http://10.188.141.31:8200/` |
+| Panel de control | `http://10.188.141.31:8200/` (login con tu cuenta del HUB) |
 | API JSON | `http://10.188.141.31:8200/api/status` |
 | Sondeo | `http://10.188.141.31:8200/healthz` |
 | Puerto publicado | **solo 8200** (nada más queda expuesto) |
@@ -62,7 +63,33 @@ docker run -d --name workersadmon --restart unless-stopped --network workersadmo
 
 ---
 
-## 3. Página de estado
+## 3. Panel de control (interfaz web)
+
+`status_server.py` monta el paquete `panel/`: una interfaz web (stdlib, sin
+dependencias) para controlar workers y — en las fases siguientes — la
+configuración y notificaciones de todo el ecosistema.
+
+### Acceso
+
+* Login con **tu cuenta del HUB** (correo `@ecc-ssa.com.mx` + contraseña):
+  valida contra `HUB_Users` y crea la sesión en **`HUB_Sessions`** (mismo
+  mecanismo y misma cookie `ecsa_token` que el HUB).
+* Se requiere el permiso **`AccesoConfiguracion`**; sin él la página muestra
+  "acceso denegado".
+* Protecciones: cookie `HttpOnly` + `SameSite=Lax` (y `Secure` cuando la petición
+  llega por `https` vía Cloudflare), token **CSRF de doble envío** en todos los
+  POST, límite de 5 intentos fallidos por IP (1 min de bloqueo) y bitácora en
+  `HUB_ActivityLog` (login, acciones, logout).
+
+### Pestañas
+
+| Pestaña | Estado | Contenido |
+|---|---|---|
+| 🔧 **Workers** | ✅ Fase A | Estado + **Activar / Deshabilitar / Reiniciar** + ver **logs** |
+| 🔔 Notificaciones | 🚧 Fase B | Telegram, Push, SMTP e IA con botón de prueba |
+| ⚙️ Apps | 🚧 Fase C | Catálogo de claves de config por app (HUB, admon, Field, futuras) |
+
+### Pestaña Workers
 
 Tema oscuro ECCSA, se recarga sola cada 15 s, y muestra por programa:
 
@@ -71,8 +98,25 @@ Tema oscuro ECCSA, se recarga sola cada 15 s, y muestra por programa:
 * **Activo desde** — fecha/hora del último arranque del proceso (+ hace cuánto)
 * **Última ejecución** — heartbeat reportado por el worker (+ hace cuánto)
 * **Detalle** — texto libre y conteo que manda el worker
+* **Acciones** — los mismos caminos que los scripts CLI (`enable_worker` /
+  `disable_worker` / `supervisorctl restart`). `status_web` (el panel) es
+  inmutable desde su propia interfaz.
+* **Logs** — últimas 300 líneas de `/var/log/supervisor/<nombre>.log`
 
-JSON completo en `/api/status` (mismos datos, listo para monitoreo).
+JSON completo en `/api/status` (mismos datos, sin secretos, para monitoreo).
+
+### Endpoints
+
+| Método | Ruta | Auth | Descripción |
+|---|---|---|---|
+| GET | `/healthz` | no | sondeo `"ok"` |
+| GET | `/api/status` | no | estado JSON |
+| GET/POST | `/login` | no | formulario y creación de sesión |
+| POST | `/logout` | sesión | cierra la sesión |
+| GET | `/` | sesión | pestaña Workers |
+| GET | `/workers/<n>/logs` | sesión | logs de un programa |
+| POST | `/workers/<n>/enable\|disable\|restart` | sesión + CSRF | acción + redirect |
+| GET | `/notificaciones`, `/apps` | sesión | marcador de fase |
 
 ---
 
@@ -139,7 +183,16 @@ WorkersAdmon/
 │   ├── conf.d/status_web.conf    # ← ÚNICA conf activa por defecto
 │   ├── conf.d.available/*.conf   # ←10 programas en standby (9 workers + mcp_server)
 │   └── bin/{enable_worker,disable_worker,workers_list}
-├── status_server.py              # página de estado + /api/status
+├── status_server.py              # punto de entrada → panel/server.py
+├── panel/                        # ← paquete del panel de control (Fase A)
+│   ├── config.py                 # rutas, cookies, permisos, pestañas
+│   ├── db.py                     # HUB_Users / HUB_Sessions / bitácora (pymssql)
+│   ├── auth.py                   # sesión, CSRF, límite de intentos
+│   ├── workers.py                # estado + enable/disable/restart + logs
+│   ├── templates.py              # HTML tema oscuro + login
+│   ├── server.py                 # routing HTTP
+│   └── views/                    # pestaña Workers (+ futuro B/C)
+├── tests/test_panel.py           # smoke test sin DB ni supervisord reales
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
 ├── cron_*.py, network_scanner.py # workers (código en standby)
@@ -173,4 +226,18 @@ docker exec workersadmon python3 -c "from config_db import load_db_config; print
 docker exec workersadmon supervisorctl restart status_web
 ```
 
-Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor.
+Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
+**📄 Logs** en el panel).
+
+---
+
+## 9. Pruebas
+
+```bash
+# smoke test del panel (no necesita SQL Server ni supervisord reales):
+# usa un doble en memoria para la BD y un supervisorctl falso en un sandbox.
+python tests/test_panel.py
+```
+
+Prueba manual de la BD real: `HUB_DB_DATABASE=ECCSA_Admon_Pruebas` y entrar con
+una cuenta de la BD de pruebas.
