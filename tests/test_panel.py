@@ -870,11 +870,13 @@ class PanelTest(unittest.TestCase):
         for trozo in ("Eventos de Alerta", "KILOMETROS", "Plantilla del mensaje"):
             self.assertIn(trozo, html)
 
-        # sub-pestaña Destinatarios (elegir usuarios por evento)
+        # sub-pestaña Destinatarios (resumen + checklist por evento)
         code, _, html = c.get("/notificaciones?tg=destinatarios")
         self.assertEqual(code, 200)
-        for trozo in ("Destinatarios por Evento", 'name="ids"',
-                      "Usuarios que reciben esta alerta", "seleccionados"):
+        for trozo in ("Destinatarios por Evento", "Usuarios que la reciben",
+                      'name="ids"', "Usuarios que reciben esta alerta",
+                      "seleccionados", "chklist", 'class="chip"',
+                      "Seleccionados ahora", "Usuarios que la reciben"):
             self.assertIn(trozo, html)
 
         # sub-pestaña Vinculados (tabla + alta manual)
@@ -937,10 +939,16 @@ class PanelTest(unittest.TestCase):
                                   csrf=c.csrf(), IdEvento="KILOMETROS", ids="3")
         self.assertEqual(code, 303)
         self.assertEqual(_TG["dest"]["KILOMETROS"], ["3"])
-        # sin selección → limpia
+        # el resumen muestra a "Otro" (id 3) como destinatario
+        _, _, html = c.get("/notificaciones?tg=destinatarios")
+        self.assertIn('<span class="chip">Otro', html)
+        self.assertNotIn('<span class="chip">Admin', html)
+        # sin selección → limpia y el resumen lo refleja
         c.post("/notificaciones/telegram/destinatarios", csrf=c.csrf(),
                IdEvento="KILOMETROS")
         self.assertEqual(_TG["dest"]["KILOMETROS"], [])
+        _, _, html = c.get("/notificaciones?tg=destinatarios")
+        self.assertIn("Sin destinatarios", html)
 
     def test_30_guardar_push_y_correo(self):
         c = self._logged()
@@ -1478,6 +1486,32 @@ class PanelTest(unittest.TestCase):
         acciones = [a[2] for a in _ACTIVITY]
         self.assertTrue(any("Historial de Telegram limpiado" in a
                             for a in acciones))
+
+
+    def test_55_destinatarios_resumen_y_chip_inactivo(self):
+        c = self._logged()
+        # un destinatario sin usuario activo se muestra como "#99 (inactivo)"
+        _TG["dest"]["KILOMETROS"] = [99]
+        try:
+            _, _, html = c.get("/notificaciones?tg=destinatarios")
+            self.assertIn('<span class="chip off">#99 (inactivo)</span>', html)
+            # la tarjeta del evento también muestra los chips seleccionados
+            self.assertIn('<div class="chiprow">', html)
+            # el checklist marca solo a los activos que estén elegidos
+            _TG["dest"]["KILOMETROS"] = [1]
+            _, _, html = c.get("/notificaciones?tg=destinatarios")
+            self.assertIn('value="1" checked', html)
+            self.assertNotIn('value="3" checked', html)
+            self.assertIn('<span class="chip">Admin', html)
+        finally:
+            _TG["dest"]["KILOMETROS"] = [1]
+        # evento apagado aparece 🔴 en el resumen
+        _TG["eventos"][0]["Activo"] = 0
+        try:
+            _, _, html = c.get("/notificaciones?tg=destinatarios")
+            self.assertIn("\U0001f534", html)
+        finally:
+            _TG["eventos"][0]["Activo"] = 1
 
 
 if __name__ == "__main__":

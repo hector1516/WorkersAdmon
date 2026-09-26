@@ -186,7 +186,7 @@ Cuatro bloques, cada uno con **su permiso del HUB** y su botón de prueba:
 
 | Bloque | Permiso | Qué administra | Prueba |
 |---|---|---|---|
-| 🔔 **Telegram** | `AccesoTelegram` | **5 sub-pestañas como en el HUB** (`views/telegram.py`): 🔌 Conexión (token `HUB_Config.telegram_bot_token` + instrucciones), ⚙️ Eventos (plantillas `HUB_TelegramEventos`), 👥 Destinatarios (usuarios por evento `HUB_TelegramDestinatarios`), 🔗 Vinculados (tabla + alta/desvinculación manual) y 📋 Historial (cola `HUB_TelegramQueue`, limpieza >30 días) | `getMe` de la API |
+| 🔔 **Telegram** | `AccesoTelegram` | **5 sub-pestañas como en el HUB** (`views/telegram.py`): 🔌 Conexión (token `HUB_Config.telegram_bot_token` + instrucciones), ⚙️ Eventos (plantillas `HUB_TelegramEventos`), 👥 Destinatarios (**resumen con chips** de quién recibe cada evento + checklist por tarjeta, `HUB_TelegramDestinatarios`), 🔗 Vinculados (tabla + alta/desvinculación manual) y 📋 Historial (cola `HUB_TelegramQueue`, limpieza >30 días) | `getMe` de la API |
 | 🔔 **Push** | `AccesoConfiguracion` | Claves VAPID (`HUB_PushConfig`) + nº de suscriptores | envía un push a todas las suscripciones (borra las caducadas 404/410) |
 | 📧 **Correo SMTP** | `AccesoConfigurarCorreo` | Servidor, puerto, usuario, contraseña y flags SSL/TLS/auth (`HUB_EmailConfig`) | envía un correo de prueba a la dirección que indiques |
 | 🤖 **IA** | `AccesoConfigAI` | Provider, API key y modelo (`HUB_AIConfig`) | lista los modelos de Gemini (1 sola llamada) |
@@ -343,7 +343,7 @@ WorkersAdmon/
 │   ├── manifest.webmanifest      # manifiesto instalable (Field/Admon)
 │   ├── sw.js                     # service worker: solo GET, offline = /offline
 │   └── icons/                    # 120/152/167/180/192/512 + maskable + apple
-├── tests/test_panel.py           # 54 pruebas, sin BD ni supervisord reales
+├── tests/test_panel.py           # 55 pruebas, sin BD ni supervisord reales
 ├── tests/test_pdf_worker.py      # 3 pruebas del worker de PDFs (Remisiones)
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
@@ -386,11 +386,11 @@ Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
 ## 9. Pruebas
 
 ```bash
-# suite completa (57 pruebas; dobles en memoria para BD y supervisorctl:
+# suite completa (58 pruebas; dobles en memoria para BD y supervisorctl:
 # no necesita SQL Server ni supervisord reales)
 python -m unittest discover -s tests
 
-# solo el panel (54) / solo el worker de PDFs (3)
+# solo el panel (55) / solo el worker de PDFs (3)
 python tests/test_panel.py
 python tests/test_pdf_worker.py
 ```

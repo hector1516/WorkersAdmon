@@ -51,6 +51,26 @@ font-size:.78rem;font-weight:600}
 .desc{color:var(--muted);font-size:.9rem;line-height:1.6;margin:4px 0 10px}
 ol.desc{margin:6px 0 4px 20px}
 p.desc{margin:0}
+.chiprow{margin:-4px 0 10px}
+.chip{display:inline-block;padding:3px 10px;margin:2px 4px 2px 0;
+border-radius:999px;font-size:.78rem;background:rgba(255,107,0,.13);
+color:var(--yellow);border:1px solid rgba(255,174,0,.35)}
+.chip em{color:var(--muted);font-style:normal;font-size:.74rem}
+.chip.off{background:rgba(100,116,139,.16);color:var(--muted);
+border-color:var(--line)}
+.chip.warn{background:rgba(239,68,68,.12);color:#f87171;
+border-color:rgba(239,68,68,.45)}
+.chklist{max-height:330px;overflow:auto;border:1px solid var(--line);
+border-radius:10px;background:#0B1220;padding:5px}
+.chk{display:flex;gap:10px;align-items:center;min-height:42px;
+padding:6px 10px;border-radius:8px;cursor:pointer;border-left:3px solid transparent}
+.chk:hover{background:rgba(255,255,255,.04)}
+.chk input{width:18px;height:18px;accent-color:var(--orange);flex:0 0 auto}
+.chk span{font-size:.92rem}
+.chk em{color:var(--muted);font-style:normal;font-size:.8rem;margin-left:6px}
+.chk input:checked ~ span{color:var(--yellow);font-weight:600}
+.chk:has(input:checked){background:rgba(255,107,0,.12);
+border-left-color:var(--orange)}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
 gap:12px;margin:22px 0}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
@@ -185,6 +205,8 @@ h1 span{display:none}
 .nav a,.nav span{padding:11px 14px;font-size:.92rem}
 .tnav{gap:5px}
 .tnav a{padding:10px 12px;font-size:.85rem}
+.chk{min-height:46px}
+.chklist{max-height:none}
 .cards{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
 gap:10px;margin:18px 0}
 .card{padding:13px 14px}

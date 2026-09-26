@@ -245,31 +245,80 @@ def _tg_eventos():
 
 
 # ── sub-pestaña: Destinatarios ───────────────────────────────────────────────
+def _chips(ids, mapa):
+    """Chips visibles con los destinatarios seleccionados de un evento."""
+    partes = []
+    for i in ids:
+        try:
+            uid = int(i)
+        except (TypeError, ValueError):
+            continue
+        u = mapa.get(uid)
+        if u:
+            partes.append(f'<span class="chip">{esc(u.get("Nombre") or "")}'
+                          f'<em> {esc(u.get("Email") or "")}</em></span>')
+        else:
+            partes.append(f'<span class="chip off">#{uid} (inactivo)</span>')
+    return "".join(partes) or '<span class="chip warn">Sin destinatarios</span>'
+
+
 def _tg_destinatarios():
     out = [_encabezado(
         "\U0001f465 Destinatarios por Evento",
-        "Seleccione qué usuarios del HUB reciben cada tipo de alerta; "
-        "guarde con el botón de esa tarjeta.")]
+        "El <b>resumen</b> de abajo muestra, de un vistazo, qué usuarios recibe "
+        "cada alerta. Para cambiar la selección, marque/desmarque en la tarjeta "
+        "del evento y guarde.")]
     eventos = db.get_telegram_eventos()
     if not eventos:
         out.append('<div class="panel"><div class="empty">'
                    'No hay eventos configurados (migración 0018 del HUB).</div></div>')
         return "".join(out)
     usuarios = db.get_active_users()
-    opciones = [(u["Id"], f'{u.get("Nombre") or ""} ({u.get("Email") or ""})')
-                for u in usuarios]
+    mapa = {int(u["Id"]): u for u in usuarios}
+
+    # ── resumen: quién recibe cada evento, en una sola tabla ────────────────
+    filas = []
+    for ev in eventos:
+        eid = ev["IdEvento"]
+        ids = db.get_telegram_destinatarios(eid)
+        estado = "\U0001f7e2" if ev.get("Activo") else "\U0001f534"
+        filas.append([estado, esc(ev.get("Nombre") or ""),
+                      f'<code>{esc(eid)}</code>', _chips(ids, mapa),
+                      f'<b>{len(ids)}</b>'])
+    out.append(_tabla(["", "Evento", "Clave", "Usuarios que la reciben", "N.º"],
+                      filas, ""))
+
+    # ── edición por evento: checklist en lugar del select múltiple ─────────
+    if not usuarios:
+        out.append('<div class="panel"><div class="empty">'
+                   'No hay usuarios activos en el HUB.</div></div>')
+        return "".join(out)
     for ev in eventos:
         eid = ev["IdEvento"]
         estado = "\U0001f7e2" if ev.get("Activo") else "\U0001f534"
-        actuales = db.get_telegram_destinatarios(eid)
-        forms = ('<div class="cfg-grid">'
-                 + _multi("ids", opciones, actuales,
-                          label="Usuarios que reciben esta alerta")
-                 + "</div>" + _save_bar())
+        sel = {int(i) for i in db.get_telegram_destinatarios(eid)}
+        n = len(sel)
+        checks = "".join(
+            f'<label class="chk"><input type="checkbox" name="ids" '
+            f'value="{int(u["Id"])}"'
+            f'{" checked" if int(u["Id"]) in sel else ""}>'
+            f'<span>{esc(u.get("Nombre") or "")}'
+            f'<em> {esc(u.get("Email") or "")}</em></span></label>'
+            for u in usuarios)
+        forms = (
+            '<div class="cfg-grid">'
+            f'<div class="cfg-field" style="grid-column:1/-1">'
+            f'<label>Usuarios que reciben esta alerta</label>'
+            f'<div class="chklist">{checks}</div>'
+            f'<p class="desc">Seleccionados ahora: <b>{n}</b>. Los cambios '
+            f'aplican en el próximo disparo de la alerta, sin reiniciar nada.'
+            f'</p></div>'
+            '</div>' + _save_bar())
         out.append(f"""
   <div class="panel">
     <h2>{estado} {esc(ev.get('Nombre'))} · <code>{esc(eid)}</code>
-        ({len(actuales)} seleccionados)</h2>
+        ({n} seleccionados)</h2>
+    <div class="chiprow">{_chips(sorted(sel), mapa)}</div>
     <form method="post" action="/notificaciones/telegram/destinatarios">
       {_csrf_field()}<input type="hidden" name="IdEvento" value="{esc(eid)}">
       {forms}

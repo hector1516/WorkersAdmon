@@ -70,8 +70,9 @@ Reglas del panel:
   la tabla y completo en su tarjeta de Configuración). Mantenerla sincronizada
   con el docstring del script.
 - **Telegram del panel = `views/telegram.py` del HUB**: mismas 5 sub-pestañas
-  (pestañas `st.tabs` allá, barra `?tg=` aquí) — Conexión, Eventos, Destinatarios,
-  Vinculados e Historial. Si cambia la UX del HUB, reflejarla aquí.
+  (pestañas `st.tabs` allá, barra `?tg=` aquí) — Conexión, Eventos, Destinatarios
+  (resumen con chips por evento + checklist), Vinculados e Historial.
+  Si cambia la UX del HUB, reflejarla aquí.
 - Notificaciones (Fase C): bloque propio en `panel/views/notifications.py` +
   rutas `POST /notificaciones/<bloque>`; sondas en `panel/probes.py`. Mismas
   tablas que el HUB, secretos nunca pintados, permiso por bloque.
@@ -126,9 +127,9 @@ Reglas del panel:
   - Si se agregan campos de formulario, respetar el bloque de `font-size:16px`
     (evita el zoom automático de iOS).
   - HTML vía `page()` (no suelto): hereda head PWA, viewport y el CSS móvil.
-- Tests: `python -m unittest discover -s tests` (57 pruebas; dobles de BD y
+- Tests: `python -m unittest discover -s tests` (58 pruebas; dobles de BD y
   supervisorctl, no requieren SQL Server ni supervisord). Los casos puntuales
-  se corren con `python tests/test_panel.py` (54) o `python tests/test_pdf_worker.py` (3).
+  se corren con `python tests/test_panel.py` (55) o `python tests/test_pdf_worker.py` (3).
 
 ## Credenciales (CRÍTICO)
 
