@@ -55,8 +55,12 @@ if ($LASTEXITCODE -ne 0) { docker network create workersadmon_net | Out-Null }
 
 docker rm -f workersadmon 2>$null | Out-Null
 
+# -p 8000:8000: puerto 8000 del host lo hereda este contenedor (MCP /message,
+# passkeys /__webauthn/* y push /__push_*). Se quitó de hub_python al migrar
+# mcp_server aquí (ver AGENTS.md, seccion Relacion con HUB).
 $id = docker run -d --name workersadmon --restart unless-stopped --network workersadmon_net `
   -p 8200:8080 `
+  -p 8000:8000 `
   -v workersadmon_data:/data `
   --env-file $envFile `
   workersadmon

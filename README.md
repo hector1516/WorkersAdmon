@@ -7,11 +7,12 @@ página de estado de los mismos. **Separado por completo de `field`, `admon` y
 `hub_python`** — su propio repo, su propia imagen, su propia red y sus propios
 volúmenes.
 
-> **Estado actual: SIN WORKERS ACTIVOS.**
-> Solo corre `status_web` (el **panel de control**). Los 10 programas de
-> `docker/conf.d.available/` están *en standby*: el código está en la imagen,
-> pero ninguno está habilitado. Se activan uno a uno **desde el panel** o con
-> `enable_worker`.
+> **Estado actual (2026-09-26): MIGRACIÓN COMPLETA — los 10 programas activos.**
+> Corren `status_web` (el **panel de control**), los 9 workers y `mcp_server`
+> (puerto 8000 del host: MCP/passkeys/push); `hub_python` quedó **solo con
+> `streamlit`**. La lista vigente está en `/data/workers_enabled.txt` (se
+> reactivan solos al recrear el contenedor) y se controla desde el panel o con
+> `enable_worker` / `disable_worker`.
 
 ---
 
@@ -20,8 +21,12 @@ volúmenes.
 | Programa | Estado | Origen |
 |---|---|---|
 | `status_web` | ✅ siempre activo | `docker/conf.d/status_web.conf` |
-| `bing_worker`, `tipo_cambio_worker`, `telegram_worker`, `oxxogas_worker`, `oxxogas_contactos_worker`, `pdf_storage_worker`, `network_scanner_worker`, `vales_worker`, `govale_vouchers_worker` | ⏸️ standby | `docker/conf.d.available/*.conf` (origen: HUB) |
-| `mcp_server` (passkeys + push + MCP, puerto 8000) | ⏸️ standby | `docker/conf.d.available/mcp_server.conf` |
+| `bing_worker`, `tipo_cambio_worker`, `telegram_worker`, `oxxogas_worker`, `oxxogas_contactos_worker`, `pdf_storage_worker`, `network_scanner_worker`, `vales_worker`, `govale_vouchers_worker` | ✅ activos (migrados del HUB 2026-09-26) | plantillas en `docker/conf.d.available/*.conf` → copiadas a `conf.d/` al habilitarlas; lista vigente en `/data/workers_enabled.txt` |
+| `mcp_server` (passkeys + push + MCP, puerto 8000) | ✅ activo (el 8000 del host pasó de `hub_python`) | `docker/conf.d.available/mcp_server.conf` |
+
+> **Migración completa 2026-09-26**: los 10 programas corren aquí y `hub_python`
+> quedó **solo con `streamlit`** (sus `.conf` de workers se eliminaron del repo HUB
+> y `deploy.yml` ya no publica `-p 8000:8000`).
 
 ---
 
@@ -323,8 +328,8 @@ WorkersAdmon/
 ├── docker/
 │   ├── entrypoint.sh             # secretos_local + /etc/hosts Fileserver + activa la lista de /data
 │   ├── supervisord/supervisord.conf
-│   ├── conf.d/status_web.conf    # ← ÚNICA conf activa por defecto
-│   ├── conf.d.available/*.conf   # ←10 programas en standby (9 workers + mcp_server)
+│   ├── conf.d/status_web.conf    # ← ÚNICA conf embebida en la imagen
+│   ├── conf.d.available/*.conf   # ← plantillas de los 10 programas (todos habilitados)
 │   └── bin/{enable_worker,disable_worker,workers_list}
 ├── status_server.py              # punto de entrada → panel/server.py
 ├── panel/                        # ← paquete del panel de control (Fase A+B+C+D)
@@ -347,8 +352,8 @@ WorkersAdmon/
 ├── tests/test_pdf_worker.py      # 3 pruebas del worker de PDFs (Remisiones)
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
-├── cron_*.py, network_scanner.py # workers (código en standby)
-├── mcp_server.py                 # passkeys / push / MCP (standby)
+├── cron_*.py, network_scanner.py # workers (código de los 10 activos)
+├── mcp_server.py                 # passkeys / push / MCP (puerto 8000 del host)
 ├── pdf_*.py, telegram_alerts.py… # dependencias compartidas
 ├── views/  fonts/  *.png
 └── README.md / AGENTS.md

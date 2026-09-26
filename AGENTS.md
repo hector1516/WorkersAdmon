@@ -9,8 +9,8 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
 |---|---|---|
 | Imagen | `Dockerfile` | python:3.11-slim + freetds + smbclient + supervisor. Playwright **solo** con `--build-arg WITH_PLAYWRIGHT=1` |
 | Arranque | `docker/entrypoint.sh` | genera `secretos_local.py` desde env vars → `/etc/hosts` Fileserver → activa los workers listados en `/data/workers_enabled.txt` → `supervisord` |
-| Programas activos | `docker/conf.d/*.conf` | **hoy solo `status_web`** (la página de estado) |
-| Programas en standby | `docker/conf.d.available/*.conf` | 9 workers + `mcp_server`. **Ninguno corre hasta que se active** |
+| Programas activos | `docker/conf.d/*.conf` | **hoy solo `status_web`** en la imagen; al habilitar uno, `enable_worker` copia aquí su conf desde `conf.d.available/` |
+| Plantillas | `docker/conf.d.available/*.conf` | Las 10 confs (9 workers + `mcp_server`), **todas habilitadas el 2026-09-26** (lista vigente en `/data/workers_enabled.txt`) |
 | Helpers | `docker/bin/` | `enable_worker`, `disable_worker`, `workers_list` |
 | Panel | `status_server.py` → `panel/` | **Interfaz de control** en `STATUS_PORT` (8080): login HUB, pestañas Workers (activar/desactivar/reiniciar/logs), **Configuración** (`panel/spec.py` + `panel/envconf.py`), **Notificaciones** (`panel/views/notifications.py` + `panel/probes.py`) y **Apps** (`panel/views/apps.py`), `GET /api/status` (JSON) |
 | Heartbeats | `worker_heartbeat.py` | escribe `/data/heartbeats/<worker>.json` con la última ejecución |
@@ -156,9 +156,10 @@ Reglas del panel:
   bloques de vuelta (el resto de los archivos siguen idénticos byte a byte).
 - Flujo por worker: **apagar en `hub_python` → verificar → encender aquí →
   verificar**. Nunca los dos a la vez (mensajes/QR duplicados).
-- `mcp_server` vive aquí (puerto 8000 del host: passkeys `/__webauthn/*`, push
-  `/__push_subscribe__`, MCP `/message`). Activarlo implica **quitar `-p 8000:8000`**
-  de `hub_python` en el mismo paso.
+- `mcp_server` vive aquí desde 2026-09-26 (puerto 8000 del host: passkeys
+  `/__webauthn/*`, push `/__push_subscribe__`, MCP `/message`). El `-p 8000:8000`
+  se quitó de `hub_python` (contenedor y `deploy.yml`); `deploy/run_container.ps1`
+  lo publica aquí con `-p 8000:8000`.
 
 ## Pendientes
 
@@ -173,9 +174,10 @@ Reglas del panel:
     Si vuelve a pasar: revisar ese servicio Windows en ServerVM.
 - CI (`.github/workflows/deploy.yml` + runner self-hosted para este repo):
   fase posterior, mientras tanto el deploy es manual (`docker build` + `docker run`).
-- Activar el primer worker (hoy: ninguno activo) — ya puede hacerse desde el panel.
+- ~~Activar el primer worker~~ — los **10** están activos desde 2026-09-26.
 - Heartbeats: ningún worker llama aún `worker_heartbeat.heartbeat()` (la columna
   "Última ejecución" queda vacía).
-- Smoke de imports por worker + migración 1-a-1 (apagar en `hub_python` →
-  verificar → encender aquí) y quitar `-p 8000:8000` de `hub_python` al
-  activar `mcp_server`.
+- Smoke de imports por worker (los 10). La **migración 1-a-1 ya terminó**
+  (2026-09-26): los 10 programas corren aquí, `hub_python` quedó solo con
+  `streamlit`, los `.conf` de workers se eliminaron de `docker/prod/conf.d/` del
+  repo HUB y `-p 8000:8000` se quitó de su `deploy.yml`.
