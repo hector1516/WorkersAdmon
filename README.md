@@ -37,8 +37,8 @@ ssh eccsa@10.188.141.31 "if not exist C:\WorkersAdmon mkdir C:\WorkersAdmon & ta
 ::    se lanza con el Programador de Tareas y se vigila el log)
 ssh eccsa@10.188.141.31 "schtasks /create /tn WorkersBuild /tr C:\WorkersAdmon\deploy\build.bat /sc once /st 23:59 /f & schtasks /run /tn WorkersBuild"
 ::   → esperar hasta que C:\WorkersAdmon\build.log diga "FIN rc=0"
-::   (build con WITH_PLAYWRIGHT=1 solo cuando actives el primer worker de navegador:
-::    docker build --build-arg WITH_PLAYWRIGHT=1 -t workersadmon .)
+::   build.bat YA pasa --build-arg WITH_PLAYWRIGHT=1 (playwright + Chromium
+::   en la imagen, para los workers de navegador: OxxoGas contactos/vales/govale)
 
 :: 3) red dedicada (una sola vez) + levantar el contenedor
 ssh eccsa@10.188.141.31 "powershell -ExecutionPolicy Bypass -File C:\WorkersAdmon\deploy\run_container.ps1"

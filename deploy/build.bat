@@ -9,5 +9,7 @@ rem y vigilar C:\WorkersAdmon\build.log hasta ver "FIN rc=0".
 rem ============================================================
 cd /d C:\WorkersAdmon
 echo === INICIO %DATE% %TIME% === > build.log
-docker build -t workersadmon . >> build.log 2>&1
+rem WITH_PLAYWRIGHT=1: instala playwright + Chromium en la imagen
+rem (obligatorio para oxxogas_contactos / vales / govale_vouchers).
+docker build --build-arg WITH_PLAYWRIGHT=1 -t workersadmon . >> build.log 2>&1
 echo === FIN rc=%ERRORLEVEL% %DATE% %TIME% === >> build.log

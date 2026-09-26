@@ -176,7 +176,6 @@ Reglas del panel:
 - Activar el primer worker (hoy: ninguno activo) — ya puede hacerse desde el panel.
 - Heartbeats: ningún worker llama aún `worker_heartbeat.heartbeat()` (la columna
   "Última ejecución" queda vacía).
-- `--build-arg WITH_PLAYWRIGHT=1` en `deploy/build.bat` para los workers Go Vale.
 - Smoke de imports por worker + migración 1-a-1 (apagar en `hub_python` →
   verificar → encender aquí) y quitar `-p 8000:8000` de `hub_python` al
   activar `mcp_server`.
