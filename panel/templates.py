@@ -37,6 +37,20 @@ font-size:.9rem;font-weight:600;border:1px solid var(--line);background:var(--pa
 .nav a{color:var(--txt)} .nav a:hover{border-color:var(--orange);color:var(--yellow)}
 .nav a.active{background:var(--orange);border-color:var(--orange);color:#0F172A}
 .nav span.off{color:var(--gray);opacity:.55;cursor:not-allowed}
+.tnav{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.tnav a{padding:7px 13px;border:1px solid var(--line);border-radius:9px;
+background:rgba(255,255,255,.02);color:var(--txt);text-decoration:none;font-size:.88rem}
+.tnav a:hover{border-color:var(--orange);color:var(--yellow)}
+.tnav a.on{background:var(--orange);border-color:var(--orange);color:#0F172A;
+font-weight:600}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;
+font-size:.78rem;font-weight:600}
+.pill.ok{background:rgba(34,197,94,.14);color:#4ade80}
+.pill.err{background:rgba(239,68,68,.14);color:#f87171}
+.pill.wait{background:rgba(245,158,11,.14);color:#fbbf24}
+.desc{color:var(--muted);font-size:.9rem;line-height:1.6;margin:4px 0 10px}
+ol.desc{margin:6px 0 4px 20px}
+p.desc{margin:0}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
 gap:12px;margin:22px 0}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
@@ -169,6 +183,8 @@ h1 span{display:none}
 .badge-live{padding:5px 10px;font-size:.72rem}
 .nav{gap:7px;margin:14px 0 4px}
 .nav a,.nav span{padding:11px 14px;font-size:.92rem}
+.tnav{gap:5px}
+.tnav a{padding:10px 12px;font-size:.85rem}
 .cards{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
 gap:10px;margin:18px 0}
 .card{padding:13px 14px}

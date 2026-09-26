@@ -255,7 +255,8 @@ class Handler(BaseHTTPRequestHandler):
             ok, err = self._flash(query)
             return self._html(notif_view.render(
                 user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
-                correo_prueba=query.get("para", [""])[0] or user.get("email", "")))
+                correo_prueba=query.get("para", [""])[0] or user.get("email", ""),
+                vista_tg=query.get("tg", [""])[0] or "conexion"))
 
         if path == "/apps":
             user, done = self._require()
@@ -463,6 +464,9 @@ class Handler(BaseHTTPRequestHandler):
             ("telegram", "probar"): self._notif_telegram_probar,
             ("telegram", "evento"): self._notif_telegram_evento,
             ("telegram", "destinatarios"): self._notif_telegram_dest,
+            ("telegram", "vincular"): self._notif_telegram_vincular,
+            ("telegram", "desvincular"): self._notif_telegram_desvincular,
+            ("telegram", "limpiar"): self._notif_telegram_limpiar,
             ("push", "guardar"): self._notif_push,
             ("push", "probar"): self._notif_push_probar,
             ("correo", "guardar"): self._notif_correo,
@@ -642,7 +646,7 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             return self._notif_flash(f"No se pudo guardar el evento: {err}", err=True)
         self._notif_log(user, f"Plantilla del evento '{eid}' actualizada")
-        return self._notif_flash(f"Evento '{eid}' guardado.")
+        return self._notif_flash(f"Evento '{eid}' guardado.", vista="eventos")
 
     def _notif_telegram_dest(self, user, form):
         eid = (form.get("IdEvento", [""])[0] or "").strip()
@@ -653,7 +657,51 @@ class Handler(BaseHTTPRequestHandler):
         if not ok:
             return self._notif_flash(f"No se pudieron guardar los destinatarios: {err}", err=True)
         self._notif_log(user, f"Destinatarios de '{eid}' actualizados ({len(ids)})")
-        return self._notif_flash(f"Destinatarios de '{eid}' guardados ({len(ids)}).")
+        return self._notif_flash(
+            f"Destinatarios de '{eid}' guardados ({len(ids)}).",
+            vista="destinatarios")
+
+    def _notif_telegram_vincular(self, user, form):
+        """Vincula manualmente un usuario del HUB con su chat de Telegram."""
+        uid = (form.get("IdUsuario", [""])[0] or "").strip()
+        chat = (form.get("ChatId", [""])[0] or "").strip()
+        nombre = (form.get("NombreTelegram", [""])[0] or "").strip()
+        if not (uid.isdigit() and chat.isdigit() and int(chat) > 0):
+            return self._notif_flash(
+                "Selecciona un usuario y un Chat ID mayor a 0.", err=True,
+                vista="vinculados")
+        ok, err = db.add_telegram_usuario(int(uid), int(chat), nombre, "")
+        if not ok:
+            return self._notif_flash(f"No se pudo vincular: {err}", err=True,
+                                     vista="vinculados")
+        self._notif_log(user, f"Usuario {uid} vinculado a Telegram "
+                              f"(ChatId {chat})")
+        return self._notif_flash(f"Usuario vinculado a Telegram "
+                                 f"(ChatId {chat}).", vista="vinculados")
+
+    def _notif_telegram_desvincular(self, user, form):
+        """Quita la vinculación de un usuario con Telegram."""
+        uid = (form.get("IdUsuario", [""])[0] or "").strip()
+        if not uid.isdigit():
+            return self._notif_flash("Falta el usuario.", err=True,
+                                     vista="vinculados")
+        ok, err = db.unlink_telegram_usuario(int(uid))
+        if not ok:
+            return self._notif_flash(f"No se pudo desvincular: {err}", err=True,
+                                     vista="vinculados")
+        self._notif_log(user, f"Usuario {uid} desvinculado de Telegram")
+        return self._notif_flash(f"Usuario {uid} desvinculado.",
+                                 vista="vinculados")
+
+    def _notif_telegram_limpiar(self, user, form):
+        """Borra el historial de envíos con más de 30 días."""
+        ok, err = db.limpiar_telegram_historial(30)
+        if not ok:
+            return self._notif_flash(f"No se pudo limpiar: {err}", err=True,
+                                     vista="historial")
+        self._notif_log(user, "Historial de Telegram limpiado (>30 días)")
+        return self._notif_flash("Historial limpiado (>30 días).",
+                                 vista="historial")
 
     # ── Push ───────────────────────────────────────────────────────────────
     def _notif_push(self, user, form):
@@ -731,9 +779,12 @@ class Handler(BaseHTTPRequestHandler):
         return self._notif_flash(msg, err=not ok)
 
     # ── utilidades comunes ─────────────────────────────────────────────────
-    def _notif_flash(self, message, err=False):
-        url = "/notificaciones?" + urllib.parse.urlencode(
-            {"err" if err else "ok": message})
+    def _notif_flash(self, message, err=False, vista=""):
+        """PRG: conserva la sub-pestaña Telegram (?tg=...) al volver."""
+        params = {("err" if err else "ok"): message}
+        if vista:
+            params["tg"] = vista
+        url = "/notificaciones?" + urllib.parse.urlencode(params)
         return self._redirect(url)
 
     def _notif_log(self, user, accion):

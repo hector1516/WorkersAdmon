@@ -128,13 +128,56 @@ def _save_bar():
 
 
 # ─── bloques ─────────────────────────────────────────────────────────────────
-def _bloque_telegram(user):
-    if not _allowed(user, "telegram"):
-        return _card("🔔 Bot de Telegram", "AccesoTelegram", False, "", "")
+# ─── Telegram: sub-pestañas (misma organización que views/telegram.py del HUB)
+VISTAS_TG = [
+    ("conexion", "\U0001f50c Conexión"),
+    ("eventos", "\u269f\ufe0f Eventos"),
+    ("destinatarios", "\U0001f465 Destinatarios"),
+    ("vinculados", "\U0001f517 Vinculados"),
+    ("historial", "\U0001f4cb Historial"),
+]
 
+
+def _tnav(vista):
+    """Barra de sub-pestañas del bloque Telegram (equivale a st.tabs del HUB)."""
+    items = []
+    for v, label in VISTAS_TG:
+        cls = ' class="on"' if v == vista else ""
+        items.append(f'<a{cls} href="/notificaciones?tg={v}">{esc(label)}</a>')
+    return '<div class="tnav">' + "".join(items) + "</div>"
+
+
+def _encabezado(titulo, texto):
+    """Título + descripción de la sub-pestaña (como los markdown del HUB)."""
+    return (f'<div class="panel"><h2>{titulo}</h2>'
+            f'<p class="desc">{texto}</p></div>')
+
+
+def _tabla(headers, filas, vacio):
+    """Tabla scrolleable; cada fila es una lista de celdas ya escapadas."""
+    if not filas:
+        return f'<div class="panel"><div class="empty">{vacio}</div></div>'
+    th = "".join(f"<th>{h}</th>" for h in headers)
+    tr = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in fila) + "</tr>"
+                 for fila in filas)
+    return ('<div class="panel"><div class="tscroll"><table>'
+            f"<thead><tr>{th}</tr></thead><tbody>{tr}</tbody>"
+            "</table></div></div>")
+
+
+def _fval(v):
+    """Fecha a dd/mm/aaaa hh:mm (o cadena vacía)."""
+    if v is None:
+        return ""
+    if hasattr(v, "strftime"):
+        return v.strftime("%d/%m/%Y %H:%M")
+    return str(v)
+
+
+# ── sub-pestaña: Conexión ────────────────────────────────────────────────────
+def _tg_conexion():
     token = db.get_config_values(["telegram_bot_token"]).get("telegram_bot_token", "")
     m = db.telegram_metrics()
-
     cuerpo = (
         '<div class="cfg-grid">'
         + _secret("telegram_bot_token", bool(token), "Token del bot (@BotFather)",
@@ -145,63 +188,189 @@ def _bloque_telegram(user):
           f'cola {esc(m.get("pendientes", 0))} pend / {esc(m.get("fallados", 0))} fall / '
           f'{esc(m.get("enviados", 0))} enviados</div></div>'
         + "</div>" + _save_bar())
-    principal = _card("🔔 Bot de Telegram", "AccesoTelegram", True, cuerpo,
-                      "/notificaciones/telegram",
-                      prueba=_btn_prueba("/notificaciones/telegram/probar"))
+    principal = _card("\U0001f50c Conexión · Bot de Telegram", "AccesoTelegram", True,
+                      cuerpo, "/notificaciones/telegram",
+                      prueba=_btn_prueba("/notificaciones/telegram/probar",
+                                         "\U0001f9ea Probar Bot"))
+    instr = """
+  <div class="panel"><h2>\U0001f4f1 Cómo se vinculan los usuarios</h2>
+    <ol class="desc">
+      <li>Crear el bot con <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> y pegar el token arriba.</li>
+      <li>Cada usuario abre Telegram, busca <b>@el bot</b> y presiona <b>Start</b>.</li>
+      <li>Presiona <b>Compartir teléfono</b> (si está habilitado): el sistema
+          vincula su chat_id con su cuenta del HUB automáticamente.</li>
+      <li>Si no puede compartir el teléfono, un admin lo vincula a mano en la
+          sub-pestaña <b>\U0001f517 Vinculados</b>.</li>
+    </ol>
+  </div>"""
+    nota = ('<div class="empty" style="text-align:left;padding-top:0">'
+            'Mismas tablas que el HUB (<code>HUB_TelegramEventos</code>, '
+            '<code>HUB_TelegramDestinatarios</code>): los cambios aplican en el '
+            'próximo disparo de la alerta, sin reiniciar nada.</div>')
+    return principal + instr + nota
 
-    # ── Eventos y plantillas ────────────────────────────────────────────────
+
+# ── sub-pestaña: Eventos ─────────────────────────────────────────────────────
+def _tg_eventos():
+    out = [_encabezado(
+        "\u269f\ufe0f Eventos de Alerta",
+        "Configure qué alertas se envían y el texto de cada una. Placeholders: "
+        "{Folio} {Fecha} {Nombre} {Cantidad} {Automovil} {Cliente} {Descripcion} "
+        "{Tecnico} {Kilometros} {Usuario}.")]
     eventos = db.get_telegram_eventos()
-    tarjetas_eventos = []
     if not eventos:
-        tarjetas_eventos.append('<div class="panel"><div class="empty">'
-                                'No hay eventos configurados (migración 0018).</div></div>')
+        out.append('<div class="panel"><div class="empty">'
+                   'No hay eventos configurados (migración 0018 del HUB).</div></div>')
+        return "".join(out)
     for ev in eventos:
         eid = ev["IdEvento"]
-        estado = "🟢" if ev.get("Activo") else "🔴"
+        estado = "\U0001f7e2" if ev.get("Activo") else "\U0001f534"
         forms = (
             '<div class="cfg-grid">'
             + _textarea("PlantillaMensaje", ev.get("PlantillaMensaje") or "",
                         label="Plantilla del mensaje",
-                        help_="Placeholders: {Folio} {Fecha} {Nombre} {Cantidad} "
-                              "{Automovil} {Cliente} {Descripcion} {Tecnico} "
-                              "{Kilometros} {Usuario}")
+                        help_="Texto que llega al chat. Use los placeholders de arriba.")
             + _bool("AdjuntarArchivo", ev.get("AdjuntarArchivo"), "Adjuntar archivo")
             + _bool("Activo", ev.get("Activo"), "Activo")
             + "</div>" + _save_bar())
-        tarjetas_eventos.append(f"""
+        out.append(f"""
   <div class="panel">
-    <h2>{estado} Evento <code>{esc(eid)}</code> · {esc(ev.get("Nombre"))}</h2>
+    <h2>{estado} {esc(ev.get('Nombre'))} · <code>{esc(eid)}</code></h2>
     <form method="post" action="/notificaciones/telegram/evento">
       {_csrf_field()}<input type="hidden" name="IdEvento" value="{esc(eid)}">
       {forms}
     </form>
   </div>""")
+    return "".join(out)
 
-    # ── Destinatarios por evento ────────────────────────────────────────────
+
+# ── sub-pestaña: Destinatarios ───────────────────────────────────────────────
+def _tg_destinatarios():
+    out = [_encabezado(
+        "\U0001f465 Destinatarios por Evento",
+        "Seleccione qué usuarios del HUB reciben cada tipo de alerta; "
+        "guarde con el botón de esa tarjeta.")]
+    eventos = db.get_telegram_eventos()
+    if not eventos:
+        out.append('<div class="panel"><div class="empty">'
+                   'No hay eventos configurados (migración 0018 del HUB).</div></div>')
+        return "".join(out)
     usuarios = db.get_active_users()
     opciones = [(u["Id"], f'{u.get("Nombre") or ""} ({u.get("Email") or ""})')
                 for u in usuarios]
-    tarjetas_dest = []
     for ev in eventos:
         eid = ev["IdEvento"]
+        estado = "\U0001f7e2" if ev.get("Activo") else "\U0001f534"
         actuales = db.get_telegram_destinatarios(eid)
         forms = ('<div class="cfg-grid">'
-                 + _multi("ids", opciones, actuales, label="Usuarios que reciben esta alerta")
+                 + _multi("ids", opciones, actuales,
+                          label="Usuarios que reciben esta alerta")
                  + "</div>" + _save_bar())
-        tarjetas_dest.append(f"""
+        out.append(f"""
   <div class="panel">
-    <h2>👥 Destinatarios · <code>{esc(eid)}</code> ({len(actuales)} seleccionados)</h2>
+    <h2>{estado} {esc(ev.get('Nombre'))} · <code>{esc(eid)}</code>
+        ({len(actuales)} seleccionados)</h2>
     <form method="post" action="/notificaciones/telegram/destinatarios">
       {_csrf_field()}<input type="hidden" name="IdEvento" value="{esc(eid)}">
       {forms}
     </form>
   </div>""")
+    return "".join(out)
 
-    nota = ('<div class="empty" style="text-align:left;padding-top:0">'
-            'Mismas tablas que el HUB (<code>HUB_TelegramEventos</code>, '
-            '<code>HUB_TelegramDestinatarios</code>): los cambios aplican en el '
-            'próximo disparo de la alerta, sin reiniciar nada.</div>')
-    return nota + principal + "".join(tarjetas_eventos) + "".join(tarjetas_dest)
+
+# ── sub-pestaña: Vinculados ──────────────────────────────────────────────────
+def _tg_vinculados():
+    out = [_encabezado(
+        "\U0001f517 Usuarios Vinculados a Telegram",
+        "Gestione la vinculación entre usuarios del HUB y sus cuentas de Telegram.")]
+    vinc = db.get_telegram_vinculados()
+    filas = []
+    for v in vinc:
+        uid = int(v.get("IdUsuario") or 0)
+        btn = ('<form class="inline" method="post" '
+               'action="/notificaciones/telegram/desvincular">'
+               f'{_csrf_field()}<input type="hidden" name="IdUsuario" value="{uid}">'
+               '<button class="btn" type="submit">Desvincular</button></form>')
+        filas.append([
+            esc(v.get("Nombre") or ""), esc(v.get("Email") or ""),
+            esc(v.get("ChatId") or ""), esc(v.get("NombreTelegram") or ""),
+            esc(v.get("TelefonoMAC") or ""),
+            ("\U0001f7e2" if v.get("Activo") else "\U0001f534"),
+            esc(_fval(v.get("FechaVinculado"))), btn])
+    out.append(_tabla(
+        ["Nombre HUB", "Email", "Chat ID", "Telegram", "Tel. MAC", "Activo",
+         "Vinculado", ""], filas,
+        "Aún no hay usuarios vinculados: se vinculan solos al compartir el "
+        "teléfono con el bot, o agréguelos abajo a mano."))
+
+    vinc_ids = {int(v.get("IdUsuario") or 0) for v in vinc}
+    sin = [u for u in db.get_active_users() if int(u["Id"]) not in vinc_ids]
+    if sin:
+        opts = "".join(
+            f'<option value="{int(u["Id"])}">{esc(u.get("Nombre") or "")} '
+            f'({esc(u.get("Email") or "")})</option>' for u in sin)
+        campo_usuario = f'<select name="IdUsuario">{opts}</select>'
+        btn_on = ""
+    else:
+        campo_usuario = ('<div class="ro">Todos los usuarios activos ya están '
+                         'vinculados.</div>')
+        btn_on = " disabled"
+    out.append(f"""
+  <div class="panel"><h2>\u2795 Vincular usuario manualmente</h2>
+    <form method="post" action="/notificaciones/telegram/vincular">{_csrf_field()}
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>Usuario sin vincular</label>{campo_usuario}</div>
+        <div class="cfg-field"><label>Chat ID de Telegram</label>
+          <input type="number" name="ChatId" min="1" step="1" required
+                 placeholder="Ej: 512345678"></div>
+        <div class="cfg-field"><label>Nombre en Telegram (opcional)</label>
+          <input type="text" name="NombreTelegram" maxlength="60"
+                 placeholder="@usuario o nombre visible"></div>
+      </div>
+      <div class="cfg-save"><button class="btn on" type="submit"{btn_on}>\u2795 Vincular</button></div>
+    </form>
+  </div>""")
+    return "".join(out)
+
+
+# ── sub-pestaña: Historial ───────────────────────────────────────────────────
+def _tg_historial():
+    out = [_encabezado(
+        "\U0001f4cb Historial de Envíos",
+        "Últimos 100 mensajes de la cola de alertas (<code>HUB_TelegramQueue</code>).")]
+    hist = db.get_telegram_historial(limite=100)
+    filas = []
+    for h in hist:
+        estado = str(h.get("Estado") or "")
+        cls = {"ENVIADO": "ok", "FALLADO": "err"}.get(estado, "wait")
+        filas.append([
+            esc(h.get("Id")), esc(h.get("IdEvento")), esc(h.get("ChatId")),
+            esc(h.get("Texto") or ""),
+            f'<span class="pill {cls}">{esc(estado)}</span>',
+            esc(h.get("Intentos")), esc(_fval(h.get("Creado")))])
+    out.append(_tabla(["#", "Evento", "Chat ID", "Texto", "Estado", "Intentos",
+                       "Creado"], filas,
+                      "Todavía no hay envíos registrados."))
+    if hist:
+        out.append('<div class="panel"><form method="post" '
+                   'action="/notificaciones/telegram/limpiar">'
+                   f'{_csrf_field()}'
+                   '<button class="btn" type="submit">'
+                   '\U0001f5d1\ufe0f Limpiar historial (&gt;30 días)</button>'
+                   '</form></div>')
+    return "".join(out)
+
+
+def _bloque_telegram(user, vista="conexion"):
+    """Bloque Telegram completo: barra + sub-pestaña activa (como el HUB)."""
+    if not _allowed(user, "telegram"):
+        return _card("🔔 Bot de Telegram", "AccesoTelegram", False, "", "")
+    vistas = {"conexion": _tg_conexion, "eventos": _tg_eventos,
+              "destinatarios": _tg_destinatarios,
+              "vinculados": _tg_vinculados, "historial": _tg_historial}
+    if vista not in vistas:
+        vista = "conexion"
+    return _tnav(vista) + vistas[vista]()
 
 
 def _bloque_push(user):
@@ -268,7 +437,8 @@ def _bloque_ia(user):
 
 
 # ─── página ──────────────────────────────────────────────────────────────────
-def render(user, flash_ok="", flash_err="", csrf="", correo_prueba=""):
+def render(user, flash_ok="", flash_err="", csrf="", correo_prueba="",
+           vista_tg="conexion"):
     set_csrf(csrf)
     m = db.telegram_metrics()
     subs = db.get_push_subscriptions()
@@ -286,10 +456,11 @@ def render(user, flash_ok="", flash_err="", csrf="", correo_prueba=""):
   </div>"""
 
     cuerpo = (kpis
-              + _bloque_telegram(user)
+              + _bloque_telegram(user, vista_tg)
               + _bloque_push(user)
               + _bloque_correo(user, correo_prueba)
               + _bloque_ia(user))
     return page("notificaciones", cuerpo, user=user, flash_ok=flash_ok,
                 flash_err=flash_err,
-                subtitle="Telegram · Push · Correo · IA — mismas tablas que el HUB")
+                subtitle="Telegram (Conexión · Eventos · Destinatarios · "
+                         "Vinculados · Historial) · Push · Correo · IA")

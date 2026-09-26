@@ -186,7 +186,7 @@ Cuatro bloques, cada uno con **su permiso del HUB** y su botón de prueba:
 
 | Bloque | Permiso | Qué administra | Prueba |
 |---|---|---|---|
-| 🔔 **Telegram** | `AccesoTelegram` | Token (`HUB_Config.telegram_bot_token`), plantillas de los eventos (`HUB_TelegramEventos`) y destinatarios por evento (`HUB_TelegramDestinatarios`) | `getMe` de la API |
+| 🔔 **Telegram** | `AccesoTelegram` | **5 sub-pestañas como en el HUB** (`views/telegram.py`): 🔌 Conexión (token `HUB_Config.telegram_bot_token` + instrucciones), ⚙️ Eventos (plantillas `HUB_TelegramEventos`), 👥 Destinatarios (usuarios por evento `HUB_TelegramDestinatarios`), 🔗 Vinculados (tabla + alta/desvinculación manual) y 📋 Historial (cola `HUB_TelegramQueue`, limpieza >30 días) | `getMe` de la API |
 | 🔔 **Push** | `AccesoConfiguracion` | Claves VAPID (`HUB_PushConfig`) + nº de suscriptores | envía un push a todas las suscripciones (borra las caducadas 404/410) |
 | 📧 **Correo SMTP** | `AccesoConfigurarCorreo` | Servidor, puerto, usuario, contraseña y flags SSL/TLS/auth (`HUB_EmailConfig`) | envía un correo de prueba a la dirección que indiques |
 | 🤖 **IA** | `AccesoConfigAI` | Provider, API key y modelo (`HUB_AIConfig`) | lista los modelos de Gemini (1 sola llamada) |
@@ -196,8 +196,11 @@ Reglas: los **secretos jamás se pintan en el HTML** ni en la bitácora (blanco 
 el HUB** (aplican al próximo disparo, sin reiniciar) y las sondas de red viven
 en **`panel/probes.py`** (Telegram en `panel/workers.test_telegram_bot`).
 
-Acciones: `GET /notificaciones`, `POST /notificaciones/<bloque>` (guardar) y
-`POST /notificaciones/<bloque>/{probar|evento|destinatarios}`.
+Acciones: `GET /notificaciones[?tg=<vista>]` (sub-pestaña Telegram:
+`conexion|eventos|destinatarios|vinculados|historial`; por defecto `conexion`),
+`POST /notificaciones/<bloque>` (guardar),
+`POST /notificaciones/<bloque>/{probar|evento|destinatarios}` y
+`POST /notificaciones/telegram/{vincular|desvincular|limpiar}`.
 
 ### Pestaña Apps
 
@@ -243,11 +246,14 @@ botones se distinguen por su `name` (`save_all`, `edit`, `del`, `add`,
 | POST | `/configuracion/<worker>/probar` | sesión + CSRF | prueba (token Telegram) |
 | GET | `/workers/<n>/logs` | sesión | logs de un programa |
 | POST | `/workers/<n>/enable\|disable\|restart` | sesión + CSRF | acción + redirect |
-| GET | `/notificaciones` | sesión | pestaña Notificaciones |
+| GET | `/notificaciones[?tg=...]` | sesión | Notificaciones (sub-pestaña Telegram) |
 | POST | `/notificaciones/<bloque>` | sesión + CSRF | guardar bloque (`telegram\|push\|correo\|ia`) |
 | POST | `/notificaciones/<bloque>/probar` | sesión + CSRF | sonda de red (token, push, correo, IA) |
 | POST | `/notificaciones/telegram/evento` | sesión + CSRF | plantilla/adjunto/activo de un evento |
 | POST | `/notificaciones/telegram/destinatarios` | sesión + CSRF | destinatarios de un evento (multiselect) |
+| POST | `/notificaciones/telegram/vincular` | sesión + CSRF | vincula un usuario con su chat_id |
+| POST | `/notificaciones/telegram/desvincular` | sesión + CSRF | quita la vinculación |
+| POST | `/notificaciones/telegram/limpiar` | sesión + CSRF | borra la cola >30 días |
 | GET | `/apps` | sesión + `AccesoAppConfig` | pestaña Apps (catálogo por app) |
 | POST | `/apps` | sesión + CSRF + `AccesoAppConfig` | alta / editar / borrar / guardar valores / clasificar |
 | GET | `/manifest.webmanifest` | no | manifiesto PWA (instalable) |
@@ -337,7 +343,7 @@ WorkersAdmon/
 │   ├── manifest.webmanifest      # manifiesto instalable (Field/Admon)
 │   ├── sw.js                     # service worker: solo GET, offline = /offline
 │   └── icons/                    # 120/152/167/180/192/512 + maskable + apple
-├── tests/test_panel.py           # 52 pruebas, sin BD ni supervisord reales
+├── tests/test_panel.py           # 54 pruebas, sin BD ni supervisord reales
 ├── tests/test_pdf_worker.py      # 3 pruebas del worker de PDFs (Remisiones)
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
@@ -380,11 +386,11 @@ Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
 ## 9. Pruebas
 
 ```bash
-# suite completa (55 pruebas; dobles en memoria para BD y supervisorctl:
+# suite completa (57 pruebas; dobles en memoria para BD y supervisorctl:
 # no necesita SQL Server ni supervisord reales)
 python -m unittest discover -s tests
 
-# solo el panel (52) / solo el worker de PDFs (3)
+# solo el panel (54) / solo el worker de PDFs (3)
 python tests/test_panel.py
 python tests/test_pdf_worker.py
 ```

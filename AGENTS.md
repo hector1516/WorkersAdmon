@@ -37,7 +37,7 @@ config de apps de HUB/admon/Field/futuras). Fases:
 |---|---|---|
 | **A** | `panel/` + login HUB + pestaña Workers (acciones y logs) | ✅ |
 | **B** | pestaña **Configuración por worker**: `panel/spec.py` (catálogo), `panel/envconf.py` (overrides de entorno persistidos en `/data/worker_env.json` y reaplicados por el entrypoint), edición de `HUB_Config`, constantes solo lectura, bitácora sin valores secretos | ✅ |
-| **C** | pestaña Notificaciones (Telegram `HUB_Telegram*`, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón "Enviar prueba" | ✅ |
+| **C** | pestaña Notificaciones (Telegram `HUB_Telegram*` con **5 sub-pestañas** Conexión/Eventos/Destinatarios/Vinculados/Historial iguales a `views/telegram.py` del HUB, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón de prueba | ✅ |
 | **D** | pestaña Apps: catálogo `HUB_ConfigCatalogo` (metadatos) + valores en `HUB_Config`, agrupados por app; permiso `AccesoAppConfig` | ✅ |
 | **E** | subdominio `worker.ecc-sa.com.mx` vía Cloudflare (dashboard Zero Trust → Add public hostname → `http://10.188.141.31:8200`) | ✅ |
 
@@ -69,6 +69,9 @@ Reglas del panel:
   `CATALOGO[nombre]["descripcion"]`** (se muestra plegado con «ℹ️ Qué hace» en
   la tabla y completo en su tarjeta de Configuración). Mantenerla sincronizada
   con el docstring del script.
+- **Telegram del panel = `views/telegram.py` del HUB**: mismas 5 sub-pestañas
+  (pestañas `st.tabs` allá, barra `?tg=` aquí) — Conexión, Eventos, Destinatarios,
+  Vinculados e Historial. Si cambia la UX del HUB, reflejarla aquí.
 - Notificaciones (Fase C): bloque propio en `panel/views/notifications.py` +
   rutas `POST /notificaciones/<bloque>`; sondas en `panel/probes.py`. Mismas
   tablas que el HUB, secretos nunca pintados, permiso por bloque.
@@ -123,9 +126,9 @@ Reglas del panel:
   - Si se agregan campos de formulario, respetar el bloque de `font-size:16px`
     (evita el zoom automático de iOS).
   - HTML vía `page()` (no suelto): hereda head PWA, viewport y el CSS móvil.
-- Tests: `python -m unittest discover -s tests` (55 pruebas; dobles de BD y
+- Tests: `python -m unittest discover -s tests` (57 pruebas; dobles de BD y
   supervisorctl, no requieren SQL Server ni supervisord). Los casos puntuales
-  se corren con `python tests/test_panel.py` o `python tests/test_pdf_worker.py`.
+  se corren con `python tests/test_panel.py` (54) o `python tests/test_pdf_worker.py` (3).
 
 ## Credenciales (CRÍTICO)
 

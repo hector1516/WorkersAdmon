@@ -392,6 +392,75 @@ def telegram_metrics():
         return {}
 
 
+def get_telegram_vinculados():
+    """Usuarios vinculados al bot (HUB_TelegramUsuarios + HUB_Users)."""
+    try:
+        return _rows(
+            "SELECT t.IdUsuario, t.ChatId, t.NombreTelegram, t.TelefonoMAC, "
+            "t.Activo, t.FechaVinculado, u.Nombre, u.Email "
+            "FROM HUB_TelegramUsuarios t JOIN HUB_Users u ON t.IdUsuario = u.Id "
+            "ORDER BY u.Nombre ASC")
+    except Exception:
+        return []
+
+
+def add_telegram_usuario(id_usuario, chat_id, nombre_telegram, telefono_mac=""):
+    """Vincula (o actualiza) un usuario con su chat de Telegram. Devuelve (ok, err)."""
+    try:
+        _execute(
+            "MERGE HUB_TelegramUsuarios AS t "
+            "USING (SELECT %s AS IdUsuario) AS s ON t.IdUsuario = s.IdUsuario "
+            "WHEN MATCHED THEN UPDATE SET ChatId = %s, NombreTelegram = %s, "
+            "TelefonoMAC = %s, Activo = 1, FechaVinculado = GETDATE() "
+            "WHEN NOT MATCHED THEN INSERT (IdUsuario, ChatId, NombreTelegram, "
+            "TelefonoMAC) VALUES (%s, %s, %s, %s)",
+            (int(id_usuario), int(chat_id), nombre_telegram, telefono_mac,
+             int(id_usuario), int(chat_id), nombre_telegram, telefono_mac))
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def unlink_telegram_usuario(id_usuario):
+    """Quita la vinculación y sus destinatarios. Devuelve (ok, err)."""
+    try:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM HUB_TelegramDestinatarios "
+                            "WHERE IdUsuario = %s", (int(id_usuario),))
+                cur.execute("DELETE FROM HUB_TelegramUsuarios "
+                            "WHERE IdUsuario = %s", (int(id_usuario),))
+            conn.commit()
+            return True, ""
+        finally:
+            conn.close()
+    except Exception as exc:
+        return False, str(exc)
+
+
+def get_telegram_historial(limite=100):
+    """Últimos envíos de la cola (HUB_TelegramQueue), más recientes primero."""
+    try:
+        return _rows(
+            "SELECT TOP (%s) Id, IdEvento, ChatId, LEFT(Texto, 120) AS Texto, "
+            "Estado, Intentos, Creado FROM HUB_TelegramQueue "
+            "ORDER BY Creado DESC", (int(limite),))
+    except Exception:
+        return []
+
+
+def limpiar_telegram_historial(dias=30):
+    """Borra envíos terminados con más de N días. Devuelve (ok, detalle)."""
+    try:
+        n = _execute(
+            "DELETE FROM HUB_TelegramQueue WHERE Estado IN ('ENVIADO', 'FALLADO') "
+            "AND Creado < DATEADD(day, -%s, GETDATE())", (int(dias),))
+        return True, str(n)
+    except Exception as exc:
+        return False, str(exc)
+
+
 # ── Push (Web Push / VAPID) ──────────────────────────────────────────────────
 def get_push_config():
     """Claves VAPID guardadas (nunca se devuelven completas a la UI)."""

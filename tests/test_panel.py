@@ -384,6 +384,49 @@ def fake_set_dest(eid, ids):
 
 db.update_telegram_evento = fake_update_evento
 db.set_telegram_destinatarios = fake_set_dest
+
+_TG["vinculados"] = [
+    {"IdUsuario": 1, "ChatId": 5551234, "NombreTelegram": "admin_tg",
+     "TelefonoMAC": "MAC-1", "Activo": 1, "FechaVinculado": "2026-09-01 10:00",
+     "Nombre": "Admin", "Email": "admin@ecc-sa.com.mx"}]
+_TG["historial"] = [
+    {"Id": 7, "IdEvento": "KILOMETROS", "ChatId": 5551234,
+     "Texto": "Auto X — 100 km", "Estado": "ENVIADO", "Intentos": 1,
+     "Creado": "2026-09-25 08:00"}]
+
+
+def fake_vinculados():
+    return [dict(v) for v in _TG["vinculados"]]
+
+
+def fake_historial(limite=100):
+    return [dict(h) for h in _TG["historial"][:limite]]
+
+
+def fake_add(uid, chat, nombre, mac=""):
+    _TG["vinculados"].append({"IdUsuario": int(uid), "ChatId": int(chat),
+                              "NombreTelegram": nombre, "TelefonoMAC": mac,
+                              "Activo": 1, "FechaVinculado": "2026-09-26 12:00",
+                              "Nombre": "Nuevo", "Email": "nuevo@ecc-sa.com.mx"})
+    return True, ""
+
+
+def fake_unlink(uid):
+    _TG["vinculados"] = [v for v in _TG["vinculados"]
+                         if int(v["IdUsuario"]) != int(uid)]
+    return True, ""
+
+
+def fake_limpiar(dias=30):
+    _TG["historial"] = []
+    return True, "1"
+
+
+db.get_telegram_vinculados = fake_vinculados
+db.get_telegram_historial = fake_historial
+db.add_telegram_usuario = fake_add
+db.unlink_telegram_usuario = fake_unlink
+db.limpiar_telegram_historial = fake_limpiar
 db.get_push_config = lambda: dict(_PUSH)
 
 
@@ -812,13 +855,45 @@ class PanelTest(unittest.TestCase):
     # ── pestaña Notificaciones (Fase C) ─────────────────────────────────────
     def test_26_pagina_notificaciones(self):
         c = self._logged()
+        # por defecto abre la sub-pestaña Conexión (como en el HUB)
         code, _, html = c.get("/notificaciones")
         self.assertEqual(code, 200)
-        for trozo in ("Bot de Telegram", "Push Web", "Correo SMTP", "IA (Gemini)",
-                      "HUB_TelegramEventos", "KILOMETROS", 'name="ids"',
-                      "Usuarios que reciben esta alerta", "Clave privada VAPID"):
+        for trozo in ("tnav", "Conexión", "Vinculados", "Bot de Telegram",
+                      "Push Web", "Correo SMTP", "IA (Gemini)",
+                      "HUB_TelegramEventos", "Clave privada VAPID"):
             self.assertIn(trozo, html)
         self.assertIn('name="csrf"', html)
+
+        # sub-pestaña Eventos
+        code, _, html = c.get("/notificaciones?tg=eventos")
+        self.assertEqual(code, 200)
+        for trozo in ("Eventos de Alerta", "KILOMETROS", "Plantilla del mensaje"):
+            self.assertIn(trozo, html)
+
+        # sub-pestaña Destinatarios (elegir usuarios por evento)
+        code, _, html = c.get("/notificaciones?tg=destinatarios")
+        self.assertEqual(code, 200)
+        for trozo in ("Destinatarios por Evento", 'name="ids"',
+                      "Usuarios que reciben esta alerta", "seleccionados"):
+            self.assertIn(trozo, html)
+
+        # sub-pestaña Vinculados (tabla + alta manual)
+        code, _, html = c.get("/notificaciones?tg=vinculados")
+        self.assertEqual(code, 200)
+        for trozo in ("Vinculados a Telegram", "Vincular usuario manualmente",
+                      "Desvincular", "Chat ID", "admin_tg"):
+            self.assertIn(trozo, html)
+
+        # sub-pestaña Historial (cola de envíos)
+        code, _, html = c.get("/notificaciones?tg=historial")
+        self.assertEqual(code, 200)
+        for trozo in ("Historial de Envíos", "KILOMETROS", "ENVIADO",
+                      "Limpiar historial"):
+            self.assertIn(trozo, html)
+        # una vista desconocida cae en Conexión
+        code, _, html = c.get("/notificaciones?tg=zzz")
+        self.assertEqual(code, 200)
+        self.assertIn("Bot de Telegram", html)
 
     def test_27_guardar_token_de_telegram(self):
         c = self._logged()
@@ -1352,6 +1427,57 @@ class PanelTest(unittest.TestCase):
         # 3 tablas de catálogo (+ la de "sin clasificar" si hay claves libres)
         self.assertGreaterEqual(html.count("<table"), 3)
         self.assertEqual(html.count("<table"), html.count('class="tscroll"'))
+
+
+    # ── Telegram: vinculación manual e historial (sub-pestañas del HUB) ─────
+    def test_53_vincular_y_desvincular_usuario(self):
+        c = self._logged()
+        # chat id inválido → error y sigue en la sub-pestaña
+        code, headers, _ = c.post("/notificaciones/telegram/vincular", csrf=c.csrf(),
+                                  IdUsuario="3", ChatId="0")
+        self.assertEqual(code, 303)
+        self.assertIn("err=", urllib.parse.unquote_plus(headers.get("Location", "")))
+        self.assertIn("tg=vinculados", headers.get("Location", ""))
+        # vinculación correcta
+        code, headers, _ = c.post("/notificaciones/telegram/vincular", csrf=c.csrf(),
+                                  IdUsuario="3", ChatId="5599",
+                                  NombreTelegram="otro_tg")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
+        self.assertIn("tg=vinculados", headers.get("Location", ""))
+        self.assertIn(3, [int(v["IdUsuario"]) for v in _TG["vinculados"]])
+        _, _, html = c.get("/notificaciones?tg=vinculados")
+        self.assertIn("otro_tg", html)
+        # sin CSRF → 403
+        code, _, _ = c.post("/notificaciones/telegram/vincular", IdUsuario="3",
+                            ChatId="1")
+        self.assertEqual(code, 403)
+        # desvincular
+        code, headers, _ = c.post("/notificaciones/telegram/desvincular",
+                                  csrf=c.csrf(), IdUsuario="3")
+        self.assertEqual(code, 303)
+        self.assertIn("tg=vinculados", headers.get("Location", ""))
+        self.assertNotIn(3, [int(v["IdUsuario"]) for v in _TG["vinculados"]])
+        # bitácora (sin secretos)
+        acciones = [a[2] for a in _ACTIVITY]
+        self.assertTrue(any("vinculado a Telegram" in a for a in acciones))
+        self.assertTrue(any("desvinculado de Telegram" in a for a in acciones))
+        # el chat id SÍ se bitacorea (no es un secreto: sirve para auditar)
+        self.assertTrue(any("ChatId 5599" in a for a in acciones))
+
+    def test_54_limpiar_historial(self):
+        c = self._logged()
+        self.assertTrue(_TG["historial"], "el doble arranca con envíos")
+        code, headers, _ = c.post("/notificaciones/telegram/limpiar", csrf=c.csrf())
+        self.assertEqual(code, 303)
+        self.assertIn("tg=historial", headers.get("Location", ""))
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
+        self.assertEqual(_TG["historial"], [])
+        _, _, html = c.get("/notificaciones?tg=historial")
+        self.assertIn("Todavía no hay envíos", html)
+        acciones = [a[2] for a in _ACTIVITY]
+        self.assertTrue(any("Historial de Telegram limpiado" in a
+                            for a in acciones))
 
 
 if __name__ == "__main__":
