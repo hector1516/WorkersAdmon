@@ -101,7 +101,20 @@ Reglas del panel:
   - El éxito es idéntico a `_post_login`: cookie `ecsa_token` + `panel_csrf`
     y bitácora; el botón del login solo aparece si hay `isSecureContext` +
     `PublicKeyCredential`.
-- Tests: `python tests/test_panel.py` (46 pruebas; doble de BD + supervisorctl
+- PWA (igual que Field y Admon): assets en `static/` (`manifest.webmanifest`,
+  `sw.js`, `icons/*`) servidos en la raíz por `panel/server.py`
+  (`/manifest.webmanifest`, `/sw.js`, `/offline`, `/icons/<whitelist>`).
+  - Meta/registro en `panel/templates.py` → `PWA_HEAD` + `PWA_JS` (se inyectan
+    en `page()`, `login_page()` y `offline_page()`); `forbidden_page` hereda de
+    `page()`. Si se agrega una página nueva, usar `page()` (no HTML suelto).
+  - `sw.js`: **SOLO GET** (nunca responder a POST con la petición de red: se
+    pierde el body). Navegaciones = red siempre + fallback `/offline`
+    (no cachear HTML autenticado); `/api/status`, `/healthz`, `/login`,
+    `/logout` y `/passkey/*` network-only; estáticos caché+revalidación.
+  - Los iconos se generan desde `workers/worker.png` con Pillow (fondo
+    `#0F172A`); al cambiar el logo, regenerarlos y subir el `CACHE` de `sw.js`.
+  - Instalable solo con HTTPS (`https://workers.ecc-sa.com.mx`).
+- Tests: `python tests/test_panel.py` (50 pruebas; doble de BD + supervisorctl
   falso; no requiere BD ni supervisord).
 
 ## Credenciales (CRÍTICO)

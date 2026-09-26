@@ -87,6 +87,20 @@ configuración y notificaciones de todo el ecosistema.
   POST, límite de 5 intentos fallidos por IP (1 min de bloqueo) y bitácora en
   `HUB_ActivityLog` (login, acciones, logout).
 
+### PWA (instalable)
+
+* Mismo patrón que **Field** y **Admon**: `static/manifest.webmanifest`,
+  `static/sw.js` y `static/icons/*`, servidos en la raíz del sitio.
+* Los `<meta>`/`<link>` de instalación y el registro del SW viven en
+  `panel/templates.py` (`PWA_HEAD`, `PWA_JS`) y se inyectan en **todas** las
+  páginas (panel, login y `forbidden`).
+* `sw.js` obedece la regla dura de Field: **solo intercepta GET**. Las
+  navegaciones van siempre a red (sin cachear HTML autenticado) y sin conexión
+  sirve `/offline`; `/api/status`, `/healthz`, `/login` y `/passkey/*` son
+  network-only.
+* Instalable desde `https://workers.ecc-sa.com.mx` (el navegador exige HTTPS;
+  en `http://10.188.141.31:8200` no aparece el banner de instalación).
+
 ### Pestañas
 
 | Pestaña | Estado | Contenido |
@@ -224,6 +238,10 @@ botones se distinguen por su `name` (`save_all`, `edit`, `del`, `add`,
 | POST | `/notificaciones/telegram/destinatarios` | sesión + CSRF | destinatarios de un evento (multiselect) |
 | GET | `/apps` | sesión + `AccesoAppConfig` | pestaña Apps (catálogo por app) |
 | POST | `/apps` | sesión + CSRF + `AccesoAppConfig` | alta / editar / borrar / guardar valores / clasificar |
+| GET | `/manifest.webmanifest` | no | manifiesto PWA (instalable) |
+| GET | `/sw.js` | no | service worker (solo GET, `no-cache`) |
+| GET | `/offline` | no | página estática que sirve el SW sin conexión |
+| GET | `/icons/<nombre>.png` | no | iconos PWA (whitelist, 120–512 + maskable) |
 
 ---
 
@@ -303,7 +321,11 @@ WorkersAdmon/
 │   ├── templates.py              # HTML tema oscuro + login
 │   ├── server.py                 # routing HTTP
 │   └── views/                    # workers.py · config.py · notifications.py · apps.py
-├── tests/test_panel.py           # 46 pruebas, sin BD ni supervisord reales
+├── static/                       # assets PWA (se sirven en la raíz del sitio)
+│   ├── manifest.webmanifest      # manifiesto instalable (Field/Admon)
+│   ├── sw.js                     # service worker: solo GET, offline = /offline
+│   └── icons/                    # 120/152/167/180/192/512 + maskable + apple
+├── tests/test_panel.py           # 50 pruebas, sin BD ni supervisord reales
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
 ├── cron_*.py, network_scanner.py # workers (código en standby)
@@ -345,7 +367,7 @@ Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
 ## 9. Pruebas
 
 ```bash
-# smoke test del panel (46 pruebas; no necesita SQL Server ni supervisord
+# smoke test del panel (50 pruebas; no necesita SQL Server ni supervisord
 # reales): doble en memoria para la BD + supervisorctl falso en un sandbox.
 python tests/test_panel.py
 ```

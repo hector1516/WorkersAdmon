@@ -22,3 +22,6 @@ workers_data/
 
 # Pruebas (no corren dentro de la imagen)
 tests/
+
+# Credenciales de despliegue (nunca dentro de la imagen)
+deploy/env.local

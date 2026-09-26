@@ -191,6 +191,39 @@ def flash(message, kind="ok"):
     return f'<div class="flash {kind}">{esc(message)}</div>'
 
 
+# ─── PWA: metadatos de instalación y registro del service worker ────────────
+# Mismos meta/links que Field y Admon: el panel se puede instalar en el
+# escritorio/celular desde https://workers.ecc-sa.com.mx.
+PWA_HEAD = """
+<meta name="theme-color" content="#0F172A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Workers Admon">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="Panel de control de workers, notificaciones y configuración ECCSA">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png">
+<link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-120x120.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png">
+"""
+
+PWA_JS = """
+<script>
+/* PWA: registra el service worker (no crítico: si falla, el panel sigue igual). */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js').catch(function () {});
+  });
+}
+</script>
+"""
+
+VIEWPORT = ('<meta name="viewport" content="width=device-width,initial-scale=1,'
+            'maximum-scale=1,user-scalable=no,viewport-fit=cover">')
+
+
 def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refresh=0):
     """Layout general: header + pestañas + contenido + footer."""
     refresh_meta = (f'<meta http-equiv="refresh" content="{int(refresh)}">'
@@ -206,9 +239,10 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+{VIEWPORT}
 {refresh_meta}
 <title>{esc(config.TITLE)}</title>
+{PWA_HEAD}
 <link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
@@ -234,6 +268,7 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     <span>API JSON en <a href="/api/status">/api/status</a></span>
   </footer>
 </div>
+{PWA_JS}
 </body>
 </html>"""
 
@@ -247,8 +282,9 @@ def login_page(error="", csrf="", locked=False):
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+{VIEWPORT}
 <title>Iniciar sesión — {esc(config.TITLE)}</title>
+{PWA_HEAD}
 <link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
@@ -371,6 +407,39 @@ def login_page(error="", csrf="", locked=False):
   }});
 }})();
 </script>
+{PWA_JS}
+</body>
+</html>"""
+
+
+def offline_page():
+    """Página que entrega el service worker cuando no hay conexión.
+
+    No lleva datos: solo reintentar. Así el HTML autenticado nunca se sirve
+    desde la caché (evita mezclar sesiones en máquinas compartidas).
+    """
+    return f"""<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+{VIEWPORT}
+<title>Sin conexión — {esc(config.TITLE)}</title>
+{PWA_HEAD}
+<link rel="icon" type="image/png" href="/logo.png">
+<style>{CSS}</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="box">
+    <img class="logo-big" src="/logo.png" alt="{esc(config.TITLE)}">
+    <h1>📡 Sin conexión</h1>
+    <div class="muted">No se pudo contactar con el panel. Revisa tu red y
+      vuelve a intentar.</div>
+    <button class="submit" type="button" onclick="location.reload()">
+      🔄 Reintentar</button>
+  </div>
+</div>
+{PWA_JS}
 </body>
 </html>"""
 

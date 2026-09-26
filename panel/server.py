@@ -25,12 +25,13 @@ Seguridad: cookie `ecsa_token` (HttpOnly), CSRF de doble envío, límite de
 intentos de login, cabeceras anti-clickjacking y permiso `AccesoConfiguracion`.
 """
 import json
+import os
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import auth, config, db, envconf, probes, spec, webauthn, workers
-from .templates import esc, forbidden_page, login_page, page
+from .templates import esc, forbidden_page, login_page, offline_page, page
 from .views import apps as apps_view
 from .views import config as config_view
 from .views import notifications as notif_view
@@ -71,6 +72,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def _html(self, text, code=200, extra=()):
         self._send(code, text, "text/html", extra)
+
+    def _static(self, path, ctype, cache, extra=()):
+        """Sirve un archivo estático (PWA) con sus propias cabeceras de caché."""
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            return self._send(404, "archivo no encontrado", "text/plain")
+        headers = [("Content-Type", ctype),
+                   ("Content-Length", str(len(data))),
+                   ("Cache-Control", cache),
+                   ("X-Content-Type-Options", "nosniff")] + list(extra)
+        self.send_response(200)
+        for k, v in headers:
+            self.send_header(k, v)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def _logo(self):
         """Sirve el logo del panel (PNG) con caché de un día."""
@@ -173,6 +192,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._logo()
         if path == "/favicon.ico":
             return self._redirect("/logo.png")
+
+        # ── PWA: manifest, service worker, iconos y página offline ──────────
+        if path == "/manifest.webmanifest":
+            return self._static(config.MANIFEST_FILE,
+                                "application/manifest+json",
+                                "public, max-age=3600")
+        if path == "/sw.js":
+            # no-cache: una versión nueva del SW debe notificarse en seguida
+            return self._static(config.SW_FILE, "application/javascript",
+                                "no-cache", extra=[("Service-Worker-Allowed", "/")])
+        if path == "/offline":
+            return self._html(offline_page())
+        if path.startswith("/icons/"):
+            name = path.rsplit("/", 1)[-1]
+            if name in config.ICONS_WHITELIST:
+                return self._static(os.path.join(config.ICONS_DIR, name),
+                                    "image/png", "public, max-age=604800")
+            return self._send(404, "icono no encontrado", "text/plain")
         if path == "/api/status":
             try:
                 return self._json(workers.build_status())

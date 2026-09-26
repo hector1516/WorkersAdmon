@@ -47,6 +47,24 @@ def _logo_path():
 
 LOGO_FILE = _logo_path()
 
+# ─── Assets PWA (manifest + service worker + iconos) ────────────────────────
+# Viven en static/ (igual que Field y Admon): el servidor los sirve en la raíz
+# del sitio (/manifest.webmanifest, /sw.js, /icons/*.png) para que el navegador
+# pueda instalar el panel como aplicación.
+def _static_dir():
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "static")
+
+
+STATIC_DIR = _static_dir()
+MANIFEST_FILE = os.path.join(STATIC_DIR, "manifest.webmanifest")
+SW_FILE = os.path.join(STATIC_DIR, "sw.js")
+ICONS_DIR = os.path.join(STATIC_DIR, "icons")
+# Whitelist de iconos: nada de `..` ni archivos arbitrarios desde /icons/
+ICONS_WHITELIST = ("icon-120x120.png", "icon-152x152.png", "icon-167x167.png",
+                   "icon-180x180.png", "icon-192x192.png", "icon-512x512.png",
+                   "icon-maskable-512.png", "apple-touch-icon.png")
+
 # ─── Red ──────────────────────────────────────────────────────────────────────
 PANEL_PORT = int(os.environ.get("STATUS_PORT", "8080"))
 TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")

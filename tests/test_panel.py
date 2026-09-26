@@ -481,6 +481,15 @@ class Client:
     def get(self, path):
         return self._req(f"http://127.0.0.1:{PORT}{path}")
 
+    def get_bytes(self, path):
+        """GET que devuelve los bytes crudos (PNG, etc.)."""
+        req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}")
+        try:
+            resp = self.opener.open(req, timeout=10)
+            return resp.getcode(), dict(resp.headers), resp.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, dict(exc.headers), exc.read()
+
     def post(self, path, **fields):
         return self._req(f"http://127.0.0.1:{PORT}{path}", data=fields)
 
@@ -1235,6 +1244,85 @@ class PanelTest(unittest.TestCase):
         # base64url con y sin padding
         self.assertEqual(_webauthn._from_b64url("AQID"), b"\x01\x02\x03")
         self.assertEqual(_webauthn._from_b64url("AQI"), b"\x01\x02")
+
+    # ── PWA (manifest, service worker, iconos, offline) ──────────────────────
+    def test_47_pwa_manifest(self):
+        c = Client()
+        code, headers, body = c.get("/manifest.webmanifest")
+        self.assertEqual(code, 200)
+        self.assertIn("manifest+json", headers.get("Content-Type", ""))
+        data = json.loads(body)
+        self.assertEqual(data["name"], "Workers Admon · ECCSA")
+        self.assertEqual(data["short_name"], "Workers")
+        self.assertEqual(data["display"], "standalone")
+        self.assertEqual(data["start_url"], "/")
+        self.assertEqual(data["scope"], "/")
+        self.assertEqual(data["background_color"], "#0F172A")
+        self.assertEqual(data["theme_color"], "#FF6B00")
+        sizes = {i["sizes"] for i in data["icons"]}
+        self.assertIn("192x192", sizes)
+        self.assertIn("512x512", sizes)
+        self.assertTrue(any(i.get("purpose") == "maskable" for i in data["icons"]))
+        rutas = {t["url"] for t in data["shortcuts"]}
+        self.assertEqual(rutas, {"/", "/configuracion", "/notificaciones", "/apps"})
+        # el manifest nunca se sirve con caché eterna
+        self.assertIn("max-age", headers.get("Cache-Control", ""))
+
+    def test_48_pwa_service_worker(self):
+        c = Client()
+        code, headers, body = c.get("/sw.js")
+        self.assertEqual(code, 200)
+        self.assertIn("javascript", headers.get("Content-Type", ""))
+        self.assertEqual(headers.get("Service-Worker-Allowed"), "/")
+        self.assertEqual(headers.get("Cache-Control"), "no-cache")
+        # REGLA DURA de Field: solo GET, jamás respondWith(fetch(request))
+        self.assertIn("request.method !== 'GET'", body)
+        self.assertNotIn("respondWith(fetch(request))", body)
+        # jamás cachear datos vivos ni login/passkey
+        for trozo in ("'/api/status'", "'/healthz'", "'/login'", "'/passkey/'",
+                      "'/offline'", "'/manifest.webmanifest'"):
+            self.assertIn(trozo, body, f"falta {trozo}")
+
+    def test_49_pwa_iconos(self):
+        c = Client()
+        for nombre, size in (("icon-192x192.png", 192), ("icon-512x512.png", 512),
+                             ("icon-maskable-512.png", 512),
+                             ("apple-touch-icon.png", 180)):
+            code, headers, data = c.get_bytes(f"/icons/{nombre}")
+            self.assertEqual(code, 200, nombre)
+            self.assertEqual(headers.get("Content-Type"), "image/png", nombre)
+            self.assertTrue(data.startswith(b"\x89PNG"), f"{nombre} no es PNG")
+            self.assertIn("max-age", headers.get("Cache-Control", ""))
+        # fuera del whitelist → 404 (nada de archivos arbitrarios)
+        code, _, _ = c.get("/icons/secretos_local.py")
+        self.assertEqual(code, 404)
+        code, _, _ = c.get("/icons/icon-999x999.png")
+        self.assertEqual(code, 404)
+        code, _, _ = c.get("/icons/../secretos_local.py")
+        self.assertEqual(code, 404)
+
+    def test_50_pwa_head_y_offline(self):
+        head = ('<link rel="manifest" href="/manifest.webmanifest">',
+                '<meta name="theme-color" content="#0F172A">',
+                'rel="apple-touch-icon"',
+                "navigator.serviceWorker.register('/sw.js')",
+                'viewport-fit=cover')
+        # login (sin sesión)
+        c = Client()
+        _, _, html = c.get("/login")
+        for trozo in head:
+            self.assertIn(trozo, html, f"login sin {trozo}")
+        # página autenticada
+        c.login("admin@ecc-sa.com.mx", "s3cret")
+        _, _, html = c.get("/")
+        for trozo in head:
+            self.assertIn(trozo, html, f"panel sin {trozo}")
+        # offline: accesible sin sesión y sin datos del usuario
+        code, _, html = c.get("/offline")
+        self.assertEqual(code, 200)
+        self.assertIn("Sin conexión", html)
+        self.assertIn("serviceWorker", html)
+        self.assertNotIn("Admin Panel", html)
 
 
 if __name__ == "__main__":
