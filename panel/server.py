@@ -16,7 +16,8 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
   POST /configuracion/<nombre>/probar  → prueba un token (bot de Telegram)
   GET  /notificaciones                 → pestaña Notificaciones (Fase C)
   POST /notificaciones/<bloque>[/...]  → guarda / prueba (telegram|push|correo|ia)
-  GET  /apps                           → marcador de fase (Fase D)
+  GET  /apps                           → pestaña Apps (catálogo por app)
+  POST /apps                           → alta / editar / borrar / guardar valores
 
 Seguridad: cookie `ecsa_token` (HttpOnly), CSRF de doble envío, límite de
 intentos de login, cabeceras anti-clickjacking y permiso `AccesoConfiguracion`.
@@ -28,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import auth, config, db, envconf, probes, spec, workers
 from .templates import esc, forbidden_page, login_page, page
+from .views import apps as apps_view
 from .views import config as config_view
 from .views import notifications as notif_view
 from .views import workers as workers_view
@@ -35,11 +37,6 @@ from .views import workers as workers_view
 MAX_BODY = 64 * 1024          # límite del cuerpo de un POST
 LOG_LINES = 300               # líneas de log mostradas
 
-_FUTURE_TABS = {
-    "apps": ("⚙️ Apps",
-             "Fase D — catálogo de claves de configuración por app "
-             "(HUB, admon, Field y futuras).", "apps"),
-}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -72,6 +69,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def _html(self, text, code=200, extra=()):
         self._send(code, text, "text/html", extra)
+
+    def _logo(self):
+        """Sirve el logo del panel (PNG) con caché de un día."""
+        try:
+            with open(config.LOGO_FILE, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            return self._send(404, "logo no encontrado", "text/plain")
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def _json(self, obj, code=200):
         self._send(code, json.dumps(obj, ensure_ascii=False, indent=2),
@@ -140,6 +153,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/healthz":
             return self._send(200, "ok", "text/plain")
+        if path == "/logo.png":
+            return self._logo()
+        if path == "/favicon.ico":
+            return self._redirect("/logo.png")
         if path == "/api/status":
             try:
                 return self._json(workers.build_status())
@@ -187,19 +204,17 @@ class Handler(BaseHTTPRequestHandler):
                 user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
                 correo_prueba=query.get("para", [""])[0] or user.get("email", "")))
 
-        if path in ("/apps",):
+        if path == "/apps":
             user, done = self._require()
             if done:
                 return
-            title, desc, tab = _FUTURE_TABS[path.strip("/")]
-            body = (f'<div class="panel"><div class="empty">'
-                    f'<div style="font-size:1.6rem">🚧</div>'
-                    f'<h2 style="margin:8px 0">{esc(title)}</h2>'
-                    f'<p>{esc(desc)}</p>'
-                    f'<p class="muted">Esta pestaña se habilita en una fase '
-                    f'siguiente; el código ya está preparado para ella.</p>'
-                    f'<a href="/">← Volver a Workers</a></div></div>')
-            return self._html(page(tab, body, user=user))
+            if not auth.has_perm(user, "AccesoAppConfig"):
+                return self._html(forbidden_page(
+                    "La pestaña Apps requiere el permiso AccesoAppConfig en el "
+                    "HUB. Pídeselo al administrador."), 403)
+            ok, err = self._flash(query)
+            return self._html(apps_view.render(
+                user, flash_ok=ok, flash_err=err, csrf=self._csrf()))
 
         return self._send(404, "No encontrado", "text/plain")
 
@@ -232,6 +247,9 @@ class Handler(BaseHTTPRequestHandler):
             rest = path[len("/configuracion/"):]
             name, _, action = rest.partition("/")
             return self._config_action(user, name, action, form)
+
+        if path == "/apps":
+            return self._apps_action(user, form)
 
         if path.startswith("/notificaciones/"):
             segs = [s for s in path[len("/notificaciones/"):].split("/") if s]
@@ -342,6 +360,147 @@ class Handler(BaseHTTPRequestHandler):
         if handler is None:
             return self._send(404, "Bloque/acción no válidos", "text/plain")
         return handler(user, form)
+
+    # ── Apps (Fase D) ──────────────────────────────────────────────────────
+    def _apps_action(self, user, form):
+        """Dispatch de la pestaña Apps: los botones se distinguen por su name."""
+        if not auth.has_perm(user, "AccesoAppConfig"):
+            return self._html(forbidden_page(
+                "La pestaña Apps requiere el permiso AccesoAppConfig."), 403)
+
+        if form.get("add"):
+            return self._apps_alta(user, form)
+        if form.get("save_all"):
+            return self._apps_guardar_todo(user, form)
+        if form.get("edit"):
+            return self._apps_editar(user, form)
+        if form.get("del"):
+            return self._apps_borrar(user, form)
+        if form.get("clasificar"):
+            return self._apps_clasificar(user, form)
+        return self._send(404, "Acción no válida", "text/plain")
+
+    def _apps_flash(self, message, err=False):
+        url = "/apps?" + urllib.parse.urlencode({"err" if err else "ok": message})
+        return self._redirect(url)
+
+    def _apps_log(self, user, accion):
+        db.log_activity(user["email"], "Panel Workers", accion)
+
+    @staticmethod
+    def _fila_app(fid):
+        """Fila del catálogo con ese Id (None si ya no existe)."""
+        try:
+            fid = int(fid)
+        except (TypeError, ValueError):
+            return None
+        for fila in db.get_config_catalog():
+            if fila["Id"] == fid:
+                return fila
+        return None
+
+    def _apps_alta(self, user, form):
+        """Alta de una clave en el catálogo (+ valor inicial opcional)."""
+        app = (form.get("app", [""])[0] or "").strip()
+        clave = (form.get("clave", [""])[0] or "").strip()
+        titulo = (form.get("titulo", [""])[0] or "").strip()
+        desc = (form.get("descripcion", [""])[0] or "").strip()
+        unidad = (form.get("unidad", [""])[0] or "").strip()
+        tipo = (form.get("tipo", [""])[0] or "").strip()
+        valor = (form.get("valor", [""])[0] or "")
+        orden = (form.get("orden", ["0"])[0] or "0").strip()
+        if not tipo:
+            return self._apps_flash("Elige el tipo de la clave.", err=True)
+        ok, err = db.add_catalog_item(app, clave, titulo, desc, tipo, unidad, orden)
+        if not ok:
+            return self._apps_flash(f"No se pudo agregar: {err}", err=True)
+        if valor:
+            okv, errv = db.set_config_values({clave: valor})
+            if not okv:
+                return self._apps_flash(
+                    f"Catálogo creado, pero no se pudo escribir el valor: {errv}",
+                    err=True)
+        self._apps_log(user, f"Apps: clave '{clave}' agregada a {app}")
+        return self._apps_flash(f"Clave '{clave}' agregada a {app}.")
+
+    def _apps_guardar_todo(self, user, form):
+        """Guarda de una vez todos los valores del formulario de una app."""
+        app = (form.get("app", [""])[0] or "").strip()
+        valores, claves = {}, []
+        for fila in db.get_config_catalog():
+            if fila["App"] != app:
+                continue
+            raw = form.get(f"val{fila['Id']}", [None])[0]
+            if raw is None:
+                continue                      # el campo no estaba en el form
+            if fila["Tipo"] == "readonly":
+                continue
+            if fila["Tipo"] == "secret" and not str(raw).strip():
+                continue                      # en blanco = no cambiar
+            valores[fila["Clave"]] = raw
+            claves.append(fila["Clave"])
+        if not valores:
+            return self._apps_flash("Sin cambios: no hay valores que guardar.")
+        ok, err = db.set_config_values(valores)
+        if not ok:
+            return self._apps_flash(f"No se pudieron guardar: {err}", err=True)
+        extra = ", ".join(claves[:5]) + ("…" if len(claves) > 5 else "")
+        self._apps_log(user, f"Apps: {len(valores)} valor(es) de {app} "
+                             f"guardados ({extra})")
+        return self._apps_flash(f"{len(valores)} valor(es) de {app} guardados.")
+
+    def _apps_editar(self, user, form):
+        """Guarda título/tipo/descripción y el valor de UNA fila."""
+        fid = (form.get("edit", [""])[0] or "").strip()
+        fila = self._fila_app(fid)
+        if not fila:
+            return self._apps_flash("Esa clave ya no está en el catálogo.", err=True)
+        titulo = (form.get(f"t{fid}", [fila["Titulo"]])[0] or "").strip()
+        desc = (form.get(f"d{fid}", [fila["Descripcion"]])[0] or "").strip()
+        tipo = (form.get(f"tipo{fid}", [fila["Tipo"]])[0] or fila["Tipo"]).strip()
+        ok, err = db.update_catalog_item(fila["Id"], titulo, desc, tipo,
+                                         fila["Unidad"], fila["Orden"])
+        if not ok:
+            return self._apps_flash(f"No se pudo guardar: {err}", err=True)
+        raw = form.get(f"val{fid}", [None])[0]
+        if (raw is not None and tipo != "readonly"
+                and not (tipo == "secret" and not str(raw).strip())):
+            okv, errv = db.set_config_values({fila["Clave"]: raw})
+            if not okv:
+                return self._apps_flash(
+                    f"Metadatos guardados; el valor no: {errv}", err=True)
+        self._apps_log(user, f"Apps: '{fila['Clave']}' ({fila['App']}) actualizada")
+        return self._apps_flash(f"Clave '{fila['Clave']}' guardada.")
+
+    def _apps_borrar(self, user, form):
+        """Quita la fila del catálogo (HUB_Config conserva el valor)."""
+        fid = (form.get("del", [""])[0] or "").strip()
+        fila = self._fila_app(fid)
+        if not fila:
+            return self._apps_flash("Esa clave ya no está en el catálogo.", err=True)
+        ok, err = db.delete_catalog_item(fila["Id"])
+        if not ok:
+            return self._apps_flash(f"No se pudo borrar: {err}", err=True)
+        self._apps_log(user, f"Apps: '{fila['Clave']}' quitada del catálogo")
+        return self._apps_flash(f"Clave '{fila['Clave']}' fuera del catálogo.")
+
+    def _apps_clasificar(self, user, form):
+        """Mueve una clave de 'sin clasificar' al catálogo de una app."""
+        idx = (form.get("clasificar", [""])[0] or "").strip()
+        clave = (form.get(f"k{idx}", [""])[0] or "").strip()
+        app = (form.get(f"app{idx}", [""])[0] or "").strip()
+        titulo = (form.get(f"tit{idx}", [""])[0] or "").strip() or clave
+        tipo = (form.get(f"tipo{idx}", [""])[0] or "text").strip()
+        if not clave:
+            return self._apps_flash("No se reconoció la clave.", err=True)
+        if not app:
+            return self._apps_flash("Indica la app a la que pertenece la clave.",
+                                    err=True)
+        ok, err = db.add_catalog_item(app, clave, titulo, "", tipo, "", 0)
+        if not ok:
+            return self._apps_flash(f"No se pudo clasificar: {err}", err=True)
+        self._apps_log(user, f"Apps: '{clave}' clasificada en {app}")
+        return self._apps_flash(f"'{clave}' ahora vive en {app}.")
 
     # ── Telegram ───────────────────────────────────────────────────────────
     def _notif_telegram_token(self, user, form):

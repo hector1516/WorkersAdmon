@@ -15,6 +15,7 @@ por el HUB sea válido en el panel y viceversa.
 import datetime
 import importlib.util
 import os
+import re
 
 import pymssql
 
@@ -505,5 +506,127 @@ def save_ai_config(provider, api_key, model):
             return True, ""
         finally:
             conn.close()
+    except Exception as exc:
+        return False, str(exc)
+
+
+# ─── Catálogo de configuración por app (Fase D) ──────────────────────────────
+# HUB_ConfigCatalogo → METADATOS (app, título, tipo, orden) de cada clave.
+# HUB_Config          → el VALOR (no se mueve de ahí: es donde lo leen HUB,
+#                       Field, admon y los workers).
+# Migración: 0036_config_catalogo.sql (repo HUB → migrations/).
+
+TIPOS_APP = ("text", "secret", "number", "bool", "readonly")
+_APP_RE = re.compile(r"^[A-Za-z0-9_\-]{1,40}$")
+_CLAVE_RE = re.compile(r"^[A-Za-z0-9_\-.]{1,50}$")
+
+
+def config_catalog_exists():
+    """True si la migración 0036 ya creó HUB_ConfigCatalogo en esta BD."""
+    try:
+        return bool(_rows(
+            "SELECT 1 AS x FROM INFORMATION_SCHEMA.TABLES "
+            "WHERE TABLE_NAME = 'HUB_ConfigCatalogo'"))
+    except Exception:
+        return False
+
+
+def get_config_catalog():
+    """Filas del catálogo con su valor vigente (LEFT JOIN contra HUB_Config)."""
+    try:
+        return _rows("""
+            SELECT c.Id, c.App, c.Clave, c.Titulo,
+                   ISNULL(c.Descripcion, '') AS Descripcion,
+                   c.Tipo, ISNULL(c.Unidad, '') AS Unidad, c.Orden, c.Actualizado,
+                   ISNULL(v.Valor, '') AS Valor
+            FROM HUB_ConfigCatalogo c
+            LEFT JOIN HUB_Config v ON v.Clave = c.Clave
+            ORDER BY c.App, c.Orden, c.Clave""")
+    except Exception:
+        return []
+
+
+def get_all_config_values():
+    """{clave: valor} de TODA HUB_Config (alimenta el grupo 'sin clasificar')."""
+    try:
+        return {r["Clave"]: (r["Valor"] or "")
+                for r in _rows("SELECT Clave, Valor FROM HUB_Config ORDER BY Clave")}
+    except Exception:
+        return {}
+
+
+def _validar_item(app, clave, titulo, tipo, descripcion="", unidad="", orden=0):
+    """Valida un registro del catálogo. Devuelve '' si está bien, si no el error."""
+    if not _APP_RE.match(str(app or "").strip()):
+        return ("la app solo puede llevar letras, números, guion bajo o guion "
+                "(máx. 40)")
+    if not _CLAVE_RE.match(str(clave or "").strip()):
+        return "la clave solo puede llevar letras, números, '_', '.' o '-' (máx. 50)"
+    if not str(titulo or "").strip():
+        return "falta el título"
+    if len(str(titulo)) > 120:
+        return "el título supera 120 caracteres"
+    if len(str(descripcion or "")) > 400:
+        return "la descripción supera 400 caracteres"
+    if len(str(unidad or "")) > 20:
+        return "la unidad supera 20 caracteres"
+    if tipo not in TIPOS_APP:
+        return f"tipo no válido: {tipo!r}"
+    try:
+        orden = int(orden)
+        if not 0 <= orden <= 9999:
+            raise ValueError
+    except (TypeError, ValueError):
+        return "el orden debe estar entre 0 y 9999"
+    return ""
+
+
+def add_catalog_item(app, clave, titulo, descripcion="", tipo="text",
+                     unidad="", orden=0):
+    """Alta en el catálogo. Devuelve (ok, mensaje_de_error)."""
+    app = str(app or "").strip()
+    clave = str(clave or "").strip()
+    error = _validar_item(app, clave, titulo, tipo, descripcion, unidad, orden)
+    if error:
+        return False, error
+    # HUB_Config.Clave es PRIMARY KEY global: una clave pertenece a UNA sola app
+    try:
+        previa = _rows("SELECT App FROM HUB_ConfigCatalogo WHERE Clave = %s", (clave,))
+        if previa:
+            return False, f"la clave '{clave}' ya está catalogada en {previa[0]['App']}"
+        _execute(
+            "INSERT INTO HUB_ConfigCatalogo (App, Clave, Titulo, Descripcion, "
+            "Tipo, Unidad, Orden, Actualizado) VALUES (%s, %s, %s, %s, %s, %s, %s, GETDATE())",
+            (app, clave, str(titulo).strip(), str(descripcion or "").strip(),
+             tipo, str(unidad or "").strip(), int(orden)))
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def update_catalog_item(item_id, titulo, descripcion="", tipo="text",
+                        unidad="", orden=0):
+    """Actualiza metadatos de una fila del catálogo (App y Clave no cambian)."""
+    error = _validar_item("x", "x", titulo, tipo, descripcion, unidad, orden)
+    if error:
+        return False, error
+    try:
+        rows = _execute(
+            "UPDATE HUB_ConfigCatalogo SET Titulo = %s, Descripcion = %s, "
+            "Tipo = %s, Unidad = %s, Orden = %s, Actualizado = GETDATE() "
+            "WHERE Id = %s",
+            (str(titulo).strip(), str(descripcion or "").strip(), tipo,
+             str(unidad or "").strip(), int(orden), int(item_id)))
+        return (rows > 0, "" if rows else "la clave ya no existe en el catálogo")
+    except Exception as exc:
+        return False, str(exc)
+
+
+def delete_catalog_item(item_id):
+    """Quita la fila del catálogo. NO toca HUB_Config (el valor se conserva)."""
+    try:
+        rows = _execute("DELETE FROM HUB_ConfigCatalogo WHERE Id = %s",
+                        (int(item_id),))
+        return (rows > 0, "" if rows else "la clave ya no existe en el catálogo")
     except Exception as exc:
         return False, str(exc)

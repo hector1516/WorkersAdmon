@@ -12,7 +12,7 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
 | Programas activos | `docker/conf.d/*.conf` | **hoy solo `status_web`** (la página de estado) |
 | Programas en standby | `docker/conf.d.available/*.conf` | 9 workers + `mcp_server`. **Ninguno corre hasta que se active** |
 | Helpers | `docker/bin/` | `enable_worker`, `disable_worker`, `workers_list` |
-| Panel | `status_server.py` → `panel/` | **Interfaz de control** en `STATUS_PORT` (8080): login HUB, pestaña Workers (activar/desactivar/reiniciar/logs), pestaña **Configuración** (`panel/spec.py` + `panel/envconf.py`), `GET /api/status` (JSON) |
+| Panel | `status_server.py` → `panel/` | **Interfaz de control** en `STATUS_PORT` (8080): login HUB, pestañas Workers (activar/desactivar/reiniciar/logs), **Configuración** (`panel/spec.py` + `panel/envconf.py`), **Notificaciones** (`panel/views/notifications.py` + `panel/probes.py`) y **Apps** (`panel/views/apps.py`), `GET /api/status` (JSON) |
 | Heartbeats | `worker_heartbeat.py` | escribe `/data/heartbeats/<worker>.json` con la última ejecución |
 | Datos | `eccsa_db.py`, `config_db.py` | snapshot de la capa de datos de HUB (misma BD `ECCSA_Admon`) |
 
@@ -37,9 +37,9 @@ config de apps de HUB/admon/Field/futuras). Fases:
 |---|---|---|
 | **A** | `panel/` + login HUB + pestaña Workers (acciones y logs) | ✅ |
 | **B** | pestaña **Configuración por worker**: `panel/spec.py` (catálogo), `panel/envconf.py` (overrides de entorno persistidos en `/data/worker_env.json` y reaplicados por el entrypoint), edición de `HUB_Config`, constantes solo lectura, bitácora sin valores secretos | ✅ |
-| **C** | pestaña Notificaciones (Telegram `HUB_Telegram*`, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón "Enviar prueba" | 🚧 |
-| **D** | pestaña Apps: catálogo `HUB_ConfigCatalogo` (metadatos) + valores en `HUB_Config`, agrupados por app | 🚧 |
-| **E** | subdominio `workers.ecc-sa.com.mx` vía Cloudflare (dashboard Zero Trust → Add public hostname → `http://10.188.141.31:8200`) | 🚧 |
+| **C** | pestaña Notificaciones (Telegram `HUB_Telegram*`, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón "Enviar prueba" | ✅ |
+| **D** | pestaña Apps: catálogo `HUB_ConfigCatalogo` (metadatos) + valores en `HUB_Config`, agrupados por app; permiso `AccesoAppConfig` | ✅ |
+| **E** | subdominio `workers.ecc-sa.com.mx` vía Cloudflare (dashboard Zero Trust → Add public hostname → `http://10.188.141.31:8200`) | ✅ |
 
 Reglas del panel:
 
@@ -51,8 +51,9 @@ Reglas del panel:
   formularios POST + Post/Redirect/Get (sin JS obligatorio).
 - **Fuente de verdad de la config**: reusar las tablas existentes
   (`HUB_Config`, `HUB_EmailConfig`, `HUB_AIConfig`, `HUB_PushConfig`,
-  `HUB_Telegram*`); **no duplicar valores** en archivos del contenedor y no
-  crear tablas nuevas hasta la migración de la Fase D.
+  `HUB_Telegram*`); **no duplicar valores** en archivos del contenedor. La
+  única tabla nueva del panel es `HUB_ConfigCatalogo` (migración `0036` del
+  HUB): solo guarda **metadatos**, los valores siempre viven en `HUB_Config`.
 - Lee 4 fuentes de estado: `supervisorctl status`, `/data/workers_enabled.txt`,
   `docker/conf.d.available/` y `/data/heartbeats/*.json`.
 - `/api/status` debe seguir devolviendo el mismo JSON (contrato de monitoreo).
@@ -71,8 +72,23 @@ Reglas del panel:
 - Notificaciones (Fase C): bloque propio en `panel/views/notifications.py` +
   rutas `POST /notificaciones/<bloque>`; sondas en `panel/probes.py`. Mismas
   tablas que el HUB, secretos nunca pintados, permiso por bloque.
-- Tests: `python tests/test_panel.py` (doble de BD + supervisorctl falso; no
-  requiere BD ni supervisord).
+- Apps (Fase D): `panel/views/apps.py` + `GET/POST /apps`, permiso
+  `AccesoAppConfig`. Catálogo en `HUB_ConfigCatalogo` (app, título, tipo,
+  unidad, orden, descripción) y **valores en `HUB_Config`** (nunca duplicados).
+  - **Un formulario por bloque** (uno por app, uno de clasificar y uno de alta):
+    los botones se distinguen por su `name` (`save_all`/`edit`/`del`/`add`/
+    `clasificar`); no anidar `<form>` (HTML lo invalida).
+  - Tipos: `text`/`secret`/`number`/`bool`/`readonly`. El secreto en blanco =
+    no cambiar y su valor **jamás se pinta**; las claves sin clasificar tampoco
+    muestran valor (pueden ser secretas).
+  - `HUB_Config.Clave` es PK global → **una clave pertenece a UNA sola app**;
+    para validar se reusa `panel/db._validar_item()` (`_APP_RE`, `_CLAVE_RE`).
+  - Borrar una fila solo quita el catálogo: **`HUB_Config` conserva el valor**.
+  - Bitácora solo con nombres de clave, nunca con valores.
+  - La migración se aplica en el **repo HUB** (`migrations/0036_*.sql`); si
+    falta, `/apps` muestra el aviso y el listado de solo lectura.
+- Tests: `python tests/test_panel.py` (41 pruebas; doble de BD + supervisorctl
+  falso; no requiere BD ni supervisord).
 
 ## Credenciales (CRÍTICO)
 
@@ -101,9 +117,16 @@ Reglas del panel:
 
 ## Pendientes
 
-- **Fase D** del panel: pestaña Apps + migración `0036_config_catalogo.sql`
-  (usar el runner de HUB, `apply_migrations.py`, con guard de DB de pruebas).
-- **Fase D**: hostname `workers.ecc-sa.com.mx` en el dashboard de Cloudflare.
+- **Migración `0036_config_catalogo.sql` en producción** (ya aplicada a
+  `ECCSA_Admon_Pruebas`): correr `apply_migrations.py` con
+  `HUB_DB_DATABASE=ECCSA_Admon` + `HUB_MIGRATE_PRODUCTION=1` en el repo HUB
+  (el runner **no** debe aplicar los 7 pendientes restantes de golpe).
 - CI (`.github/workflows/deploy.yml` + runner self-hosted para este repo):
   fase posterior, mientras tanto el deploy es manual (`docker build` + `docker run`).
 - Activar el primer worker (hoy: ninguno activo) — ya puede hacerse desde el panel.
+- Heartbeats: ningún worker llama aún `worker_heartbeat.heartbeat()` (la columna
+  "Última ejecución" queda vacía).
+- `--build-arg WITH_PLAYWRIGHT=1` en `deploy/build.bat` para los workers Go Vale.
+- Smoke de imports por worker + migración 1-a-1 (apagar en `hub_python` →
+  verificar → encender aquí) y quitar `-p 8000:8000` de `hub_python` al
+  activar `mcp_server`.

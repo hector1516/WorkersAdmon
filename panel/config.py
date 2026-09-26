@@ -38,6 +38,15 @@ SUPERVISORCTL = os.environ.get("SUPERVISORCTL", "supervisorctl")
 # enable_worker desde conf.d.available). El panel lo parchea al editar env.
 ACTIVE_CONF_DIR = os.environ.get("SUPERVISOR_PROGRAM_DIR", "/etc/supervisor/conf.d")
 
+# ─── Logo del panel ──────────────────────────────────────────────────────────
+# Misma imagen que /workspace/HUB/workers/worker.png (idéntica en los dos repos).
+def _logo_path():
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.environ.get("PANEL_LOGO", os.path.join(base, "workers", "worker.png"))
+
+
+LOGO_FILE = _logo_path()
+
 # ─── Red ──────────────────────────────────────────────────────────────────────
 PANEL_PORT = int(os.environ.get("STATUS_PORT", "8080"))
 TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
@@ -64,7 +73,8 @@ TABS = [
      "href": "/configuracion", "enabled": True},
     {"id": "notificaciones", "label": "🔔 Notificaciones",
      "href": "/notificaciones", "enabled": True},
-    {"id": "apps", "label": "⚙️ Apps", "href": "/apps", "enabled": False},
+    {"id": "apps", "label": "⚙️ Apps", "href": "/apps", "enabled": True,
+     "perm": "AccesoAppConfig"},
 ]
 
 

@@ -14,6 +14,7 @@ import http.cookiejar
 import importlib
 import json
 import os
+import re
 import shutil
 import stat
 import sys
@@ -119,6 +120,14 @@ USERS = {
     "solo_telegram@ecc-sa.com.mx": {"password": "s3cret", "nombre": "Solo Telegram",
                                     "permiso": True,
                                     "solo": {"AccesoConfiguracion", "AccesoTelegram"}},
+    # Panel + Apps: entra a /apps aunque el resto de pestañas quede grisado
+    "solo_app@ecc-sa.com.mx": {"password": "s3cret", "nombre": "Solo App",
+                               "permiso": True,
+                               "solo": {"AccesoConfiguracion", "AccesoAppConfig"}},
+    # Panel SIN Apps: la pestaña se oculta y /apps responde 403
+    "sin_app@ecc-sa.com.mx": {"password": "s3cret", "nombre": "Sin App",
+                              "permiso": True,
+                              "solo": {"AccesoConfiguracion"}},
 }
 _SESSIONS = {}     # token -> email
 _ACTIVITY = []
@@ -193,6 +202,100 @@ db.delete_session_token = fake_delete_token
 db.log_activity = fake_activity
 db.get_config_values = fake_get_config_values
 db.set_config_values = fake_set_config_values
+
+# ── Doble del catálogo por app (HUB_ConfigCatalogo, Fase D) ──────────────────
+_CATALOGO = [
+    {"Id": 1, "App": "HUB", "Clave": "tipo_cambio_usd",
+     "Titulo": "Tipo de cambio USD/MXN", "Descripcion": "Lo escribe el worker",
+     "Tipo": "readonly", "Unidad": "", "Orden": 10},
+    {"Id": 2, "App": "HUB", "Clave": "telegram_bot_token",
+     "Titulo": "Token del bot de Telegram", "Descripcion": "",
+     "Tipo": "secret", "Unidad": "", "Orden": 30},
+    {"Id": 3, "App": "HUB", "Clave": "net_scan_interval_seg",
+     "Titulo": "Intervalo de escaneo de red", "Descripcion": "",
+     "Tipo": "number", "Unidad": "seg", "Orden": 52},
+    {"Id": 4, "App": "Field", "Clave": "field_avisos_rep_1",
+     "Titulo": "Aviso de reporte Field #1", "Descripcion": "",
+     "Tipo": "text", "Unidad": "", "Orden": 10},
+    {"Id": 5, "App": "admon", "Clave": "asistencia_calcular_auto",
+     "Titulo": "Asistencia: cálculo automático", "Descripcion": "",
+     "Tipo": "bool", "Unidad": "", "Orden": 20},
+]
+_CATALOGO_BASE = [dict(f) for f in _CATALOGO]     # semilla para setUp
+_CATALOGO_OK = {"valor": True}                    # ¿existe la tabla 0036?
+_PROXIMO_ID = {"n": 6}
+
+
+def fake_catalog_exists():
+    return _CATALOGO_OK["valor"]
+
+
+def fake_get_catalog():
+    """Misma forma de fila que la real: Valor/Actualizado llegan del JOIN."""
+    if not _CATALOGO_OK["valor"]:
+        return []
+    filas = []
+    for f in _CATALOGO:
+        r = dict(f)
+        r["Valor"] = _CONFIG.get(f["Clave"], "")
+        r["Actualizado"] = None
+        filas.append(r)
+    return filas
+
+
+def fake_all_config_values():
+    return dict(_CONFIG)
+
+
+def fake_add_catalog(app, clave, titulo, descripcion="", tipo="text",
+                     unidad="", orden=0):
+    # reutiliza el validador REAL para que los mensajes coincidan con producción
+    app = str(app or "").strip()
+    clave = str(clave or "").strip()
+    error = db._validar_item(app, clave, titulo, tipo, descripcion, unidad, orden)
+    if error:
+        return False, error
+    previa = [f["App"] for f in _CATALOGO if f["Clave"] == clave]
+    if previa:
+        return False, f"la clave '{clave}' ya está catalogada en {previa[0]}"
+    _CATALOGO.append({"Id": _PROXIMO_ID["n"], "App": app, "Clave": clave,
+                      "Titulo": str(titulo).strip(),
+                      "Descripcion": str(descripcion or "").strip(),
+                      "Tipo": tipo, "Unidad": str(unidad or "").strip(),
+                      "Orden": int(orden)})
+    _PROXIMO_ID["n"] += 1
+    return True, ""
+
+
+def fake_update_catalog(item_id, titulo, descripcion="", tipo="text",
+                        unidad="", orden=0):
+    error = db._validar_item("x", "x", titulo, tipo, descripcion, unidad, orden)
+    if error:
+        return False, error
+    for f in _CATALOGO:
+        if f["Id"] == int(item_id):
+            f.update({"Titulo": str(titulo).strip(),
+                      "Descripcion": str(descripcion or "").strip(),
+                      "Tipo": tipo, "Unidad": str(unidad or "").strip(),
+                      "Orden": int(orden)})
+            return True, ""
+    return False, "la clave ya no existe en el catálogo"
+
+
+def fake_delete_catalog(item_id):
+    for f in list(_CATALOGO):
+        if f["Id"] == int(item_id):
+            _CATALOGO.remove(f)
+            return True, ""
+    return False, "la clave ya no existe en el catálogo"
+
+
+db.config_catalog_exists = fake_catalog_exists
+db.get_config_catalog = fake_get_catalog
+db.get_all_config_values = fake_all_config_values
+db.add_catalog_item = fake_add_catalog
+db.update_catalog_item = fake_update_catalog
+db.delete_catalog_item = fake_delete_catalog
 
 # ── Doble de notificaciones (HUB_Telegram* / HUB_Push* / HUB_EmailConfig /
 #    HUB_AIConfig) y sondas de red ───────────────────────────────────────────
@@ -359,6 +462,12 @@ class Client:
 class PanelTest(unittest.TestCase):
     maxDiff = None
 
+    def setUp(self):
+        # el catálogo es estado compartido: cada test arranca de la semilla base
+        _CATALOGO[:] = [dict(f) for f in _CATALOGO_BASE]
+        _PROXIMO_ID["n"] = 6
+        _CATALOGO_OK["valor"] = True
+
     # ── endpoints públicos ───────────────────────────────────────────────────
     def test_01_healthz_y_status(self):
         code, _, body = Client().get("/healthz")
@@ -419,7 +528,7 @@ class PanelTest(unittest.TestCase):
         c = self._logged()
         code, headers, _ = c.post("/workers/demo_off/enable", csrf=c.csrf())
         self.assertEqual(code, 303)
-        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
         self.assertTrue(os.path.exists(
             os.path.join(ROOT, "conf.d", "demo_off.conf")), "no se copió la conf")
         self.assertIn("demo_off", Path(
@@ -430,7 +539,7 @@ class PanelTest(unittest.TestCase):
         c = self._logged()
         code, headers, _ = c.post("/workers/demo_on/disable", csrf=c.csrf())
         self.assertEqual(code, 303)
-        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
         self.assertNotIn("demo_on", Path(
             os.path.join(ROOT, "data", "workers_enabled.txt")).read_text())
 
@@ -450,7 +559,7 @@ class PanelTest(unittest.TestCase):
         c = self._logged()
         code, headers, _ = c.post("/workers/status_web/disable", csrf=c.csrf())
         self.assertEqual(code, 303)
-        loc = urllib.parse.unquote(headers.get("Location", ""))
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
         self.assertIn("err=", loc, "status_web debe rechazarse con mensaje de error")
         code, _, body = c.get("/api/status")
         names = {p["name"]: p for p in json.loads(body)["programs"]}
@@ -465,11 +574,12 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn("no hay log", html)
 
-    def test_12_pestanas_futuras(self):
+    def test_12_pestanas_reales(self):
         c = self._logged()
         code, _, html = c.get("/apps")
         self.assertEqual(code, 200)
-        self.assertIn("Fase D", html)        # Apps aún pendiente
+        self.assertNotIn("Fase D", html)     # ya es la pestaña real
+        self.assertIn('id="app-alta"', html)
         code, _, html = c.get("/notificaciones")
         self.assertEqual(code, 200)
         self.assertNotIn("Fase C", html)     # ya es la pestaña real
@@ -508,7 +618,7 @@ class PanelTest(unittest.TestCase):
         code, headers, _ = c.post("/configuracion/bing_worker", csrf=c.csrf(),
                                   CRON_BING_INTERVAL="7200", CRON_BING_MAX="9")
         self.assertEqual(code, 303)
-        loc = urllib.parse.unquote(headers.get("Location", ""))
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
         self.assertIn("ok=", loc, loc)
         conf = Path(os.path.join(ROOT, "available", "bing_worker.conf")).read_text()
         self.assertIn('CRON_BING_INTERVAL="7200"', conf)
@@ -530,7 +640,7 @@ class PanelTest(unittest.TestCase):
                                   csrf=c.csrf(), CRON_TC_HORA="7",
                                   CRON_TC_MIN="15", banxico_token="TOK-PRUEBA-1")
         self.assertEqual(code, 303)
-        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
         self.assertEqual(_CONFIG.get("banxico_token"), "TOK-PRUEBA-1")
         conf = Path(os.path.join(ROOT, "available",
                                  "tipo_cambio_worker.conf")).read_text()
@@ -552,7 +662,7 @@ class PanelTest(unittest.TestCase):
         code, headers, _ = c.post("/configuracion/bing_worker", csrf=c.csrf(),
                                   CRON_BING_INTERVAL="abc")
         self.assertEqual(code, 303)
-        self.assertIn("err=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("err=", urllib.parse.unquote_plus(headers.get("Location", "")))
         conf = Path(os.path.join(ROOT, "available", "bing_worker.conf")).read_text()
         self.assertNotIn('CRON_BING_INTERVAL="abc"', conf)
         # fuera de rango (min 60)
@@ -598,7 +708,7 @@ class PanelTest(unittest.TestCase):
         code, headers, _ = c.post("/configuracion/telegram_worker/probar",
                                   csrf=c.csrf())
         self.assertEqual(code, 303)
-        loc = urllib.parse.unquote(headers.get("Location", ""))
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
         self.assertIn("err=", loc, "sin token debe reportar error")
         self.assertIn("telegram_bot_token", loc)
 
@@ -648,7 +758,7 @@ class PanelTest(unittest.TestCase):
         code, headers, _ = c.post("/notificaciones/telegram", csrf=c.csrf(),
                                   telegram_bot_token="SECRET-TG-123")
         self.assertEqual(code, 303)
-        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
         self.assertEqual(_CONFIG.get("telegram_bot_token"), "SECRET-TG-123")
         _, _, html = c.get("/notificaciones")
         self.assertNotIn("SECRET-TG-123", html, "el token jamás se pinta en el HTML")
@@ -665,7 +775,7 @@ class PanelTest(unittest.TestCase):
         c = self._logged()
         code, headers, _ = c.post("/notificaciones/telegram/probar", csrf=c.csrf())
         self.assertEqual(code, 303)
-        loc = urllib.parse.unquote(headers.get("Location", ""))
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
         self.assertIn("ok=", loc, loc)
         self.assertIn("responde", loc)
 
@@ -676,7 +786,7 @@ class PanelTest(unittest.TestCase):
                                   PlantillaMensaje="Nuevo {Kilometros} km",
                                   AdjuntarArchivo="1", Activo="0")
         self.assertEqual(code, 303)
-        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
         ev = _TG["eventos"][0]
         self.assertEqual(ev["PlantillaMensaje"], "Nuevo {Kilometros} km")
         self.assertEqual((ev["AdjuntarArchivo"], ev["Activo"]), (1, 0))
@@ -704,7 +814,7 @@ class PanelTest(unittest.TestCase):
                                   username="u", password="", use_ssl="1",
                                   use_tls="0", require_auth="1")
         self.assertEqual(code, 303)
-        self.assertIn("err=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("err=", urllib.parse.unquote_plus(headers.get("Location", "")))
         self.assertEqual(_EMAIL["smtp_server"], "smtp.example.com")
         # guardado válido con contraseña en blanco
         code, headers, _ = c.post("/notificaciones/correo", csrf=c.csrf(),
@@ -712,7 +822,7 @@ class PanelTest(unittest.TestCase):
                                   username="robot", password="", use_ssl="0",
                                   use_tls="1", require_auth="1")
         self.assertEqual(code, 303)
-        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
         self.assertEqual(_EMAIL["smtp_server"], "smtp.nuevo")
         self.assertEqual(_EMAIL["port"], 587)
         self.assertEqual(_EMAIL["password"], "old-pass", "conserva la contraseña")
@@ -725,7 +835,7 @@ class PanelTest(unittest.TestCase):
                                   provider="google_gemini", api_key="",
                                   model="gemini-3.5-flash-lite")
         self.assertEqual(code, 303)
-        self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
         self.assertEqual(_AI["api_key"], "AIza-old", "key en blanco = no cambiar")
         self.assertEqual(_AI["model"], "gemini-3.5-flash-lite")
         # las tres sondas (falsas) responden OK
@@ -735,14 +845,14 @@ class PanelTest(unittest.TestCase):
                 data["destino"] = "prueba@ecc-sa.com.mx"
             code, headers, _ = c.post(f"/notificaciones/{bloque}/probar", **data)
             self.assertEqual(code, 303, bloque)
-            self.assertIn("ok=", urllib.parse.unquote(headers.get("Location", "")))
+            self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
         code, headers, _ = c.post("/notificaciones/push/probar", csrf=c.csrf())
         self.assertEqual(code, 303)
-        self.assertIn("suscriptor", urllib.parse.unquote(headers.get("Location", "")))
+        self.assertIn("suscriptor", urllib.parse.unquote_plus(headers.get("Location", "")))
         code, headers, _ = c.post("/notificaciones/correo/probar", csrf=c.csrf(),
                                   destino="prueba@ecc-sa.com.mx")
         self.assertIn("prueba@ecc-sa.com.mx",
-                      urllib.parse.unquote(headers.get("Location", "")),
+                      urllib.parse.unquote_plus(headers.get("Location", "")),
                       "el destino debe volver en la URL (se recarga la página)")
         self.assertIn("para=", headers.get("Location", ""))
 
@@ -772,6 +882,177 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 403)
         code, _, _ = c.post("/notificaciones/no_existe", csrf=c.csrf())
         self.assertEqual(code, 404)
+
+
+    # ── pestaña Apps: catálogo de configuración por app (Fase D) ────────────
+    def test_34_pagina_apps(self):
+        _CONFIG.setdefault("telegram_bot_token", "SECRET-TG-123")
+        c = self._logged()
+        code, _, html = c.get("/apps")
+        self.assertEqual(code, 200)
+        for trozo in ('id="app-HUB"', 'id="app-Field"', 'id="app-admon"',
+                      'id="app-libres"', 'id="app-alta"', "Sin clasificar",
+                      "Nueva clave", "tipo_cambio_usd", "net_scan_interval_seg",
+                      "field_avisos_rep_1", "asistencia_calcular_auto",
+                      'name="save_all"', 'name="add"', 'name="clasificar"',
+                      "Claves catalogadas", "Secretos protegidos", "(guardado)",
+                      "HUB_ConfigCatalogo", "banxico_token", 'href="/apps"',
+                      "config central por app"):
+            self.assertIn(trozo, html, f"falta {trozo!r}")
+        self.assertNotIn(_CONFIG["telegram_bot_token"], html,
+                         "el valor de un secreto jamás se pinta")
+
+    def test_35_apps_requiere_permiso(self):
+        # con AccesoAppConfig: entra y la pestaña está activa
+        c = Client()
+        c.login("solo_app@ecc-sa.com.mx", "s3cret")
+        code, _, html = c.get("/apps")
+        self.assertEqual(code, 200)
+        code, _, home = c.get("/")
+        self.assertIn('href="/apps"', home)
+        # sin AccesoAppConfig: 403 y la pestaña queda gris en la barra
+        c2 = Client()
+        c2.login("sin_app@ecc-sa.com.mx", "s3cret")
+        code, _, html = c2.get("/apps")
+        self.assertEqual(code, 403)
+        self.assertIn("AccesoAppConfig", html)
+        code, _, home = c2.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn('title="Requiere el permiso AccesoAppConfig"', home)
+        self.assertNotIn('href="/apps"', home, "la pestaña no debe enlazarse")
+        code, _, _ = c2.post("/apps", csrf=c2.csrf(), grupo="alta", add="1",
+                             app="HUB", clave="x", titulo="X", tipo="text",
+                             unidad="", orden="1", valor="", descripcion="")
+        self.assertEqual(code, 403)
+
+    def test_36_alta_de_clave(self):
+        c = self._logged()
+        code, headers, _ = c.post("/apps", csrf=c.csrf(), grupo="alta", add="1",
+                                  app="admon", clave="nueva_clave",
+                                  titulo="Nueva clave", tipo="text", unidad="",
+                                  orden="100", valor="hola", descripcion="prueba")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers["Location"]))
+        self.assertEqual(_CONFIG.get("nueva_clave"), "hola", "valor inicial")
+        self.assertTrue(any(f["Clave"] == "nueva_clave" and f["App"] == "admon"
+                            for f in _CATALOGO), "no quedó en el catálogo")
+        self.assertTrue(any("nueva_clave" in accion for _, _, accion in _ACTIVITY),
+                        "falta la bitácora")
+
+        def err(**campos):
+            base = dict(csrf=c.csrf(), grupo="alta", add="1", app="HUB",
+                        clave="clave_nueva", titulo="T", tipo="text", unidad="",
+                        orden="1", valor="", descripcion="")
+            base.update(campos)
+            code, headers, _ = c.post("/apps", **base)
+            self.assertEqual(code, 303)
+            return urllib.parse.unquote_plus(headers["Location"])
+
+        self.assertIn("Elige el tipo", err(tipo=""))
+        self.assertIn("ya está catalogada", err(clave="tipo_cambio_usd"))
+        self.assertIn("la app solo puede llevar", err(app="Mi App"))
+        self.assertIn("la clave solo puede llevar", err(clave="clave mala"))
+
+    def test_37_guardar_valores_de_una_app(self):
+        _CONFIG["telegram_bot_token"] = "SECRET-TG-123"
+        _CONFIG["tipo_cambio_usd"] = "17.1409"
+        c = self._logged()
+        code, headers, _ = c.post("/apps", csrf=c.csrf(), grupo="cat", app="HUB",
+                                  save_all="1", val1="17.9", val2="", val3="300")
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote_plus(headers["Location"])
+        self.assertIn("ok=", loc)
+        self.assertIn("1 valor", loc, "solo cambió el número")
+        self.assertEqual(_CONFIG["net_scan_interval_seg"], "300")
+        self.assertEqual(_CONFIG["telegram_bot_token"], "SECRET-TG-123",
+                         "el secreto en blanco no se modifica")
+        self.assertEqual(_CONFIG["tipo_cambio_usd"], "17.1409",
+                         "el tipo readonly no se modifica")
+        self.assertTrue(any("Apps: 1 valor(es) de HUB" in accion
+                            for _, _, accion in _ACTIVITY), "falta la bitácora")
+        # sin campos de valor no hay nada que guardar
+        code, headers, _ = c.post("/apps", csrf=c.csrf(), grupo="cat", app="Field",
+                                  save_all="1")
+        self.assertIn("Sin cambios", urllib.parse.unquote_plus(headers["Location"]))
+
+    def test_38_editar_y_borrar_fila(self):
+        _CONFIG["field_avisos_rep_1"] = "RS-0"
+        _CONFIG["telegram_bot_token"] = "TOKEN-SECRETO-8"
+        c = self._logged()
+        code, headers, _ = c.post("/apps", csrf=c.csrf(), grupo="cat", edit="4",
+                                  t4="Aviso nuevo", d4="descripción larga",
+                                  tipo4="text", val4="RS-9")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers["Location"]))
+        fila = [f for f in _CATALOGO if f["Id"] == 4][0]
+        self.assertEqual(fila["Titulo"], "Aviso nuevo")
+        self.assertEqual(fila["Descripcion"], "descripción larga")
+        self.assertEqual(_CONFIG["field_avisos_rep_1"], "RS-9")
+
+        # el secreto en blanco conserva su valor guardado
+        code, _, _ = c.post("/apps", csrf=c.csrf(), grupo="cat", edit="2",
+                            t2="Token del bot", d2="", tipo2="secret", val2="")
+        self.assertEqual(code, 303)
+        self.assertEqual(_CONFIG["telegram_bot_token"], "TOKEN-SECRETO-8")
+
+        # borrar solo saca la fila del catálogo: HUB_Config conserva el valor
+        code, headers, _ = c.post("/apps", csrf=c.csrf(), grupo="cat", **{"del": "4"})
+        self.assertEqual(code, 303)
+        self.assertNotIn("field_avisos_rep_1", [f["Clave"] for f in _CATALOGO])
+        self.assertEqual(_CONFIG["field_avisos_rep_1"], "RS-9")
+        code, headers, _ = c.post("/apps", csrf=c.csrf(), grupo="cat", **{"del": "4"})
+        self.assertEqual(code, 303)
+        self.assertIn("err=", urllib.parse.unquote_plus(headers["Location"]),
+                      "la segunda vez debe avisar que ya no existe")
+
+    def test_39_clasificar_clave_libre(self):
+        _CONFIG.setdefault("banxico_token", "BANX-TOK")
+        c = self._logged()
+        libres = sorted(k for k in _CONFIG
+                        if k not in {f["Clave"] for f in _CATALOGO})
+        i = libres.index("banxico_token")
+        code, headers, _ = c.post(
+            "/apps", csrf=c.csrf(), grupo="libre", clasificar=str(i),
+            **{f"k{i}": "banxico_token", f"app{i}": "HUB", f"tit{i}": "",
+               f"tipo{i}": "secret"})
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers["Location"]))
+        fila = [f for f in _CATALOGO if f["Clave"] == "banxico_token"]
+        self.assertEqual(len(fila), 1)
+        self.assertEqual(fila[0]["App"], "HUB")
+        self.assertEqual(fila[0]["Titulo"], "banxico_token", "título de respaldo")
+        self.assertEqual(fila[0]["Tipo"], "secret")
+        # sin app destino no se puede clasificar
+        libres = sorted(k for k in _CONFIG
+                        if k not in {f["Clave"] for f in _CATALOGO})
+        code, headers, _ = c.post("/apps", csrf=c.csrf(), grupo="libre",
+                                  clasificar="0", **{"k0": libres[0], "app0": "",
+                                                     "tit0": "X", "tipo0": "text"})
+        self.assertIn("err=", urllib.parse.unquote_plus(headers["Location"]))
+
+    def test_40_apps_sin_migracion(self):
+        _CATALOGO_OK["valor"] = False
+        try:
+            c = self._logged()
+            code, _, html = c.get("/apps")
+            self.assertEqual(code, 200)
+            self.assertIn("Falta la migración 0036", html)
+            self.assertIn("HUB_ConfigCatalogo", html)
+            self.assertNotIn('name="save_all"', html, "sin tabla no hay formularios")
+            self.assertNotIn('name="add"', html)
+            self.assertIn("tipo_cambio_usd", html, "queda en modo consulta")
+        finally:
+            _CATALOGO_OK["valor"] = True
+
+    def test_41_apps_requiere_sesion_y_csrf(self):
+        c = Client()
+        code, headers, _ = c.get("/apps")
+        self.assertEqual((code, headers.get("Location")), (303, "/login"))
+        c = self._logged()
+        code, _, _ = c.post("/apps", csrf="", grupo="cat", save_all="1")
+        self.assertEqual(code, 403)
+        code, _, _ = c.post("/apps", csrf=c.csrf())
+        self.assertEqual(code, 404, "POST sin acción conocida → 404")
 
 
 if __name__ == "__main__":

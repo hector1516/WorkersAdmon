@@ -1,3 +1,5 @@
+![WorkersAdmon](workers/worker.png)
+
 # WorkersAdmon ⚙️
 
 Contenedor Docker **`workersadmon`** con los workers de fondo de ECCSA y la
@@ -86,7 +88,7 @@ configuración y notificaciones de todo el ecosistema.
 | 🔧 **Workers** | ✅ Fase A | Estado + **Activar / Deshabilitar / Reiniciar** + ver **logs** |
 | ⚙️ **Configuración** | ✅ Fase B | **Config editable de cada worker** (entorno + `HUB_Config` + constantes) |
 | 🔔 **Notificaciones** | ✅ Fase C | **Telegram, Push, SMTP e IA** con pruebas de envío y permisos por bloque |
-| ⚙️ Apps | 🚧 Fase D | Catálogo de claves de config por app (HUB, admon, Field, futuras) |
+| ⚙️ **Apps** | ✅ Fase D | **Catálogo de claves de config por app** (HUB, admon, Field, futuras) con alta, edición y valores en vivo |
 
 ### Pestaña Workers
 
@@ -165,6 +167,34 @@ en **`panel/probes.py`** (Telegram en `panel/workers.test_telegram_bot`).
 Acciones: `GET /notificaciones`, `POST /notificaciones/<bloque>` (guardar) y
 `POST /notificaciones/<bloque>/{probar|evento|destinatarios}`.
 
+### Pestaña Apps
+
+Catálogo **por aplicación** de todo lo configurable del ecosistema: los
+**metadatos** (app, título, tipo, unidad, orden, descripción) viven en
+`HUB_ConfigCatalogo` y el **valor** sigue en `HUB_Config`, así que lo que
+guardas aquí lo lee al instante HUB, Field o admon (sin reiniciar).
+
+| Bloque | Qué hace |
+|---|---|
+| 🗂️ **App** | Una tarjeta por app con sus claves: **título, valor, tipo y descripción** editables. 💾 guarda solo esa fila, `💾 Guardar valores` guarda todas las de la app y 🗑️ solo quita la fila del catálogo (**el valor en `HUB_Config` se conserva**) |
+| 🔑 **Sin clasificar** | Claves que ya existen en `HUB_Config` pero todavía no están catalogadas. No muestran su valor (pueden ser secretas); con **📁 Clasificar** pasan al catálogo de la app que indiques |
+| ➕ **Nueva clave** | Alta de una clave nueva (y de la app si no existe), con valor inicial opcional |
+
+Tipos de valor: `text`, `secret`, `number`, `bool` y `readonly` (solo
+lectura, p. ej. `tipo_cambio_usd` que escribe el worker). Reglas: los
+**secretos jamás se pintan** (campo en blanco = *no cambiar*), la **clave es
+global** (`HUB_Config.Clave` es la PK: una clave pertenece a UNA sola app),
+los cambios quedan en la bitácora **sin valores**, y si la tabla aún no
+existe la página avisa con el comando para aplicar la migración
+`0036_config_catalogo.sql`.
+
+Permisos: **`AccesoAppConfig`** (sin él la pestaña sale gris en la barra y
+`/apps` responde 403).
+
+Acciones: `GET /apps` y `POST /apps` con un solo formulario por bloque; los
+botones se distinguen por su `name` (`save_all`, `edit`, `del`, `add`,
+`clasificar`).
+
 ### Endpoints
 
 | Método | Ruta | Auth | Descripción |
@@ -184,7 +214,8 @@ Acciones: `GET /notificaciones`, `POST /notificaciones/<bloque>` (guardar) y
 | POST | `/notificaciones/<bloque>/probar` | sesión + CSRF | sonda de red (token, push, correo, IA) |
 | POST | `/notificaciones/telegram/evento` | sesión + CSRF | plantilla/adjunto/activo de un evento |
 | POST | `/notificaciones/telegram/destinatarios` | sesión + CSRF | destinatarios de un evento (multiselect) |
-| GET | `/apps` | sesión | marcador de fase (Fase D) |
+| GET | `/apps` | sesión + `AccesoAppConfig` | pestaña Apps (catálogo por app) |
+| POST | `/apps` | sesión + CSRF + `AccesoAppConfig` | alta / editar / borrar / guardar valores / clasificar |
 
 ---
 
@@ -252,7 +283,7 @@ WorkersAdmon/
 │   ├── conf.d.available/*.conf   # ←10 programas en standby (9 workers + mcp_server)
 │   └── bin/{enable_worker,disable_worker,workers_list}
 ├── status_server.py              # punto de entrada → panel/server.py
-├── panel/                        # ← paquete del panel de control (Fase A+B+C)
+├── panel/                        # ← paquete del panel de control (Fase A+B+C+D)
 │   ├── config.py                 # rutas, cookies, permisos, pestañas
 │   ├── spec.py                   # catálogo de config por worker (Fase B)
 │   ├── envconf.py                # overrides de entorno + /data/worker_env.json
@@ -262,8 +293,8 @@ WorkersAdmon/
 │   ├── probes.py                 # sondas SMTP / IA / push (Fase C)
 │   ├── templates.py              # HTML tema oscuro + login
 │   ├── server.py                 # routing HTTP
-│   └── views/                    # workers.py · config.py · notifications.py
-├── tests/test_panel.py           # 33 pruebas, sin BD ni supervisord reales
+│   └── views/                    # workers.py · config.py · notifications.py · apps.py
+├── tests/test_panel.py           # 41 pruebas, sin BD ni supervisord reales
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
 ├── cron_*.py, network_scanner.py # workers (código en standby)
@@ -305,7 +336,7 @@ Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
 ## 9. Pruebas
 
 ```bash
-# smoke test del panel (33 pruebas; no necesita SQL Server ni supervisord
+# smoke test del panel (41 pruebas; no necesita SQL Server ni supervisord
 # reales): doble en memoria para la BD + supervisorctl falso en un sandbox.
 python tests/test_panel.py
 ```

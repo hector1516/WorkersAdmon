@@ -21,6 +21,11 @@ font-family:Outfit,'Segoe UI',system-ui,-apple-system,sans-serif;font-size:15px}
 .wrap{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
 header{display:flex;align-items:center;justify-content:space-between;
 gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.hd{display:flex;gap:14px;align-items:flex-start;min-width:0}
+.logo{width:62px;height:62px;object-fit:contain;flex:0 0 auto;padding:5px;
+background:#0B1220;border:1px solid var(--line);border-radius:16px}
+.logo-big{display:block;width:104px;height:auto;margin:0 auto 12px;
+padding:8px;background:#0B1220;border:1px solid var(--line);border-radius:18px}
 h1{font-size:1.5rem;margin:0;letter-spacing:.3px}
 h1 span{color:var(--orange)}
 .sub{color:var(--muted);font-size:.85rem;margin-top:4px}
@@ -155,11 +160,16 @@ def esc(value):
     return html.escape(str(value if value is not None else ""))
 
 
-def _nav(active):
-    """Barra de pestañas: las no habilitadas quedan grisadas (fases B/C)."""
+def _nav(active, user=None):
+    """Barra de pestañas: sin habilitar = "próxima fase"; sin permiso = gris."""
+    from . import auth as _auth
     items = []
     for tab in config.TABS:
-        if tab["enabled"]:
+        perm = tab.get("perm")
+        if perm and user is not None and not _auth.has_perm(user, perm):
+            items.append(f'<span class="off" title="Requiere el permiso {perm}">'
+                         f'{tab["label"]}</span>')
+        elif tab["enabled"]:
             cls = ' class="active"' if tab["id"] == active else ""
             items.append(f'<a href="{tab["href"]}"{cls}>{tab["label"]}</a>')
         else:
@@ -191,19 +201,23 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 <meta name="viewport" content="width=device-width,initial-scale=1">
 {refresh_meta}
 <title>{esc(config.TITLE)}</title>
+<link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div>
+    <div class="hd">
+      <img class="logo" src="/logo.png" alt="{esc(config.TITLE)}">
+      <div>
       <h1>⚙️ {esc(config.TITLE)} <span>· panel de control</span></h1>
       <div class="sub">Contenedor <code>workersadmon</code> · {subtitle}</div>
       {user_html}
+      </div>
     </div>
     <div class="badge-live">● CONECTADO</div>
   </header>
-  {_nav(active)}
+  {_nav(active, user)}
   {flash(flash_ok, "ok")}
   {flash(flash_err, "err")}
   {body}
@@ -227,11 +241,13 @@ def login_page(error="", csrf="", locked=False):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Iniciar sesión — {esc(config.TITLE)}</title>
+<link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
 <body>
 <div class="wrap">
   <div class="box">
+    <img class="logo-big" src="/logo.png" alt="{esc(config.TITLE)}">
     <h1>🔐 {esc(config.TITLE)}</h1>
     <div class="muted">Panel de control de workers, notificaciones y
       configuración. Entra con tu cuenta del HUB.</div>
