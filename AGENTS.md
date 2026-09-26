@@ -117,10 +117,12 @@ Reglas del panel:
 
 ## Pendientes
 
-- **Migración `0036_config_catalogo.sql` en producción** (ya aplicada a
-  `ECCSA_Admon_Pruebas`): correr `apply_migrations.py` con
-  `HUB_DB_DATABASE=ECCSA_Admon` + `HUB_MIGRATE_PRODUCTION=1` en el repo HUB
-  (el runner **no** debe aplicar los 7 pendientes restantes de golpe).
+- Migración `0036_config_catalogo.sql` del HUB: **ya aplicada** a
+  `ECCSA_Admon_Pruebas` y a producción `ECCSA_Admon` (39 claves sembradas y
+  registrada en `schema_migrations`). El archivo sigue **sin commitear** en el
+  repo HUB (pendiente de subirlo; ojo: push a `master` dispara su deploy).
+  Quedan 6 migraciones del HUB sin aplicar en producción (0020, 0021, 0031,
+  0033, 0034, 0035): aplicarlas aparte con el runner normal, nunca de golpe.
 - CI (`.github/workflows/deploy.yml` + runner self-hosted para este repo):
   fase posterior, mientras tanto el deploy es manual (`docker build` + `docker run`).
 - Activar el primer worker (hoy: ninguno activo) — ya puede hacerse desde el panel.
