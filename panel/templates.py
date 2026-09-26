@@ -49,6 +49,9 @@ letter-spacing:.6px}
 .card.red .n{color:var(--red)}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
 overflow:hidden;margin-top:8px}
+/* Tablas: en pantallas angostas se desplazan horizontalmente (en vez de
+   comprimir columnas hasta hacerlas ilegibles). */
+.tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .panel h2{font-size:1rem;margin:0;padding:16px 18px;border-bottom:1px solid var(--line);
 font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:.9rem}
@@ -148,8 +151,61 @@ font-size:.78rem;background:var(--panel2)}
 .wdesc div{margin-top:6px;padding:9px 11px;background:#0B1220;
 border:1px solid var(--line);border-left:2px solid var(--orange);
 border-radius:8px;line-height:1.55;color:#CBD5E1}
-@media(max-width:820px){.hide-sm{display:none}table{font-size:.82rem}
-.wrap{padding:16px 12px 50px}}
+/* ── Teléfonos / tabletas ──────────────────────────────────────────────
+   Reglas de móvil: objetivos táctiles ≥40px, inputs a 16px (si no, iOS
+   hace zoom al enfocar), safe-areas del notch y tablas con scroll propio. */
+@media(max-width:820px){
+html{-webkit-text-size-adjust:100%}
+.wrap{padding:16px 12px calc(54px + env(safe-area-inset-bottom));
+padding-left:max(12px,env(safe-area-inset-left));
+padding-right:max(12px,env(safe-area-inset-right))}
+.hide-sm{display:none}
+header{gap:10px;padding-bottom:12px}
+.hd{gap:10px}
+.logo{width:48px;height:48px;border-radius:12px;padding:4px}
+h1{font-size:1.22rem}
+h1 span{display:none}
+.sub{font-size:.8rem}
+.badge-live{padding:5px 10px;font-size:.72rem}
+.nav{gap:7px;margin:14px 0 4px}
+.nav a,.nav span{padding:11px 14px;font-size:.92rem}
+.cards{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+gap:10px;margin:18px 0}
+.card{padding:13px 14px}
+.card .n{font-size:1.6rem}
+.card .l{font-size:.72rem}
+.panel h2{padding:14px}
+table{font-size:.82rem}
+.tscroll table{min-width:640px}
+th{padding:10px}
+td{padding:11px 10px}
+.actions-cell{white-space:normal}
+.actions{gap:7px}
+.btn{min-height:40px;display:inline-flex;align-items:center;
+justify-content:center;padding:9px 13px}
+.cfg-grid{padding:14px;gap:14px}
+.cfg-save{padding:0 14px 14px;flex-wrap:wrap}
+.cfg-note{padding:10px 14px}
+.card-desc{padding:12px 14px 2px}
+.box{margin:20px auto;padding:22px 18px}
+pre.log{padding:13px 14px;font-size:.72rem}
+footer{flex-direction:column;gap:6px}
+/* iOS hace zoom automático si el texto de los campos es menor a 16px */
+input[type=email],input[type=password],input[type=text],input[type=number],
+select,textarea{font-size:16px}
+}
+@media(max-width:430px){
+.wrap{padding-left:10px;padding-right:10px}
+.logo{width:42px;height:42px}
+h1{font-size:1.1rem}
+.card-desc,.sub{font-size:.78rem}
+.cards{grid-template-columns:repeat(2,1fr)}
+.card .n{font-size:1.45rem}
+.tscroll table{min-width:560px}
+.cfg-grid{grid-template-columns:1fr;padding:12px}
+.box{margin:14px auto;padding:20px 14px}
+.btn{font-size:.78rem;padding:9px 11px}
+}
 """
 
 ST_TAG = {

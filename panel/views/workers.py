@@ -128,7 +128,7 @@ def render(status, user, flash_ok="", flash_err="", csrf=""):
   {err}
   <div class="panel">
     <h2>Programas del contenedor</h2>
-    <table>
+    <div class="tscroll"><table>
       <thead><tr>
         <th>Programa</th><th>Estado</th><th>Habilitado</th>
         <th>Activo desde</th><th>Última ejecución</th>
@@ -137,7 +137,7 @@ def render(status, user, flash_ok="", flash_err="", csrf=""):
       <tbody>
 {body_rows}
       </tbody>
-    </table>
+    </table></div>
     {hint}
   </div>"""
 

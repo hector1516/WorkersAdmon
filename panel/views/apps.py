@@ -113,13 +113,13 @@ def _panel_app(app, filas):
       {_csrf_field()}
       <input type="hidden" name="grupo" value="cat">
       <input type="hidden" name="app" value="{esc(app)}">
-      <table>
+      <div class="tscroll"><table>
         <thead><tr>
           <th>Título</th><th>Clave</th><th>Valor</th><th>Tipo</th>
           <th class="hide-sm">Descripción</th><th></th>
         </tr></thead>
         <tbody>{filas_html}</tbody>
-      </table>
+      </table></div>
       <div class="cfg-save">
         <button class="btn on" type="submit" name="save_all" value="1">💾 Guardar valores</button>
         <span class="muted" style="font-size:.78rem">Varios de una vez · 🗑️ quita solo el catálogo</span>
@@ -156,13 +156,13 @@ def _panel_libres(libres, apps):
       {_csrf_field()}
       <input type="hidden" name="grupo" value="libre">
       <datalist id="apps-list">{apps_opt}</datalist>
-      <table>
+      <div class="tscroll"><table>
         <thead><tr>
           <th>Clave</th><th>Estado</th><th>App</th><th>Título</th>
           <th>Tipo</th><th></th>
         </tr></thead>
         <tbody>{''.join(filas)}</tbody>
-      </table>
+      </table></div>
       <div class="cfg-save"><span class="muted" style="font-size:.78rem">
         Sus valores no se muestran hasta que se clasifiquen (pueden ser
         secretas). 📁 las mueve al catálogo de la app indicada.</span></div>
@@ -228,10 +228,10 @@ HUB_DB_DATABASE=ECCSA_Admon HUB_MIGRATE_PRODUCTION=1 python apply_migrations.py<
       Mientras tanto, las {len(todos)} claves de <code>HUB_Config</code> se
       listan solo para consulta.
     </div>
-    <table>
+    <div class="tscroll"><table>
       <thead><tr><th>Clave</th><th>Valor</th></tr></thead>
       <tbody>{filas}</tbody>
-    </table>
+    </table></div>
   </div>"""
 
 

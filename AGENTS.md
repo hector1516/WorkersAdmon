@@ -114,7 +114,16 @@ Reglas del panel:
   - Los iconos se generan desde `workers/worker.png` con Pillow (fondo
     `#0F172A`); al cambiar el logo, regenerarlos y subir el `CACHE` de `sw.js`.
   - Instalable solo con HTTPS (`https://worker.ecc-sa.com.mx`).
-- Tests: `python tests/test_panel.py` (50 pruebas; doble de BD + supervisorctl
+- UI responsive (móvil): reglas en `panel/templates.py → CSS` con cortes en
+  **820px** y **430px**. Al agregar vistas:
+  - **Toda tabla** va dentro de `<div class="tscroll">…</div>` (scroll
+    horizontal en celular); columnas prescindibles con `hide-sm`.
+  - No usar anchos fijos (`width:NNNpx`) ni `white-space:nowrap` fuera de
+    `.actions-cell`; los botones nuevos reusan `.btn` (ya tiene 40px táctiles).
+  - Si se agregan campos de formulario, respetar el bloque de `font-size:16px`
+    (evita el zoom automático de iOS).
+  - HTML vía `page()` (no suelto): hereda head PWA, viewport y el CSS móvil.
+- Tests: `python tests/test_panel.py` (52 pruebas; doble de BD + supervisorctl
   falso; no requiere BD ni supervisord).
 
 ## Credenciales (CRÍTICO)

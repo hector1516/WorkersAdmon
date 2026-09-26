@@ -101,6 +101,18 @@ configuración y notificaciones de todo el ecosistema.
 * Instalable desde `https://worker.ecc-sa.com.mx` (el navegador exige HTTPS;
   en `http://10.188.141.31:8200` no aparece el banner de instalación).
 
+### Móvil (teléfonos y tabletas)
+
+* La UI es responsive a dos cortes: **820px** (tablet/celular) y **430px**
+  (celular angosto), definidos en `panel/templates.py → CSS`.
+* **Tablas** dentro de `<div class="tscroll">`: en pantallas angostas se
+  desplazan horizontalmente en vez de comprimir columnas; las columnas menos
+  importantes usan la clase `hide-sm`.
+* **Objetivos táctiles ≥40px** (botones/pestañas), inputs a **16px** para que
+  iOS no haga zoom automático al enfocar, y `safe-area-inset-*` para el notch
+  (ya que el viewport trae `viewport-fit=cover`).
+* Cabecera compacta en móvil: logo más pequeño y sin el «· panel de control».
+
 ### Pestañas
 
 | Pestaña | Estado | Contenido |
@@ -325,7 +337,7 @@ WorkersAdmon/
 │   ├── manifest.webmanifest      # manifiesto instalable (Field/Admon)
 │   ├── sw.js                     # service worker: solo GET, offline = /offline
 │   └── icons/                    # 120/152/167/180/192/512 + maskable + apple
-├── tests/test_panel.py           # 50 pruebas, sin BD ni supervisord reales
+├── tests/test_panel.py           # 52 pruebas, sin BD ni supervisord reales
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
 ├── cron_*.py, network_scanner.py # workers (código en standby)
@@ -367,7 +379,7 @@ Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
 ## 9. Pruebas
 
 ```bash
-# smoke test del panel (50 pruebas; no necesita SQL Server ni supervisord
+# smoke test del panel (52 pruebas; no necesita SQL Server ni supervisord
 # reales): doble en memoria para la BD + supervisorctl falso en un sandbox.
 python tests/test_panel.py
 ```

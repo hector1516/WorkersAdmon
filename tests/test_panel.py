@@ -1324,6 +1324,35 @@ class PanelTest(unittest.TestCase):
         self.assertIn("serviceWorker", html)
         self.assertNotIn("Admin Panel", html)
 
+    # ── UI para teléfonos (responsive) ───────────────────────────────────────
+    def test_51_ui_para_movil(self):
+        c = Client()
+        _, _, html = c.get("/login")
+        for trozo in (
+            "@media(max-width:820px)",       # tabletas y celulares
+            "@media(max-width:430px)",       # celulares angostos
+            ".tscroll{overflow-x:auto",      # tablas con scroll propio
+            "min-height:40px",               # objetivos táctiles
+            "font-size:16px",                # evita el zoom de iOS al enfocar
+            "env(safe-area-inset-bottom)",   # notch / barra inferior
+            ".actions-cell{white-space:normal}",
+            "-webkit-text-size-adjust:100%",
+        ):
+            self.assertIn(trozo, html, f"falta {trozo}")
+
+    def test_52_tablas_scrolleables(self):
+        c = self._logged()
+        code, _, html = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertGreaterEqual(html.count("<table"), 1)
+        # cada tabla debe vivir dentro de un contenedor con scroll
+        self.assertEqual(html.count("<table"), html.count('class="tscroll"'))
+        code, _, html = c.get("/apps")
+        self.assertEqual(code, 200)
+        # 3 tablas de catálogo (+ la de "sin clasificar" si hay claves libres)
+        self.assertGreaterEqual(html.count("<table"), 3)
+        self.assertEqual(html.count("<table"), html.count('class="tscroll"'))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
