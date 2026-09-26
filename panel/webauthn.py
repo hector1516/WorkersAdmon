@@ -8,7 +8,7 @@ misma librería (`webauthn`) y las mismas reglas que `mcp_server.py`.
 RP (Relying Party)
 ------------------
 - `ecc-sa.com.mx` (raíz): passkeys creadas con este rp funcionan en **cualquier
-  subdominio**, así que sirven para `workers.ecc-sa.com.mx` (Fase E).
+  subdominio**, así que sirven para `worker.ecc-sa.com.mx` (Fase E).
 - `field.` / `hub.` (legacy): **no** se pueden usar desde workers, porque el
   navegador exige que `rpId` sea dominio registrable del origin. Se rechazan
   con un mensaje claro en vez de fallar en la niebla.
@@ -136,7 +136,7 @@ def verify_login(state, credential, origin):
     """
     if not is_allowed_origin(origin):
         return False, ("Origen no permitido. Entra por "
-                       "https://workers.ecc-sa.com.mx (o el dominio del panel).")
+                       "https://worker.ecc-sa.com.mx (o el dominio del panel).")
     try:
         challenge = _read_state(state, "wk_login")
     except ValueError as exc:

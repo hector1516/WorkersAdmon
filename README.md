@@ -76,7 +76,7 @@ configuración y notificaciones de todo el ecosistema.
   mecanismo y misma cookie `ecsa_token` que el HUB).
 * **Login con passkey** (WebAuthn): el formulario trae el botón «🔐 Entrar con
   passkey» (solo se muestra si el navegador lo soporta y la página está en
-  `https://workers.ecc-sa.com.mx`). **No registra credenciales**: usa las que ya
+  `https://worker.ecc-sa.com.mx`). **No registra credenciales**: usa las que ya
   creaste en HUB/Field (`HUB_Passkeys`, rp raíz `ecc-sa.com.mx`) y solo verifica.
   Las passkeys heredadas de `field.`/`hub.` **no sirven aquí** (el navegador
   exige que `rpId` sea dominio registrable) y se rechazan con un mensaje claro.
@@ -98,7 +98,7 @@ configuración y notificaciones de todo el ecosistema.
   navegaciones van siempre a red (sin cachear HTML autenticado) y sin conexión
   sirve `/offline`; `/api/status`, `/healthz`, `/login` y `/passkey/*` son
   network-only.
-* Instalable desde `https://workers.ecc-sa.com.mx` (el navegador exige HTTPS;
+* Instalable desde `https://worker.ecc-sa.com.mx` (el navegador exige HTTPS;
   en `http://10.188.141.31:8200` no aparece el banner de instalación).
 
 ### Pestañas

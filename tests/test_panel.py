@@ -1122,7 +1122,7 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 404, "POST sin acción conocida → 404")
 
     # ── Login con passkey (WebAuthn) ─────────────────────────────────────────
-    ORIGIN_OK = "https://workers.ecc-sa.com.mx"
+    ORIGIN_OK = "https://worker.ecc-sa.com.mx"
 
     def _begin(self, c):
         """Helper: emite el challenge y devuelve (state, challenge)."""
@@ -1141,7 +1141,7 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         for trozo in ('id="pk" hidden', 'id="pk_btn"', "Entrar con passkey",
                       "/passkey/begin", "/passkey/finish", "o con contraseña",
-                      "workers.ecc-sa.com.mx"):
+                      "worker.ecc-sa.com.mx"):
             self.assertIn(trozo, html, f"falta {trozo!r}")
         self.assertTrue(c.cookie("panel_csrf"), "falta la cookie panel_csrf")
 
@@ -1235,10 +1235,10 @@ class PanelTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             _webauthn._read_state("", "wk_login")
         # allowlist de origins
-        self.assertTrue(_webauthn.is_allowed_origin("https://workers.ecc-sa.com.mx"))
+        self.assertTrue(_webauthn.is_allowed_origin("https://worker.ecc-sa.com.mx"))
         self.assertTrue(_webauthn.is_allowed_origin("https://ecc-sa.com.mx"))
         self.assertTrue(_webauthn.is_allowed_origin("http://127.0.0.1:8200"))
-        self.assertFalse(_webauthn.is_allowed_origin("http://workers.ecc-sa.com.mx"))
+        self.assertFalse(_webauthn.is_allowed_origin("http://worker.ecc-sa.com.mx"))
         self.assertFalse(_webauthn.is_allowed_origin("https://intruso.com"))
         self.assertFalse(_webauthn.is_allowed_origin(""))
         # base64url con y sin padding

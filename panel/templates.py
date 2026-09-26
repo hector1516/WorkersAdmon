@@ -193,7 +193,7 @@ def flash(message, kind="ok"):
 
 # ─── PWA: metadatos de instalación y registro del service worker ────────────
 # Mismos meta/links que Field y Admon: el panel se puede instalar en el
-# escritorio/celular desde https://workers.ecc-sa.com.mx.
+# escritorio/celular desde https://worker.ecc-sa.com.mx.
 PWA_HEAD = """
 <meta name="theme-color" content="#0F172A">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -318,7 +318,7 @@ def login_page(error="", csrf="", locked=False):
 </div>
 <script>
 /* Login con passkey: se muestra SOLO si el navegador lo soporta y la página
-   está en contexto seguro (https://workers.ecc-sa.com.mx). */
+   está en contexto seguro (https://worker.ecc-sa.com.mx). */
 (function () {{
   function el(id) {{ return document.getElementById(id); }}
   function cookie(name) {{
@@ -365,7 +365,7 @@ def login_page(error="", csrf="", locked=False):
     nota.hidden = false;
     nota.textContent = seguro
       ? 'Este navegador no soporta passkeys: usa tu contraseña.'
-      : '🔒 El passkey solo funciona en https://workers.ecc-sa.com.mx';
+      : '🔒 El passkey solo funciona en https://worker.ecc-sa.com.mx';
     return;
   }}
   el('pk').hidden = false;

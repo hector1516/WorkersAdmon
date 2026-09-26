@@ -39,7 +39,7 @@ config de apps de HUB/admon/Field/futuras). Fases:
 | **B** | pestaña **Configuración por worker**: `panel/spec.py` (catálogo), `panel/envconf.py` (overrides de entorno persistidos en `/data/worker_env.json` y reaplicados por el entrypoint), edición de `HUB_Config`, constantes solo lectura, bitácora sin valores secretos | ✅ |
 | **C** | pestaña Notificaciones (Telegram `HUB_Telegram*`, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón "Enviar prueba" | ✅ |
 | **D** | pestaña Apps: catálogo `HUB_ConfigCatalogo` (metadatos) + valores en `HUB_Config`, agrupados por app; permiso `AccesoAppConfig` | ✅ |
-| **E** | subdominio `workers.ecc-sa.com.mx` vía Cloudflare (dashboard Zero Trust → Add public hostname → `http://10.188.141.31:8200`) | ✅ |
+| **E** | subdominio `worker.ecc-sa.com.mx` vía Cloudflare (dashboard Zero Trust → Add public hostname → `http://10.188.141.31:8200`) | ✅ |
 
 Reglas del panel:
 
@@ -90,7 +90,7 @@ Reglas del panel:
 - Login con passkey: **verificación solamente** en `panel/webauthn.py` (las
   passkeys se crean en HUB/Field). Rutas `POST /passkey/begin|finish` en
   `panel/server.py` (JSON, con su propio CSRF, antes del gate genérico).
-  - RP raíz **`ecc-sa.com.mx`**: sirve para `workers.ecc-sa.com.mx`; las
+  - RP raíz **`ecc-sa.com.mx`**: sirve para `worker.ecc-sa.com.mx`; las
     passkeys con `RpId` `field.`/`hub.` se rechazan con mensaje explícito.
   - Challenge firmado con **HMAC-SHA256 (stdlib)**, TTL 5 min, sin `pyjwt`;
     `_verify_assertion()` envuelve `webauthn.verify_authentication_response`
@@ -113,7 +113,7 @@ Reglas del panel:
     `/logout` y `/passkey/*` network-only; estáticos caché+revalidación.
   - Los iconos se generan desde `workers/worker.png` con Pillow (fondo
     `#0F172A`); al cambiar el logo, regenerarlos y subir el `CACHE` de `sw.js`.
-  - Instalable solo con HTTPS (`https://workers.ecc-sa.com.mx`).
+  - Instalable solo con HTTPS (`https://worker.ecc-sa.com.mx`).
 - Tests: `python tests/test_panel.py` (50 pruebas; doble de BD + supervisorctl
   falso; no requiere BD ni supervisord).
 
