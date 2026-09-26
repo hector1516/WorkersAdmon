@@ -87,7 +87,21 @@ Reglas del panel:
   - Bitácora solo con nombres de clave, nunca con valores.
   - La migración se aplica en el **repo HUB** (`migrations/0036_*.sql`); si
     falta, `/apps` muestra el aviso y el listado de solo lectura.
-- Tests: `python tests/test_panel.py` (41 pruebas; doble de BD + supervisorctl
+- Login con passkey: **verificación solamente** en `panel/webauthn.py` (las
+  passkeys se crean en HUB/Field). Rutas `POST /passkey/begin|finish` en
+  `panel/server.py` (JSON, con su propio CSRF, antes del gate genérico).
+  - RP raíz **`ecc-sa.com.mx`**: sirve para `workers.ecc-sa.com.mx`; las
+    passkeys con `RpId` `field.`/`hub.` se rechazan con mensaje explícito.
+  - Challenge firmado con **HMAC-SHA256 (stdlib)**, TTL 5 min, sin `pyjwt`;
+    `_verify_assertion()` envuelve `webauthn.verify_authentication_response`
+    (única parte con crypto; los tests la sustituyen).
+  - Origen permitido: `https://ecc-sa.com.mx` + subdominios y `localhost`
+    (`http://127.0.0.1` para pruebas). Si el proxy tira el `Origin`, se
+    reconstruye con `X-Forwarded-Proto` + `Host`.
+  - El éxito es idéntico a `_post_login`: cookie `ecsa_token` + `panel_csrf`
+    y bitácora; el botón del login solo aparece si hay `isSecureContext` +
+    `PublicKeyCredential`.
+- Tests: `python tests/test_panel.py` (46 pruebas; doble de BD + supervisorctl
   falso; no requiere BD ni supervisord).
 
 ## Credenciales (CRÍTICO)
@@ -119,10 +133,13 @@ Reglas del panel:
 
 - Migración `0036_config_catalogo.sql` del HUB: **ya aplicada** a
   `ECCSA_Admon_Pruebas` y a producción `ECCSA_Admon` (39 claves sembradas y
-  registrada en `schema_migrations`). El archivo sigue **sin commitear** en el
-  repo HUB (pendiente de subirlo; ojo: push a `master` dispara su deploy).
-  Quedan 6 migraciones del HUB sin aplicar en producción (0020, 0021, 0031,
-  0033, 0034, 0035): aplicarlas aparte con el runner normal, nunca de golpe.
+  registrada en `schema_migrations`), **commiteada** en el repo HUB
+  (`00feeca`) y ya desplegada en `hub_python`. Quedan 6 migraciones del HUB
+  sin aplicar en producción (0020, 0021, 0031, 0033, 0034, 0035): aplicarlas
+  aparte con el runner normal, nunca de golpe.
+  - El runner `Admon-Runner` se cayó (servicio `Stopped`) y dejó el deploy en
+    cola infinita; se arrancó con `net start actions.runner.hector1516-Admon.Admon-Runner`.
+    Si vuelve a pasar: revisar ese servicio Windows en ServerVM.
 - CI (`.github/workflows/deploy.yml` + runner self-hosted para este repo):
   fase posterior, mientras tanto el deploy es manual (`docker build` + `docker run`).
 - Activar el primer worker (hoy: ninguno activo) — ya puede hacerse desde el panel.

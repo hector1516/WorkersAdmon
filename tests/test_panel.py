@@ -10,6 +10,7 @@ No necesita SQL Server ni supervisord reales:
 
 Ejecución:  python tests/test_panel.py
 """
+import base64
 import http.cookiejar
 import importlib
 import json
@@ -290,6 +291,49 @@ def fake_delete_catalog(item_id):
     return False, "la clave ya no existe en el catálogo"
 
 
+# ── Doble de HUB_Passkeys + verificación (Fase: login con passkey) ───────────
+_PASSKEYS = {
+    "cred-admin-1": {"Id": 7, "IdUsuario": 1, "CredentialId": "cred-admin-1",
+                     "PublicKey": "pk-admin", "SignCount": 10,
+                     "RpId": "ecc-sa.com.mx"},
+    "cred-legacy-1": {"Id": 8, "IdUsuario": 1, "CredentialId": "cred-legacy-1",
+                      "PublicKey": "pk-legacy", "SignCount": 3,
+                      "RpId": "field.ecc-sa.com.mx"},
+}
+_SIGNCOUNT = {}
+
+
+def fake_passkey_by_credential(cred_id):
+    row = _PASSKEYS.get(cred_id)
+    return dict(row) if row else None
+
+
+def fake_update_sign_count(passkey_id, sign_count):
+    _SIGNCOUNT[passkey_id] = sign_count
+    return True
+
+
+def fake_user_by_id(user_id):
+    if user_id == 1:
+        return _fake_user("admin@ecc-sa.com.mx", True, "Admin Panel")
+    return None
+
+
+db.get_passkey_by_credential = fake_passkey_by_credential
+db.update_passkey_sign_count = fake_update_sign_count
+db.get_user_by_id = fake_user_by_id
+
+# El chequeo criptográfico real (webauthn) queda fuera de los tests: aquí se
+# sustituye por un resultado válido; la lógica alrededor SÍ se prueba.
+from panel import webauthn as _webauthn  # noqa: E402
+
+
+class _VerificacionOK:
+    new_sign_count = 42
+
+
+_webauthn._verify_assertion = lambda *a, **k: _VerificacionOK()
+
 db.config_catalog_exists = fake_catalog_exists
 db.get_config_catalog = fake_get_catalog
 db.get_all_config_values = fake_all_config_values
@@ -439,6 +483,20 @@ class Client:
 
     def post(self, path, **fields):
         return self._req(f"http://127.0.0.1:{PORT}{path}", data=fields)
+
+    def post_json(self, path, obj, origin=None):
+        """POST con cuerpo JSON (endpoints /passkey/*)."""
+        headers = {"Content-Type": "application/json"}
+        if origin:
+            headers["Origin"] = origin
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{PORT}{path}",
+            data=json.dumps(obj).encode("utf-8"), headers=headers, method="POST")
+        try:
+            resp = self.opener.open(req, timeout=10)
+            return resp.getcode(), dict(resp.headers), resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            return exc.code, dict(exc.headers), exc.read().decode("utf-8")
 
     def cookie(self, name):
         for c in self.jar:
@@ -1053,6 +1111,130 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 403)
         code, _, _ = c.post("/apps", csrf=c.csrf())
         self.assertEqual(code, 404, "POST sin acción conocida → 404")
+
+    # ── Login con passkey (WebAuthn) ─────────────────────────────────────────
+    ORIGIN_OK = "https://workers.ecc-sa.com.mx"
+
+    def _begin(self, c):
+        """Helper: emite el challenge y devuelve (state, challenge)."""
+        if not c.cookie("panel_csrf"):
+            c.get("/login")
+        code, _, body = c.post_json("/passkey/begin",
+                                    {"csrf": c.csrf()}, origin=self.ORIGIN_OK)
+        self.assertEqual(code, 200, body)
+        data = json.loads(body)
+        self.assertTrue(data["ok"], data)
+        return data["state"], data["options"]["challenge"]
+
+    def test_42_login_con_passkey_ui(self):
+        c = Client()
+        code, _, html = c.get("/login")
+        self.assertEqual(code, 200)
+        for trozo in ('id="pk" hidden', 'id="pk_btn"', "Entrar con passkey",
+                      "/passkey/begin", "/passkey/finish", "o con contraseña",
+                      "workers.ecc-sa.com.mx"):
+            self.assertIn(trozo, html, f"falta {trozo!r}")
+        self.assertTrue(c.cookie("panel_csrf"), "falta la cookie panel_csrf")
+
+    def test_43_passkey_begin(self):
+        c = Client()
+        # sin CSRF → 403
+        code, _, _ = c.post_json("/passkey/begin", {}, origin=self.ORIGIN_OK)
+        self.assertEqual(code, 403)
+        # con CSRF → options + state firmado
+        state, challenge = self._begin(c)
+        self.assertIn(".", state, "el state debe venir firmado")
+        self.assertTrue(challenge and len(challenge) > 20)
+        self.assertRegex(challenge, r"^[A-Za-z0-9_-]+$")
+        # acción desconocida
+        code, _, _ = c.post_json("/passkey/no_existe", {"csrf": c.csrf()},
+                                 origin=self.ORIGIN_OK)
+        self.assertEqual(code, 404)
+
+    def test_44_passkey_finish_crea_sesion(self):
+        c = Client()
+        state, _ = self._begin(c)
+        cred = {"id": "cred-admin-1", "rawId": "cred-admin-1",
+                "type": "public-key",
+                "response": {"clientDataJSON": "e30", "authenticatorData": "AA",
+                             "signature": "AA",
+                             "userHandle": base64.urlsafe_b64encode(
+                                 b"1").rstrip(b"=").decode()}}
+        code, headers, body = c.post_json(
+            "/passkey/finish",
+            {"state": state, "credential": cred, "csrf": c.csrf()},
+            origin=self.ORIGIN_OK)
+        self.assertEqual(code, 200, body)
+        data = json.loads(body)
+        self.assertTrue(data["ok"], data)
+        self.assertEqual(data["redirect"], "/")
+        self.assertTrue(c.cookie("ecsa_token"), "falta la cookie de sesión")
+        # la sesión funciona en las páginas del panel
+        code, _, home = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn("Admin Panel", home)
+        # se actualizó el sign count y quedó la bitácora
+        self.assertEqual(_SIGNCOUNT.get(7), 42)
+        self.assertTrue(any("passkey" in accion for _, _, accion in _ACTIVITY),
+                        "falta la bitácora")
+
+    def test_45_passkey_errores(self):
+        c = Client()
+        state, _ = self._begin(c)
+
+        def finish(**kw):
+            payload = {"state": state, "credential": {"id": "cred-admin-1"},
+                       "csrf": c.csrf()}
+            payload.update(kw)
+            code, _, body = c.post_json("/passkey/finish", payload,
+                                        origin=kw.pop("_origin", self.ORIGIN_OK)
+                                        if "_origin" in kw else self.ORIGIN_OK)
+            return code, body
+
+        # credencial desconocida
+        code, body = finish(credential={"id": "nai"})
+        self.assertEqual(code, 401)
+        self.assertIn("no reconocida", body)
+        # passkey legacy de otro subdominio → mensaje claro, no niebla
+        code, body = finish(credential={"id": "cred-legacy-1"})
+        self.assertEqual(code, 401)
+        self.assertIn("field.ecc-sa.com.mx", body)
+        self.assertIn("solo funciona", body)
+        # state basura
+        code, body = finish(state="aaa.bbb")
+        self.assertEqual(code, 401)
+        self.assertIn("Desaf", body)
+        # sin CSRF
+        code, _, body = c.post_json("/passkey/finish",
+                                    {"state": state,
+                                     "credential": {"id": "cred-admin-1"}},
+                                    origin=self.ORIGIN_OK)
+        self.assertEqual(code, 403)
+        # origin no permitido (http://otro-dominio)
+        code, body = finish(_origin="http://intruso.ejemplo.com")
+        self.assertEqual(code, 401)
+        self.assertIn("Origen no permitido", body)
+
+    def test_46_helpers_webauthn(self):
+        # estados firmados: correcto / alterado / propósito equivocado
+        state, challenge = _webauthn._issue_state("wk_login")
+        self.assertEqual(_webauthn._read_state(state, "wk_login"), challenge)
+        with self.assertRaises(ValueError):
+            _webauthn._read_state("x" + state[1:], "wk_login")
+        with self.assertRaises(ValueError):
+            _webauthn._read_state(state, "otro_proposito")
+        with self.assertRaises(ValueError):
+            _webauthn._read_state("", "wk_login")
+        # allowlist de origins
+        self.assertTrue(_webauthn.is_allowed_origin("https://workers.ecc-sa.com.mx"))
+        self.assertTrue(_webauthn.is_allowed_origin("https://ecc-sa.com.mx"))
+        self.assertTrue(_webauthn.is_allowed_origin("http://127.0.0.1:8200"))
+        self.assertFalse(_webauthn.is_allowed_origin("http://workers.ecc-sa.com.mx"))
+        self.assertFalse(_webauthn.is_allowed_origin("https://intruso.com"))
+        self.assertFalse(_webauthn.is_allowed_origin(""))
+        # base64url con y sin padding
+        self.assertEqual(_webauthn._from_b64url("AQID"), b"\x01\x02\x03")
+        self.assertEqual(_webauthn._from_b64url("AQI"), b"\x01\x02")
 
 
 if __name__ == "__main__":

@@ -5,8 +5,10 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
 
   GET  /healthz                        → "ok" (sondeo, sin auth)
   GET  /api/status                     → JSON de estado (sin secretos, sin auth)
-  GET  /login                          → formulario de acceso
+  GET  /login                          → formulario de acceso (+ botón passkey)
   POST /login                          → autentica y crea la sesión (HUB_Sessions)
+  POST /passkey/begin                  → options + state del challenge (JSON)
+  POST /passkey/finish                 → verifica la passkey y crea la sesión (JSON)
   POST /logout                         → cierra sesión
   GET  /                               → pestaña Workers (requiere sesión + permiso)
   GET  /workers/<nombre>/logs          → logs de un programa
@@ -27,7 +29,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import auth, config, db, envconf, probes, spec, workers
+from . import auth, config, db, envconf, probes, spec, webauthn, workers
 from .templates import esc, forbidden_page, login_page, page
 from .views import apps as apps_view
 from .views import config as config_view
@@ -86,9 +88,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(data)
 
-    def _json(self, obj, code=200):
+    def _json(self, obj, code=200, extra=()):
         self._send(code, json.dumps(obj, ensure_ascii=False, indent=2),
-                   "application/json")
+                   "application/json", extra)
 
     def _redirect(self, url, extra=()):
         self._send(303, "", "text/html", [("Location", url)] + list(extra))
@@ -99,14 +101,28 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.unquote(parts.path).rstrip("/") or "/"
         return path, urllib.parse.parse_qs(parts.query, keep_blank_values=True)
 
-    def _read_form(self):
+    def _read_body(self):
+        """Bytes del cuerpo POST (SE LEE UNA SOLA VEZ: form y JSON comparten)."""
+        if getattr(self, "_body_raw", None) is not None:
+            return self._body_raw
         length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > MAX_BODY:
-            return {}
-        raw = self.rfile.read(length)
+        raw = self.rfile.read(length) if 0 < length <= MAX_BODY else b""
+        self._body_raw = raw
+        return raw
+
+    def _read_form(self):
         try:
-            return urllib.parse.parse_qs(raw.decode("utf-8", "replace"),
-                                          keep_blank_values=True)
+            return urllib.parse.parse_qs(
+                self._read_body().decode("utf-8", "replace"),
+                keep_blank_values=True)
+        except Exception:
+            return {}
+
+    def _read_json(self):
+        """Cuerpo JSON de un POST (mismo límite MAX_BODY que los formularios)."""
+        try:
+            obj = json.loads(self._read_body().decode("utf-8", "replace"))
+            return obj if isinstance(obj, dict) else {}
         except Exception:
             return {}
 
@@ -228,7 +244,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/logout":
             return self._post_logout()
 
-        # Toda el resto exige sesión + CSRF
+        # Login con passkey: JSON con su propio CSRF (sin sesión todavía)
+        if path.startswith("/passkey/"):
+            return self._passkey_action(path[len("/passkey/"):].strip("/"),
+                                        self._read_json())
+
+        # Todo el resto exige sesión + CSRF
         if not auth.check_csrf(self, form):
             return self._html(page("error",
                 '<div class="panel"><div class="empty">⚠️ Token de seguridad '
@@ -307,6 +328,61 @@ class Handler(BaseHTTPRequestHandler):
             ("Set-Cookie", auth.clear_cookie(config.COOKIE_NAME, secure)),
             ("Set-Cookie", auth.clear_cookie(config.CSRF_COOKIE, secure)),
         ])
+
+    def _passkey_action(self, action, payload):
+        """
+        Login con passkey (WebAuthn). `begin` emite el challenge firmado y
+        `finish` verifica la aserción del navegador y crea la sesión —
+        mismo resultado que _post_login, pero en JSON para que lo consuma el
+        botón del formulario de acceso.
+        """
+        # CSRF de doble envío: cookie == campo (mismo helper que los formularios)
+        if not auth.check_csrf(self, {"csrf": [str(payload.get("csrf") or "")]}):
+            return self._json({"ok": False,
+                               "msg": "Sesión de formulario caducada, recarga."},
+                              403)
+        ip = self._client_ip()
+        if not auth.login_allowed(ip):
+            return self._json({"ok": False,
+                               "msg": "Demasiados intentos. Espera un minuto."},
+                              429)
+
+        if action == "begin":
+            return self._json({"ok": True, **webauthn.begin_login()})
+
+        if action == "finish":
+            # Origin del navegador; si algún proxy lo tira, se reconstruye con
+            # el X-Forwarded-Proto + Host que entrega Cloudflare.
+            origin = (self.headers.get("Origin") or "").strip()
+            if not origin:
+                proto = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+                host = (self.headers.get("Host") or "").strip()
+                if proto and host:
+                    origin = f"{proto}://{host}"
+            ok, res = webauthn.verify_login(payload.get("state") or "",
+                                            payload.get("credential") or {},
+                                            origin)
+            if not ok:
+                auth.register_login_failure(ip)
+                return self._json({"ok": False, "msg": res}, 401)
+
+            token = db.create_session_token(res["email"])
+            if not token:
+                return self._json({"ok": False,
+                                   "msg": "No se pudo crear la sesión (¿BD?)."},
+                                  500)
+            auth.clear_login_failures(ip)
+            db.log_activity(res["email"], "Panel Workers",
+                            "Inicio de sesión con passkey")
+            secure = config.is_cookie_secure(self)
+            return self._json(
+                {"ok": True, "redirect": "/",
+                 "nombre": res.get("nombre") or res.get("email", "")},
+                200,
+                extra=[("Set-Cookie", auth.session_cookie(token, secure)),
+                       ("Set-Cookie", auth.csrf_cookie(self._csrf(), secure))])
+
+        return self._json({"ok": False, "msg": "Acción no válida"}, 404)
 
     def _worker_action(self, user, name, action):
         """Ejecuta enable/disable/restart y redirige con mensaje flash."""

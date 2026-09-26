@@ -74,6 +74,12 @@ configuración y notificaciones de todo el ecosistema.
 * Login con **tu cuenta del HUB** (correo `@ecc-ssa.com.mx` + contraseña):
   valida contra `HUB_Users` y crea la sesión en **`HUB_Sessions`** (mismo
   mecanismo y misma cookie `ecsa_token` que el HUB).
+* **Login con passkey** (WebAuthn): el formulario trae el botón «🔐 Entrar con
+  passkey» (solo se muestra si el navegador lo soporta y la página está en
+  `https://workers.ecc-sa.com.mx`). **No registra credenciales**: usa las que ya
+  creaste en HUB/Field (`HUB_Passkeys`, rp raíz `ecc-sa.com.mx`) y solo verifica.
+  Las passkeys heredadas de `field.`/`hub.` **no sirven aquí** (el navegador
+  exige que `rpId` sea dominio registrable) y se rechazan con un mensaje claro.
 * Se requiere el permiso **`AccesoConfiguracion`**; sin él la página muestra
   "acceso denegado".
 * Protecciones: cookie `HttpOnly` + `SameSite=Lax` (y `Secure` cuando la petición
@@ -201,7 +207,9 @@ botones se distinguen por su `name` (`save_all`, `edit`, `del`, `add`,
 |---|---|---|---|
 | GET | `/healthz` | no | sondeo `"ok"` |
 | GET | `/api/status` | no | estado JSON |
-| GET/POST | `/login` | no | formulario y creación de sesión |
+| GET/POST | `/login` | no | formulario (contraseña + passkey) y creación de sesión |
+| POST | `/passkey/begin` | no (CSRF) | options + `state` firmado del challenge (JSON) |
+| POST | `/passkey/finish` | no (CSRF) | verifica la passkey y crea la sesión (JSON) |
 | POST | `/logout` | sesión | cierra la sesión |
 | GET | `/` | sesión | pestaña Workers |
 | GET | `/configuracion` | sesión | pestaña Configuración |
@@ -289,12 +297,13 @@ WorkersAdmon/
 │   ├── envconf.py                # overrides de entorno + /data/worker_env.json
 │   ├── db.py                     # BD: usuarios/sesiones/bitácora + config + notificaciones
 │   ├── auth.py                   # sesión, CSRF, límite de intentos
+│   ├── webauthn.py               # login con passkey (verificación, rp raíz)
 │   ├── workers.py                # estado + enable/disable/restart + logs + CATALOGO
 │   ├── probes.py                 # sondas SMTP / IA / push (Fase C)
 │   ├── templates.py              # HTML tema oscuro + login
 │   ├── server.py                 # routing HTTP
 │   └── views/                    # workers.py · config.py · notifications.py · apps.py
-├── tests/test_panel.py           # 41 pruebas, sin BD ni supervisord reales
+├── tests/test_panel.py           # 46 pruebas, sin BD ni supervisord reales
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
 ├── cron_*.py, network_scanner.py # workers (código en standby)
@@ -336,7 +345,7 @@ Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
 ## 9. Pruebas
 
 ```bash
-# smoke test del panel (41 pruebas; no necesita SQL Server ni supervisord
+# smoke test del panel (46 pruebas; no necesita SQL Server ni supervisord
 # reales): doble en memoria para la BD + supervisorctl falso en un sandbox.
 python tests/test_panel.py
 ```

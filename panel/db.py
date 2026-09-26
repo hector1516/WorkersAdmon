@@ -125,6 +125,44 @@ def _public_user(row):
     }
 
 
+def get_user_by_id(user_id):
+    """Usuario activo por Id (mismo dict que authenticate/validate_session_token)."""
+    if not user_id:
+        return None
+    try:
+        rows = _rows(
+            f"SELECT Id, Email, Nombre, Nickname, {_PERM_COLS} "
+            "FROM HUB_Users WHERE Id = %s AND Activo = 1", (int(user_id),))
+        return _public_user(rows[0]) if rows else None
+    except Exception:
+        return None
+
+
+# ─── Passkeys (solo VERIFICACIÓN: el registro lo hace HUB/Field) ─────────────
+def get_passkey_by_credential(cred_id):
+    """Fila de HUB_Passkeys por CredentialId (string base64url) o None."""
+    if not cred_id or len(str(cred_id)) > 500:
+        return None
+    try:
+        rows = _rows(
+            "SELECT Id, IdUsuario, CredentialId, PublicKey, SignCount, RpId "
+            "FROM HUB_Passkeys WHERE CredentialId = %s", (str(cred_id),))
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def update_passkey_sign_count(passkey_id, sign_count):
+    """Actualiza el contador de firma y el último uso de la passkey."""
+    try:
+        _execute(
+            "UPDATE HUB_Passkeys SET SignCount = %s, UltimoUso = GETDATE() "
+            "WHERE Id = %s", (int(sign_count or 0), int(passkey_id)))
+        return True
+    except Exception:
+        return False
+
+
 def validate_session_token(token):
     """
     Devuelve el usuario activo dueño del token, o None si no existe/expiró.

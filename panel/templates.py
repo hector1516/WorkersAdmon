@@ -114,6 +114,14 @@ input:focus{outline:none;border-color:var(--orange)}
 .submit{width:100%;margin-top:20px;padding:12px;border:none;border-radius:10px;
 background:var(--orange);color:#0F172A;font-weight:700;font-size:1rem;cursor:pointer}
 .submit:hover{background:var(--yellow)}
+.submit:disabled{opacity:.55;cursor:wait}
+.pk-status{min-height:1.15em;margin-top:8px;font-size:.88rem;text-align:center;
+color:var(--yellow)}
+.pk-note{margin-top:12px;font-size:.82rem;text-align:center;line-height:1.5}
+.pk-divider{display:flex;align-items:center;gap:10px;margin:16px 0 0;
+color:var(--muted);font-size:.74rem;text-transform:uppercase;letter-spacing:.7px}
+.pk-divider::before,.pk-divider::after{content:"";flex:1;height:1px;
+background:var(--line)}
 .err{color:#FCA5A5;font-size:.87rem;margin-top:12px}
 select{width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--line);
 background:#0B1220;color:var(--txt);font-size:.95rem;font-family:inherit}
@@ -231,7 +239,7 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 
 
 def login_page(error="", csrf="", locked=False):
-    """Formulario de acceso (HTML puro, sin JS)."""
+    """Formulario de acceso: passkey (WebAuthn) primero y contraseña como respaldo."""
     if locked:
         error = error or "Demasiados intentos. Espera un minuto y vuelve a intentar."
     disabled = " disabled" if locked else ""
@@ -251,6 +259,14 @@ def login_page(error="", csrf="", locked=False):
     <h1>🔐 {esc(config.TITLE)}</h1>
     <div class="muted">Panel de control de workers, notificaciones y
       configuración. Entra con tu cuenta del HUB.</div>
+
+    <div class="pk" id="pk" hidden>
+      <button class="submit" type="button" id="pk_btn">🔐 Entrar con passkey</button>
+      <div class="pk-status" id="pk_status" role="status"></div>
+      <div class="pk-note muted" id="pk_note" hidden></div>
+      <div class="pk-divider"><span>o con contraseña</span></div>
+    </div>
+
     <form method="post" action="/login">
       <input type="hidden" name="csrf" value="{esc(csrf)}">
       <label for="email">Correo</label>
@@ -264,6 +280,97 @@ def login_page(error="", csrf="", locked=False):
     {f'<div class="err">{esc(error)}</div>' if error else ''}
   </div>
 </div>
+<script>
+/* Login con passkey: se muestra SOLO si el navegador lo soporta y la página
+   está en contexto seguro (https://workers.ecc-sa.com.mx). */
+(function () {{
+  function el(id) {{ return document.getElementById(id); }}
+  function cookie(name) {{
+    var parts = (document.cookie || '').split(';');
+    for (var i = 0; i < parts.length; i++) {{
+      var kv = parts[i].trim().split('=');
+      if (kv[0] === name) return decodeURIComponent(kv.slice(1).join('='));
+    }}
+    return '';
+  }}
+  function status(m) {{ el('pk_status').textContent = m || ''; }}
+  function b64ToBuf(b64) {{
+    var s = (b64 || '').replace(/-/g, '+').replace(/_/g, '/');
+    var bin = atob(s + '='.repeat((4 - (s.length % 4)) % 4));
+    var arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr.buffer;
+  }}
+  function bufToB64(buf) {{
+    var b = new Uint8Array(buf), s = '';
+    for (var i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+  }}
+  function serialize(cred) {{
+    if (typeof cred.toJSON === 'function') return cred.toJSON();   // Chrome/Safari/FF modernos
+    var r = cred.response;
+    var out = {{ id: cred.id, rawId: bufToB64(cred.rawId), type: cred.type,
+      response: {{ clientDataJSON: bufToB64(r.clientDataJSON),
+                   authenticatorData: bufToB64(r.authenticatorData),
+                   signature: bufToB64(r.signature),
+                   userHandle: r.userHandle ? bufToB64(r.userHandle) : null }},
+      clientExtensionResults: {{}} }};
+    try {{ out.clientExtensionResults = cred.clientExtensionResults(); }} catch (e) {{}}
+    return out;
+  }}
+
+  var soporta = false, seguro = !!window.isSecureContext;
+  try {{
+    soporta = !!(window.PublicKeyCredential && navigator.credentials &&
+                 navigator.credentials.get);
+  }} catch (e) {{}}
+  if (!soporta || !seguro) {{
+    var nota = el('pk_note');
+    nota.hidden = false;
+    nota.textContent = seguro
+      ? 'Este navegador no soporta passkeys: usa tu contraseña.'
+      : '🔒 El passkey solo funciona en https://workers.ecc-sa.com.mx';
+    return;
+  }}
+  el('pk').hidden = false;
+
+  el('pk_btn').addEventListener('click', async function () {{
+    el('pk_btn').disabled = true;
+    status('🔄 Preparando passkey…');
+    try {{
+      var begin = await fetch('/passkey/begin', {{
+        method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ csrf: cookie('panel_csrf') }})
+      }});
+      var bj = await begin.json();
+      if (!bj.ok) throw new Error(bj.msg || 'No se pudo iniciar');
+      var opts = bj.options;
+      if (opts.challenge) opts.challenge = b64ToBuf(opts.challenge);
+      if (opts.allowCredentials) opts.allowCredentials.forEach(function (c) {{
+        if (c.id) c.id = b64ToBuf(c.id);
+      }});
+      var cred = await navigator.credentials.get({{ publicKey: opts }});
+      var fin = await fetch('/passkey/finish', {{
+        method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ credential: serialize(cred), state: bj.state,
+                                csrf: cookie('panel_csrf') }})
+      }});
+      var fj = await fin.json();
+      if (!fj.ok) throw new Error(fj.msg || 'Passkey no válida');
+      status('✅ ¡Bienvenido' + (fj.nombre ? ', ' + fj.nombre : '') + '!');
+      window.location.href = fj.redirect || '/';
+    }} catch (e) {{
+      var n = (e && e.name) || '';
+      if (n === 'NotAllowedError' || n === 'AbortError') {{
+        status('⚠️ Passkey cancelada. Usa tu contraseña.');
+      }} else {{
+        status('❌ ' + ((e && e.message) || e));
+      }}
+      el('pk_btn').disabled = false;
+    }}
+  }});
+}})();
+</script>
 </body>
 </html>"""
 
