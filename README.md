@@ -338,6 +338,7 @@ WorkersAdmon/
 │   ├── sw.js                     # service worker: solo GET, offline = /offline
 │   └── icons/                    # 120/152/167/180/192/512 + maskable + apple
 ├── tests/test_panel.py           # 52 pruebas, sin BD ni supervisord reales
+├── tests/test_pdf_worker.py      # 3 pruebas del worker de PDFs (Remisiones)
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
 ├── cron_*.py, network_scanner.py # workers (código en standby)
@@ -379,9 +380,13 @@ Logs de cada worker: `/var/log/supervisor/<nombre>.log` dentro del contenedor (y
 ## 9. Pruebas
 
 ```bash
-# smoke test del panel (52 pruebas; no necesita SQL Server ni supervisord
-# reales): doble en memoria para la BD + supervisorctl falso en un sandbox.
+# suite completa (55 pruebas; dobles en memoria para BD y supervisorctl:
+# no necesita SQL Server ni supervisord reales)
+python -m unittest discover -s tests
+
+# solo el panel (52) / solo el worker de PDFs (3)
 python tests/test_panel.py
+python tests/test_pdf_worker.py
 ```
 
 Prueba manual de la BD real: `HUB_DB_DATABASE=ECCSA_Admon_Pruebas` y entrar con

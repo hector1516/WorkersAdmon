@@ -2,7 +2,7 @@
 cron_sync_pdf_storage.py - Worker diario: genera PDFs del día anterior y los guarda en el shared.
 
 Se ejecuta a las 03:00 AM (configurable via CRON_PDF_HORA / CRON_PDF_MIN).
-Recorre los 4 módulos (Cotizaciones Materiales, CSP, Reportes, OC), genera cada PDF
+Recorre los 5 módulos (Cotizaciones Materiales, CSP, Reportes, OC y Remisiones), genera cada PDF
 y lo guarda en el shared vía pdf_storage.save_pdf().
 Registra última ejecución en HUB_Config (clave: 'pdf_worker_last_run').
 """
@@ -75,7 +75,8 @@ def generar_pdfs_dia(fecha):
     Saltar los que ya existen en el shared.
     Retorna dict con conteos: {"materiales": N, "servproy": N, "reportes": N, "oc": N, "saltados": N, "errores": N}
     """
-    stats = {"materiales": 0, "servproy": 0, "reportes": 0, "oc": 0, "saltados": 0, "errores": 0}
+    stats = {"materiales": 0, "servproy": 0, "reportes": 0, "oc": 0,
+             "remisiones": 0, "saltados": 0, "errores": 0}
 
     # 1. Cotizaciones Materiales
     folios_cm = db.get_folios_cotizaciones_materiales_by_range(fecha, fecha)
@@ -147,6 +148,22 @@ def generar_pdfs_dia(fecha):
             print(f"[{_ts()}] Error OC {row.get('FolioOC')}: {e}")
             stats["errores"] += 1
 
+    # 5. Remisiones (RM-CM#####-NN) → Remisiones_Materiales/<año>/<mes>/
+    rems = db.get_remisiones_by_range(fecha, fecha)
+    for row in rems:
+        try:
+            folio_str = row['FolioRemision']
+            if pdf_storage.pdf_exists("remisiones", folio_str, fecha):
+                stats["saltados"] += 1
+                continue
+            pdf_bytes = pdf_generator.generate_remision_pdf(row['IdRemision'])
+            if pdf_bytes:
+                pdf_storage.save_pdf("remisiones", folio_str, pdf_bytes, fecha)
+                stats["remisiones"] += 1
+        except Exception as e:
+            print(f"[{_ts()}] Error RM {row.get('FolioRemision')}: {e}")
+            stats["errores"] += 1
+
     return stats
 
 
@@ -171,11 +188,13 @@ def main():
             print(f"[{_ts()}] Iniciando generación de PDFs para {fecha_objetivo}...")
 
             stats = generar_pdfs_dia(fecha_objetivo)
-            total_gen = stats['materiales'] + stats['servproy'] + stats['reportes'] + stats['oc']
+            total_gen = (stats['materiales'] + stats['servproy'] +
+                         stats['reportes'] + stats['oc'] + stats['remisiones'])
 
             print(f"[{_ts()}] Generación completada para {fecha_objetivo}:")
             print(f"  ✅ Generados: {stats['materiales']} CM, {stats['servproy']} CSP, "
-                  f"{stats['reportes']} RS, {stats['oc']} OC = {total_gen} total")
+                  f"{stats['reportes']} RS, {stats['oc']} OC, "
+                  f"{stats['remisiones']} RM = {total_gen} total")
             print(f"  ⏭️ Saltados (ya existían): {stats['saltados']}")
             if stats['errores'] > 0:
                 print(f"  ❌ Errores: {stats['errores']}")

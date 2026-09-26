@@ -123,8 +123,9 @@ Reglas del panel:
   - Si se agregan campos de formulario, respetar el bloque de `font-size:16px`
     (evita el zoom automático de iOS).
   - HTML vía `page()` (no suelto): hereda head PWA, viewport y el CSS móvil.
-- Tests: `python tests/test_panel.py` (52 pruebas; doble de BD + supervisorctl
-  falso; no requiere BD ni supervisord).
+- Tests: `python -m unittest discover -s tests` (55 pruebas; dobles de BD y
+  supervisorctl, no requieren SQL Server ni supervisord). Los casos puntuales
+  se corren con `python tests/test_panel.py` o `python tests/test_pdf_worker.py`.
 
 ## Credenciales (CRÍTICO)
 
@@ -145,6 +146,10 @@ Reglas del panel:
 - El código de workers y la capa de datos es un **snapshot** de HUB para que el
   contenedor sea autosuficiente (HUB se retirará). Si cambia una función en HUB
   que un worker usa, copiar el cambio aquí (o refactorar para desacoplar).
+- **Divergencia intencional**: `eccsa_db.get_remisiones_by_range()` (nueva) y el
+  5º módulo de `cron_sync_pdf_storage.py` (Remisiones) existen **solo aquí**;
+  HUB solo hace 4 módulos. Si HUB vuelve a necesitar el worker, copiar estos
+  bloques de vuelta (el resto de los archivos siguen idénticos byte a byte).
 - Flujo por worker: **apagar en `hub_python` → verificar → encender aquí →
   verificar**. Nunca los dos a la vez (mensajes/QR duplicados).
 - `mcp_server` vive aquí (puerto 8000 del host: passkeys `/__webauthn/*`, push

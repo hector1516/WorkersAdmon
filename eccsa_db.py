@@ -7853,6 +7853,21 @@ def get_folios_ordenes_compra_by_range(fecha_inicio, fecha_fin):
         return []
 
 
+def get_remisiones_by_range(fecha_inicio, fecha_fin):
+    """Devuelve remisiones creadas en un rango de fechas (worker de PDFs)."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute(
+                    "SELECT IdRemision, FolioRemision, FechaCreacion FROM IndiceRemisiones "
+                    "WHERE CAST(FechaCreacion AS DATE) BETWEEN %s AND %s ORDER BY FechaCreacion",
+                    (fecha_inicio, fecha_fin))
+                return cur.fetchall()
+    except Exception as e:
+        print(f"Error get_remisiones_range: {e}")
+        return []
+
+
 def get_service_report_full_by_folio(folio):
     """Devuelve un reporte de servicio completo por su folio (para el worker)."""
     try:
