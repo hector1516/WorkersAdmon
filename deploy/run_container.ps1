@@ -1,5 +1,5 @@
 # =============================================================
-# run_container.ps1 — levanta (o recrea) el contenedor `workersadmon`
+# run_container.ps1 - levanta (o recrea) el contenedor `workersadmon`
 # en ServerVM con las MISMAS credenciales que usa `hub_python`.
 #
 #   powershell -ExecutionPolicy Bypass -File C:\WorkersAdmon\deploy\run_container.ps1
@@ -10,10 +10,31 @@
 # =============================================================
 $ErrorActionPreference = "Continue"
 
-$cfg  = docker exec -w /app hub_python python3 -c "import json,secretos_local;print(json.dumps(secretos_local.DB_CONFIG_LOCAL))" | ConvertFrom-Json
-$smtp = docker exec -w /app hub_python python3 -c "import json,secretos_local;print(json.dumps(secretos_local.EMAIL_CONFIG_LOCAL))" | ConvertFrom-Json
+# 1) Credenciales PROPIAS (deploy/env.local, formato HUB_DB_*=...) si existe:
+#    es la fuente estable, no depende de que hub_python tenga su env completo.
+# 2) Si no, se leen de hub_python (mismo fallback historico).
+$envLocal = "C:\WorkersAdmon\deploy\env.local"
+$cfg = $null; $smtp = $null
+if (Test-Path $envLocal) {
+    $vars = @{}
+    foreach ($line in (Get-Content $envLocal)) {
+        if ($line -match '^\s*([A-Za-z0-9_]+)=(.*)$') { $vars[$Matches[1]] = $Matches[2] }
+    }
+    $cfg  = [pscustomobject]@{ server = $vars["HUB_DB_SERVER"]; user = $vars["HUB_DB_USER"]
+                               password = $vars["HUB_DB_PASSWORD"]; database = $vars["HUB_DB_DATABASE"] }
+    $smtp = [pscustomobject]@{ password = $vars["HUB_SMTP_PASSWORD"] }
+    Write-Host "ENV: desde $envLocal"
+} else {
+    $cfg  = docker exec -w /app hub_python python3 -c "import json,secretos_local;print(json.dumps(secretos_local.DB_CONFIG_LOCAL))" | ConvertFrom-Json
+    $smtp = docker exec -w /app hub_python python3 -c "import json,secretos_local;print(json.dumps(secretos_local.EMAIL_CONFIG_LOCAL))" | ConvertFrom-Json
+    Write-Host "ENV: desde hub_python"
+}
 
-if (-not $cfg.server) { Write-Host "ERROR: no se pudieron leer las credenciales de hub_python"; exit 1 }
+if (-not $cfg.server) { Write-Host "ERROR: no se pudieron leer las credenciales"; exit 1 }
+if (-not $cfg.password) {
+    Write-Host "ERROR: contrasena de BD vacia - revisa deploy/env.local o el env de hub_python"
+    exit 1
+}
 
 # Env-file en UTF-8 SIN BOM (el BOM romperia la primera variable)
 $lines = @(

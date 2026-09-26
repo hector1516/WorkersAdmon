@@ -22,3 +22,6 @@ Thumbs.db
 
 # env-file temporal del despliegue (credenciales)
 env.workersadmon
+
+# credenciales locales de despliegue (deploy/env.local — NUNCA a Git)
+deploy/env.local
