@@ -462,7 +462,13 @@ animation: pulse-offline 2s infinite;
 /* El banner es fijo: el contenido de la app necesita este padding para no
    quedar debajo (regla 1 del contrato). El número sale de la altura real del
    banner, por eso vive acá y no inline en el layout de cada app. */
-.shell-below-banner { padding-top: calc(3.8rem + env(safe-area-inset-top)); }
+/* La altura del banner, en un token. La usan dos cosas que TIENEN que medir
+   lo mismo: el padding del contenido (para no quedar debajo) y el `top` de un
+   header sticky (para que al scrollear se pegue JUSTO debajo del banner y no
+   se meta bajo el). Con el 3.8rem escrito en dos lados, cualquier cambio en el
+   banner dejaba una de las dos desfasada y aparecian superpuestos. */
+:root { --banner-h: calc(3.8rem + env(safe-area-inset-top)); }
+.shell-below-banner { padding-top: var(--banner-h); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ECCSA-Shell · barra de acciones (ver docs/CONTRATO.md)

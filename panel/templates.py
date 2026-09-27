@@ -357,11 +357,10 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     # Configuración y Notificaciones como pestañas, así que solo va 🚪.
     # Reemplaza el "Cerrar sesión" suelto que estaba en el <header>.
     actions_html = shell_actions(user)
+    # El usuario NO va en el header: en Field y Admon aparece solo en el
+    # banner (.sync-header .who). Tenerlo en los dos lados era una diferencia
+    # mas con las otras dos apps, y ademas duplicaba el mismo dato.
     user_html = ""
-    if user:
-        user_html = (
-            f'<div class="sub">👤 {esc(user.get("nombre") or user.get("email"))}</div>'
-        )
     # conn: "online" (verde) / "offline" (rojo) — lo pasa la vista de Workers
     live_cls = "" if conn is None else ("" if conn == "online" else " off")
     live_txt = "● CONECTADO" if conn != "offline" else "● SIN CONEXIÓN"
@@ -377,10 +376,16 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     # se sabía dónde estabas.
     tab = config.tab_por_id(active)
     if tab and tab.get("modulo"):
+        # El subtitulo que pasa cada vista (p.ej. "config central por app")
+        # antes vivia en el header. Field y Admon no lo tienen ahi — su header
+        # es solo la marca — asi que bajo al bloque de modulo, que es donde
+        # aporta: el titulo de la seccion, su descripcion y este detalle.
+        extra = f'<div class="sub">{esc(subtitle)}</div>' if subtitle else ""
         modulo_html = (
             f'<div class="modulo">'
             f'<h2 class="modulo-titulo">{esc(tab["modulo"])}</h2>'
             f'<div class="sub">{esc(tab.get("desc", ""))}</div>'
+            f'{extra}'
             f'</div>')
     else:
         modulo_html = ""
@@ -400,12 +405,11 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 <div class="{wrap_cls}">
   <header class="header">
     <div class="brand-col">
-      <a class="logo-link" href="/" title="Volver al inicio"><img class="logo" src="/logo.png" alt="{esc(config.TITLE)}"></a>
-      <div class="brand">
-        <h1>⚙️ {esc(config.TITLE)}</h1>
-        <div class="sub">{subtitle}</div>
-        {user_html}
-      </div>
+      <a class="logo-link" href="/"
+         title="Volver al inicio"><h1 class="brand">
+        <img class="brand-logo" src="/logo.png" alt="">
+        <span class="brand-name">{esc(config.TITLE)}</span>
+      </h1></a>
     </div>
     {actions_html}
   </header>
@@ -449,10 +453,11 @@ def login_page(error="", csrf="", locked=False):
 <div class="wrap login-page">
   <header class="header">
     <div class="brand-col">
-      <a class="logo-link" href="/" title="Volver al inicio"><img class="logo" src="/logo.png" alt="{esc(config.TITLE)}"></a>
       <div class="brand">
-        <h1>⚙️ {esc(config.TITLE)}</h1>
-        <div class="sub">Panel de control de workers, notificaciones y apps</div>
+        <h1 class="brand">
+          <img class="brand-logo" src="/logo.png" alt="">
+          <span class="brand-name">{esc(config.TITLE)}</span>
+        </h1>
       </div>
     </div>
   </header>
@@ -605,10 +610,11 @@ def offline_page():
 <div class="wrap login-page">
   <header class="header">
     <div class="brand-col">
-      <a class="logo-link" href="/" title="Volver al inicio"><img class="logo" src="/logo.png" alt="{esc(config.TITLE)}"></a>
       <div class="brand">
-        <h1>⚙️ {esc(config.TITLE)}</h1>
-        <div class="sub">Panel de control de workers, notificaciones y apps</div>
+        <h1 class="brand">
+          <img class="brand-logo" src="/logo.png" alt="">
+          <span class="brand-name">{esc(config.TITLE)}</span>
+        </h1>
       </div>
     </div>
   </header>

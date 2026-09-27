@@ -29,27 +29,27 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 .wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;
  padding:0 20px calc(var(--nav-h) + 22px + env(safe-area-inset-bottom))}
 /* Header fijo (como la status-bar de Field) con desenfoque al hacer scroll */
-/* El .header lo trae shell.css (display:flex, align-items, gap, padding y
-   margin-bottom, y .header h1 con su tamano). El panel solo le AGREGA lo que
-   necesita de mas — que se quede pegado al hacer scroll, porque las vistas
-   largas (estado, logs, configuracion) se leen scrolleando — y la columna de
-   marca. Antes el panel definiia su propio <header> con otros valores, y eso
-   gainaba por cargar despues. */
-header.header{position:sticky;top:0;z-index:90;flex-wrap:wrap;gap:16px;
- padding:10px 0 12px;background:rgba(15,23,42,.82);
+/* El .header lo trae shell.css (display:flex, align-items, gap, padding,
+   margin-bottom y .header h1 con su tamano). El panel solo le AGREGA lo que
+   necesita de mas: que se quede pegado al hacer scroll. Y lo pega POR DEBAJO
+   del banner, no en top:0 — el banner es position:fixed y va por encima
+   (z-index 250), asi que un sticky en top:0 se metia debajo al scrollear.
+   --banner-h es el mismo valor que usa .shell-below-banner para el padding. */
+header.header{position:sticky;top:var(--banner-h);z-index:90;flex-wrap:wrap;
+ gap:16px;padding:10px 0 12px;background:rgba(15,23,42,.82);
  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
  border-bottom:1px solid var(--line);margin:0 -20px 0;
  padding-left:20px;padding-right:20px}
 /* .shell-actions ya trae flex:1 + justify-content:flex-end, asi que la barra
    de acciones se va sola a la derecha sin styles propios. */
-.brand-col{display:flex;gap:14px;align-items:center;min-width:0}
-/* El logo es el botón "volver al inicio", igual que en Field: la home es la
-   grilla de módulos y no hay un botón Inicio en la barra. */
-.logo-link{display:flex;flex:0 0 auto;text-decoration:none;line-height:0}
+.brand-col{display:flex;flex-direction:column;gap:0;min-width:0}
+/* Logo 34px pegado al nombre, dentro del h1: es como lo tiene Field, y no
+   como un cuadro de 56px al lado. El logo es el boton de volver al inicio. */
+.brand{display:flex;align-items:center;gap:.5rem;margin:0}
+.brand-logo{width:34px;height:34px;object-fit:contain}
+.brand-name{margin-left:0}
+.logo-link{display:flex;text-decoration:none;line-height:0;flex:0 0 auto}
 .logo-link:active{opacity:.8}
-.brand{min-width:0}
-.logo{width:56px;height:56px;object-fit:contain;flex:0 0 auto;padding:5px;
- background:var(--inset);border:1px solid var(--line);border-radius:var(--radius)}
 
 /* Encabezado del modulo: de que seccion es y que hace. El h1 de arriba es la
    marca (identidad de la app, como en Field y Admon); esto es el titulo de la
@@ -76,10 +76,10 @@ header.header{position:sticky;top:0;z-index:90;flex-wrap:wrap;gap:16px;
   border-radius:var(--radius) var(--radius) 0 0}
 }
 .tnav{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 12px}
-.tnav a{padding:9px 13px;border:1px solid var(--line);border-radius:10px;
- background:rgba(255,255,255,.02);color:var(--txt);text-decoration:none;
- font-size:.86rem;font-weight:600;min-height:38px;display:inline-flex;
- align-items:center}
+.tnav a{padding:.6rem 1rem;border:1px solid var(--line);
+ border-radius:var(--radius-sm);background:rgba(255,255,255,.02);
+ color:var(--txt);text-decoration:none;font-size:.9rem;font-weight:600;
+ min-height:var(--tap);display:inline-flex;align-items:center}
 .tnav a:hover{border-color:var(--orange);color:var(--yellow)}
 .tnav a.on{background:var(--orange);border-color:var(--orange);color:var(--bg)}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;
@@ -158,7 +158,6 @@ tbody tr:hover{background:rgba(255,107,0,.05)}
    log/ghost (acciones de estado del panel), .card .n/.l (los números de las
    tarjetas) y los modificadores de la tab bar. */
 
-.btn:disabled{opacity:.4;cursor:not-allowed}
 form.inline{display:inline}
 button.linklike{background:none;border:none;color:var(--yellow);font:inherit;
  cursor:pointer;padding:0;text-decoration:underline;min-height:24px}
@@ -257,7 +256,6 @@ label{display:block;font-size:.85rem;color:var(--muted);margin:0 0 .35rem;
  .sub{font-size:.78rem}
  .badge-live{padding:5px 10px;font-size:.7rem}
  .tnav{gap:6px;margin:12px 0 10px}
- .tnav a{padding:10px 12px;font-size:.84rem}
  .chklist{max-height:none}
  .cards{grid-template-columns:repeat(auto-fit,minmax(132px,1fr));
   gap:10px;margin:16px 0}
