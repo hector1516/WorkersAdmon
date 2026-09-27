@@ -173,10 +173,6 @@ jobs:
             Add-Output 'motivo' 'no se pudo determinar que cambio'
             exit 0
           }
-            Add-Output 'modo' 'rebuild'
-            Add-Output 'motivo' 'no se pudo determinar que cambio'
-            exit 0
-          }
           Write-Output "Cambios en este push: $($changed.Count)"
           $changed | ForEach-Object { "  $_" }
 
