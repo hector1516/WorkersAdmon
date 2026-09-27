@@ -43,6 +43,10 @@ header.header{position:sticky;top:0;z-index:90;flex-wrap:wrap;gap:16px;
 /* .shell-actions ya trae flex:1 + justify-content:flex-end, asi que la barra
    de acciones se va sola a la derecha sin styles propios. */
 .brand-col{display:flex;gap:14px;align-items:center;min-width:0}
+/* El logo es el botón "volver al inicio", igual que en Field: la home es la
+   grilla de módulos y no hay un botón Inicio en la barra. */
+.logo-link{display:flex;flex:0 0 auto;text-decoration:none;line-height:0}
+.logo-link:active{opacity:.8}
 .brand{min-width:0}
 .logo{width:56px;height:56px;object-fit:contain;flex:0 0 auto;padding:5px;
  background:var(--inset);border:1px solid var(--line);border-radius:var(--radius)}

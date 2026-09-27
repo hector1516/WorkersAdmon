@@ -36,6 +36,7 @@ from .templates import (esc, forbidden_page, lugar_de, login_page,
 from .lugar import lugar_de_handler
 from .views import apps as apps_view
 from .views import config as config_view
+from .views import home as home_view
 from .views import notifications as notif_view
 from .views import workers as workers_view
 
@@ -276,7 +277,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/logout":
             return self._redirect("/login")
 
+        # La home es la grilla de módulos (como la de Field). El estado se
+        # corre a /estado.
         if path == "/":
+            user, done = self._require()
+            if done:
+                return
+            ok, err = self._flash(query)
+            return self._html(home_view.render(
+                user, flash_ok=ok, flash_err=err, **self._shell_ctx()))
+
+        if path == "/estado":
             user, done = self._require()
             if done:
                 return

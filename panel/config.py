@@ -121,8 +121,11 @@ LOGIN_LOCK_SECONDS = 60
 #
 # "disabled": la pestaña se muestra grisada hasta que llegue su fase.
 # "perm": si el usuario no lo tiene, la pestaña sale grisada con el motivo.
+MODULO_INICIO = {"id": "inicio", "modulo": "Panel",
+              "desc": "Elegí un módulo para empezar."}
+
 TABS = [
-    {"id": "estado", "label": "📊 Estado", "href": "/", "enabled": True,
+    {"id": "estado", "label": "📊 Estado", "href": "/estado", "enabled": True,
      "modulo": "Estado",
      "desc": "Qué está corriendo ahora mismo: cada worker, en qué estado y "
              "hace cuánto."},
@@ -143,6 +146,8 @@ TABS = [
 
 def tab_por_id(tab_id):
     """Devuelve la definición del módulo, o None si el id no existe."""
+    if tab_id == MODULO_INICIO["id"]:
+        return MODULO_INICIO
     for t in TABS:
         if t["id"] == tab_id:
             return t

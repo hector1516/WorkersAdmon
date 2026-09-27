@@ -617,7 +617,7 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(c.cookie("panel_csrf"), "falta la cookie panel_csrf")
         c.login("admin@ecc-sa.com.mx", "s3cret")
         self.assertTrue(c.cookie("ecsa_token"), "falta la cookie ecsa_token")
-        code, _, html = c.get("/")
+        code, _, html = c.get("/estado")
         self.assertEqual(code, 200)
         self.assertIn("demo_on", html)
         self.assertIn("Admin Panel", html)
@@ -845,7 +845,7 @@ class PanelTest(unittest.TestCase):
     def test_25_descripcion_de_cada_worker(self):
         c = self._logged()
         # pestaña Workers: párrafo plegado "ℹ️ Qué hace"
-        code, _, html = c.get("/")
+        code, _, html = c.get("/estado")
         self.assertEqual(code, 200)
         self.assertIn("Qué hace", html)
         self.assertIn("Descarga los wallpapers de Bing", html)
@@ -1459,7 +1459,7 @@ class PanelTest(unittest.TestCase):
     def test_53_workers_en_tarjetas_por_app(self):
         """La lista de programas son tarjetas agrupadas por app (no una tabla)."""
         c = self._logged()
-        code, _, html = c.get("/")
+        code, _, html = c.get("/estado")
         self.assertEqual(code, 200)
         self.assertNotIn("<table", html)                # sin scroll horizontal
         self.assertIn('class="wgroup"', html)           # encabezado de grupo
@@ -1624,6 +1624,26 @@ class PanelTest(unittest.TestCase):
         self.assertIn("UNA instancia", textos)
         self.assertIn("ScoreLog", textos)
 
+
+    def test_67_home_es_grilla_de_modulos(self):
+        """La home es la grilla de módulos, como la de Field (contrato 5)."""
+        c = self._logged()
+        code, _, html = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn('class="module-grid"', html)
+        # Una tarjeta por módulo, y los cuatro que pidió el panel.
+        for mid in ("estado", "logs", "config", "notificaciones"):
+            href = next(x["href"] for x in config.TABS if x["id"] == mid)
+            self.assertIn(href, html)
+        # Las tarjetas usan los componentes del shell, no clases propias.
+        self.assertIn('class="module-card"', html)
+        self.assertIn('class="module-icon"', html)
+        # El estado se corre a /estado y sigue mostrando los workers.
+        code2, _, html2 = c.get("/estado")
+        self.assertEqual(code2, 200)
+        self.assertIn("wgroup", html2)
+        # El logo vuelve a la home, y la barra no repite un botón Inicio.
+        self.assertIn('class="logo-link" href="/"', html)
 
     def test_60_chequeo_diario_del_shell(self):
         """El script de ECCSA-Shell corre, escribe su estado y el panel lo muestra."""

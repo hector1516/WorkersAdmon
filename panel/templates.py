@@ -67,6 +67,11 @@ def _nav(active, user=None):
     from . import auth as _auth
     items = []
     for tab in config.TABS:
+        # La home no va en la barra: es la grilla de módulos, y un botón
+        # "Inicio" al lado de los módulos sería redundante. Se entra con el
+        # logo del header.
+        if tab["id"] == config.MODULO_INICIO["id"]:
+            continue
         icon, _, text = tab["label"].partition(" ")
         text = text or tab["label"]
         perm = tab.get("perm")
@@ -395,7 +400,7 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 <div class="{wrap_cls}">
   <header class="header">
     <div class="brand-col">
-      <img class="logo" src="/logo.png" alt="{esc(config.TITLE)}">
+      <a class="logo-link" href="/" title="Volver al inicio"><img class="logo" src="/logo.png" alt="{esc(config.TITLE)}"></a>
       <div class="brand">
         <h1>⚙️ {esc(config.TITLE)}</h1>
         <div class="sub">{subtitle}</div>
@@ -444,7 +449,7 @@ def login_page(error="", csrf="", locked=False):
 <div class="wrap login-page">
   <header class="header">
     <div class="brand-col">
-      <img class="logo" src="/logo.png" alt="{esc(config.TITLE)}">
+      <a class="logo-link" href="/" title="Volver al inicio"><img class="logo" src="/logo.png" alt="{esc(config.TITLE)}"></a>
       <div class="brand">
         <h1>⚙️ {esc(config.TITLE)}</h1>
         <div class="sub">Panel de control de workers, notificaciones y apps</div>
@@ -600,7 +605,7 @@ def offline_page():
 <div class="wrap login-page">
   <header class="header">
     <div class="brand-col">
-      <img class="logo" src="/logo.png" alt="{esc(config.TITLE)}">
+      <a class="logo-link" href="/" title="Volver al inicio"><img class="logo" src="/logo.png" alt="{esc(config.TITLE)}"></a>
       <div class="brand">
         <h1>⚙️ {esc(config.TITLE)}</h1>
         <div class="sub">Panel de control de workers, notificaciones y apps</div>
