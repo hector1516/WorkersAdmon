@@ -1424,6 +1424,12 @@ class PanelTest(unittest.TestCase):
     def test_51_ui_para_movil(self):
         c = Client()
         _, _, html = c.get("/login")
+        # Estas reglas comparan sobre el HTML SERVIDO, que es shell.css +
+        # panel.css en un solo <style>. El shell escribe las suyas con espacio
+        # ("prop: valor") y panel.css las escribe minificadas ("prop:valor"),
+        # así que se normalizan los espacios antes de comparar: lo que
+        # importa es que la regla exista, no cómo esté espaciada.
+        plano = html.replace(": ", ":")
         for trozo in (
             "@media(max-width:820px)",       # tabletas y celulares
             "@media(max-width:430px)",       # celulares angostos
@@ -1436,7 +1442,7 @@ class PanelTest(unittest.TestCase):
             "-webkit-tap-highlight-color:transparent",
             "-webkit-text-size-adjust:100%",
         ):
-            self.assertIn(trozo, html, f"falta {trozo}")
+            self.assertIn(trozo.replace(": ", ":"), plano, f"falta {trozo}")
 
     def test_52_shell_estilo_field_admon(self):
         """El shell sigue el patrón de Field/Admon: tab bar inferior + textura."""

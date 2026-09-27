@@ -111,6 +111,10 @@ input, select, textarea { font-size: 16px !important; }
 	border: none;
 	min-height: var(--tap);
 	font-family: inherit;
+	/* Sin esto el móvil espera ~300 ms entre toques y puede hacer zoom doble
+	   sobre el botón. El panel lo tenía local; ahora es del shell y lo
+	   heredan las tres. */
+	touch-action: manipulation;
 }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -125,6 +129,11 @@ input, select, textarea { font-size: 16px !important; }
 }
 .btn-danger { background: var(--color-danger); color: white; }
 .btn-success { background: var(--color-success); color: white; }
+/* El hermano que faltaba: danger y success existían, warning no. El panel lo
+   necesitaba para los toggles en estado "apagado" y se veía obligado a
+   inventarse un `.btn.off` propio, que es justo lo que rompía la paridad de
+   diseño con Field y Admon. */
+.btn-warning { background: var(--color-warning); color: #1E293B; }
 .btn-sm { padding: 0.5rem 1rem; font-size: 0.8rem; min-height: calc(var(--tap) - 8px); }
 .btn-block { width: 100%; }
 

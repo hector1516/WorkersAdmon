@@ -119,12 +119,12 @@ def _card(titulo, perm_label, permitido, cuerpo, accion, prueba=""):
 def _btn_prueba(accion, etiqueta="🧪 Probar"):
     return (f'<form class="inline" method="post" action="{esc(accion)}">'
             f'{_csrf_field()}'
-            f'<button class="btn log" type="submit">{esc(etiqueta)}</button></form>')
+            f'<button class="btn btn-secondary" type="submit">{esc(etiqueta)}</button></form>')
 
 
 def _save_bar():
     return ('<div class="cfg-save">'
-            '<button class="btn on" type="submit">💾 Guardar</button></div>')
+            '<button class="btn btn-success" type="submit">💾 Guardar</button></div>')
 
 
 # ─── bloques ─────────────────────────────────────────────────────────────────
@@ -339,7 +339,7 @@ def _tg_vinculados():
         btn = ('<form class="inline" method="post" '
                'action="/notificaciones/telegram/desvincular">'
                f'{_csrf_field()}<input type="hidden" name="IdUsuario" value="{uid}">'
-               '<button class="btn" type="submit">Desvincular</button></form>')
+               '<button class="btn btn-secondary" type="submit">Desvincular</button></form>')
         filas.append([
             esc(v.get("Nombre") or ""), esc(v.get("Email") or ""),
             esc(v.get("ChatId") or ""), esc(v.get("NombreTelegram") or ""),
@@ -376,7 +376,7 @@ def _tg_vinculados():
           <input type="text" name="NombreTelegram" maxlength="60"
                  placeholder="@usuario o nombre visible"></div>
       </div>
-      <div class="cfg-save"><button class="btn on" type="submit"{btn_on}>\u2795 Vincular</button></div>
+      <div class="cfg-save"><button class="btn btn-success" type="submit"{btn_on}>\u2795 Vincular</button></div>
     </form>
   </div>""")
     return "".join(out)
@@ -404,7 +404,7 @@ def _tg_historial():
         out.append('<div class="panel"><form method="post" '
                    'action="/notificaciones/telegram/limpiar">'
                    f'{_csrf_field()}'
-                   '<button class="btn" type="submit">'
+                   '<button class="btn btn-secondary" type="submit">'
                    '\U0001f5d1\ufe0f Limpiar historial (&gt;30 días)</button>'
                    '</form></div>')
     return "".join(out)
@@ -462,7 +462,7 @@ def _bloque_correo(user, correo_prueba):
               f'{_csrf_field()}'
               f'<input type="email" name="destino" value="{esc(correo_prueba)}" '
               f'placeholder="para@correo.com" style="width:190px" required>'
-              f'<button class="btn log" type="submit">🧪 Enviar prueba</button></form>')
+              f'<button class="btn btn-secondary" type="submit">🧪 Enviar prueba</button></form>')
     return _card("📧 Correo SMTP", "AccesoConfigurarCorreo", True, cuerpo,
                  "/notificaciones/correo", prueba=prueba)
 

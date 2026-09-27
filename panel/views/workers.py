@@ -30,21 +30,21 @@ def _actions(e):
         buttons.append(
             f'<form class="inline" method="post" action="/workers/{name}/restart">'
             f'{_csrf_field()}'
-            f'<button class="btn re" type="submit">↺ Reiniciar</button></form>')
+            f'<button class="btn btn-secondary" type="submit">↺ Reiniciar</button></form>')
         buttons.append(
             f'<form class="inline" method="post" action="/workers/{name}/disable" '
             f'onsubmit="return confirm(\'¿Deshabilitar {name}?\')">'
             f'{_csrf_field()}'
-            f'<button class="btn off" type="submit">■ Deshabilitar</button></form>')
+            f'<button class="btn btn-warning" type="submit">■ Deshabilitar</button></form>')
     else:
         name = esc(e["name"])
         buttons.append(
             f'<form class="inline" method="post" action="/workers/{name}/enable">'
             f'{_csrf_field()}'
-            f'<button class="btn on" type="submit">▶ Activar</button></form>')
-    logs = (f'<a class="btn log" href="/workers/{esc(e["name"])}/logs">📄 Logs</a>'
+            f'<button class="btn btn-success" type="submit">▶ Activar</button></form>')
+    logs = (f'<a class="btn btn-secondary" href="/workers/{esc(e["name"])}/logs">📄 Logs</a>'
             if e.get("log_ok") else "")
-    cfg = (f'<a class="btn ghost" href="/configuracion#cfg-{esc(e["name"])}">'
+    cfg = (f'<a class="btn btn-secondary" href="/configuracion#cfg-{esc(e["name"])}">'
            f'⚙️ Config</a>')
     return '<div class="actions">' + "".join(buttons) + cfg + logs + "</div>"
 
@@ -256,7 +256,7 @@ def logs_page(name, text, error, user):
     body = f"""
   <div class="panel">
     <h2>📄 Logs · {esc(name)}
-      <a class="btn sm ghost" style="float:right" href="/">← Volver</a></h2>
+      <a class="btn btn-sm btn-secondary" style="float:right" href="/">← Volver</a></h2>
     {content}
   </div>"""
     return page("workers", body, user=user,
