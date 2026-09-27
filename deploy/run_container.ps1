@@ -1,4 +1,4 @@
-# =============================================================
+﻿# =============================================================
 # run_container.ps1 - levanta (o recrea) el contenedor `workersadmon`
 # en ServerVM con las MISMAS credenciales que usa `hub_python`.
 #
