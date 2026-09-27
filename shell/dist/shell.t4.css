@@ -635,23 +635,26 @@ animation: pulse-offline 2s infinite;
    ═══════════════════════════════════════════════════════════════════════════ */
 .module-grid {
 	display: grid;
-	gap: 0.6rem;
-	max-width: 880px;
-	/* COLUMNAS FIJAS POR BREAKPOINT, no auto-fit.
-	   Con repeat(auto-fit, minmax(Npx, 1fr)) la cantidad de columnas la
-	   decidia el ancho del contenedor de CADA app, y como cada una envuelve
-	   su grilla distinto (Field en .page con padding, Admon en su propio
-	   contenedor, el panel en .wrap de 1180px), las tres apps mostraban
-	   distinta cantidad de columnas en la MISMA pantalla. Eso es justamente
-	   lo que el shell tiene que evitar: el conteo va aca, no en cada app.
-	   Movil: 3 columnas. Tablet: 4. Escritorio: 5. Igual en las tres. */
-	grid-template-columns: repeat(3, 1fr);
+	gap: 0.4rem;
+	justify-content: center;
+	/* La tarjeta mide SIEMPRE 104px, en las 3 apps y en cualquier pantalla.
+	   Lo unico que cambia es cuantas entran por fila, y eso si se rearrange:
+	     <360px     2 columnas   (telefono muy chico)
+	     movil      3 columnas
+	     tablet     4 columnas
+	     escritorio 5 columnas
+	   Asi el menu se acomoda al ancho sin que un boton cambie de tamano, que
+	   es lo que hacia que las tarjetas se vieran distintas entre apps. */
+	grid-template-columns: repeat(2, 104px);
+}
+@media (min-width: 360px) {
+	.module-grid { grid-template-columns: repeat(3, 104px); }
 }
 @media (min-width: 700px) {
-	.module-grid { grid-template-columns: repeat(4, 1fr); }
+	.module-grid { grid-template-columns: repeat(4, 104px); }
 }
 @media (min-width: 1024px) {
-	.module-grid { grid-template-columns: repeat(5, 1fr); }
+	.module-grid { grid-template-columns: repeat(5, 104px); }
 }
 .module-card {
 	position: relative;
