@@ -7,12 +7,14 @@ página de estado de los mismos. **Separado por completo de `field`, `admon` y
 `hub_python`** — su propio repo, su propia imagen, su propia red y sus propios
 volúmenes.
 
-> **Estado actual (2026-09-26): MIGRACIÓN COMPLETA — los 10 programas activos.**
-> Corren `status_web` (el **panel de control**), los 9 workers y `mcp_server`
-> (puerto 8000 del host: MCP/passkeys/push); `hub_python` quedó **solo con
-> `streamlit`**. La lista vigente está en `/data/workers_enabled.txt` (se
-> reactivan solos al recrear el contenedor) y se controla desde el panel o con
-> `enable_worker` / `disable_worker`.
+> **Estado actual (2026-09-26): MIGRACIÓN COMPLETA — 14 programas activos.**
+> Corren `status_web` (el **panel de control**), los 9 workers + `mcp_server`
+> del HUB (puerto 8000: MCP/passkeys/push) y **los 4 workers de Field**
+> (`avisos`, `file_indexer`, `legends_cron`, `legends_audit`; código en `api/`).
+> `hub_python` quedó **solo con `streamlit`** y `field` solo con `nginx` + `api`.
+> La lista vigente está en `/data/workers_enabled.txt` (se reactivan solos al
+> recrear el contenedor) y se controla desde el panel o con `enable_worker` /
+> `disable_worker`.
 
 ---
 
@@ -23,10 +25,13 @@ volúmenes.
 | `status_web` | ✅ siempre activo | `docker/conf.d/status_web.conf` |
 | `bing_worker`, `tipo_cambio_worker`, `telegram_worker`, `oxxogas_worker`, `oxxogas_contactos_worker`, `pdf_storage_worker`, `network_scanner_worker`, `vales_worker`, `govale_vouchers_worker` | ✅ activos (migrados del HUB 2026-09-26) | plantillas en `docker/conf.d.available/*.conf` → copiadas a `conf.d/` al habilitarlas; lista vigente en `/data/workers_enabled.txt` |
 | `mcp_server` (passkeys + push + MCP, puerto 8000) | ✅ activo (el 8000 del host pasó de `hub_python`) | `docker/conf.d.available/mcp_server.conf` |
+| `avisos`, `file_indexer`, `legends_cron`, `legends_audit` (**Field**) | ✅ activos (migrados de `field` 2026-09-26) | plantillas en `docker/conf.d.available/*.conf`; código en `api/` (snapshot de `field/api`) |
 
-> **Migración completa 2026-09-26**: los 10 programas corren aquí y `hub_python`
-> quedó **solo con `streamlit`** (sus `.conf` de workers se eliminaron del repo HUB
-> y `deploy.yml` ya no publica `-p 8000:8000`).
+> **Migración completa 2026-09-26**: los 14 programas corren aquí — `hub_python`
+> quedó **solo con `streamlit`** (sus `.conf` de workers se eliminaron del repo
+> HUB y `deploy.yml` ya no publica `-p 8000:8000`) y `field` quedó con **solo
+> `nginx` + `api`** (los 4 bloques `[program]` se quitaron de su
+> `docker/supervisord.conf`, commit `017519d` del repo Field).
 
 ---
 
@@ -161,6 +166,10 @@ Tema oscuro ECCSA, se recarga sola cada 15 s, y muestra por programa:
 | `vales_worker` | Cada 5 min busca vales `APROBADO` sin `CodigoQR` (p. ej. los aprobados desde Field) y los genera en Go Vale con Playwright, guardando el QR. |
 | `govale_vouchers_worker` | Cada 5 min hace login en Go Vale, extrae los vales nuevos desde el último sync, genera su imagen QR (`qrcode`) y los vincula con las solicitudes pendientes del HUB. |
 | `mcp_server` | Servidor MCP en el 8000 del host: `run_command` / `write_file` / `read_file`, reto de passkeys (JWT) y push VAPID; lo consumen Field y las integraciones (`http://ServerVM:8000/message`). |
+| `avisos` | Worker de Field: push PWA de kilómetros (lunes 8 AM, UTC-6 fijo) y de reportes sin firmar nuevos cada hora (dedupe en `HUB_Config.field_avisos_rep_<IdUsuario>`); claves VAPID persistidas en `HUB_Config`. |
+| `file_indexer` | Indexa `Docs/Shared` y `Docs/Aplicaciones` del Fileserver (SMB, `pysmb`) cada 5 min en la tabla `HUB_FileIndex`. |
+| `legends_cron` | Sincroniza los datos de Legends cada hora. |
+| `legends_audit` | Audita Scores/Partidas cada 5 min — **⚠️ SOLO 1 instancia en todo el entorno** (si se duplica, se duplica `ScoreLog`). |
 
 ### Pestaña Configuración
 
@@ -329,7 +338,7 @@ WorkersAdmon/
 │   ├── entrypoint.sh             # secretos_local + /etc/hosts Fileserver + activa la lista de /data
 │   ├── supervisord/supervisord.conf
 │   ├── conf.d/status_web.conf    # ← ÚNICA conf embebida en la imagen
-│   ├── conf.d.available/*.conf   # ← plantillas de los 10 programas (todos habilitados)
+│   ├── conf.d.available/*.conf   # ← plantillas de los 14 programas (todos habilitados)
 │   └── bin/{enable_worker,disable_worker,workers_list}
 ├── status_server.py              # punto de entrada → panel/server.py
 ├── panel/                        # ← paquete del panel de control (Fase A+B+C+D)
@@ -352,7 +361,8 @@ WorkersAdmon/
 ├── tests/test_pdf_worker.py      # 3 pruebas del worker de PDFs (Remisiones)
 ├── worker_heartbeat.py           # helper para reportar "última ejecución"
 ├── eccsa_db.py / config_db.py    # capa de datos (snapshot de HUB)
-├── cron_*.py, network_scanner.py # workers (código de los 10 activos)
+├── cron_*.py, network_scanner.py # workers de HUB (los 10 activos)
+├── api/                          # snapshot de field/api → 4 workers de Field
 ├── mcp_server.py                 # passkeys / push / MCP (puerto 8000 del host)
 ├── pdf_*.py, telegram_alerts.py… # dependencias compartidas
 ├── views/  fonts/  *.png
@@ -365,6 +375,11 @@ WorkersAdmon/
 
 * `eccsa_db.py`, `pdf_generator.py`, etc. son un **snapshot** de HUB para que
   este contenedor sea autosuficiente (HUB se retirará en el futuro).
+* **Workers de Field (2026-09-26)**: `api/` es un snapshot de `field/api`; los
+  4 crons salieron de `field/docker/supervisord.conf` (commit `017519d` del repo
+  Field, que quedó con solo `nginx` + `api`). Reglas: `legends_audit` = **1 sola
+  instancia en todo el entorno** y cada conf de Field fija `environment=TZ="UTC"`
+  para no mover comportamientos de `datetime.now()`.
 * La migración es **gradual**: cada worker se apaga en `hub_python` y se enciende
   aquí, con verificación entre medio.
 * **Pendiente (fase posterior):** CI en este repo (runner self-hosted) y quitar

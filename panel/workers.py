@@ -148,6 +148,44 @@ CATALOGO = {
             "consumen Field y las integraciones; de aquí sale la ayuda remota "
             "de opencode (http://ServerVM:8000/message)."),
     },
+    # ── Workers de Field (migrados de `field` el 2026-09-26, código en api/) ──
+    "avisos": {
+        "desc": "Avisos Field (push PWA)",
+        "cadencia": "5 min / reportes cada hora / km lunes 8 AM",
+        "app": "Field",
+        "descripcion": (
+            "Notificaciones push de Field: kilómetros semanales (lunes 8:00 AM "
+            "hora México, UTC-6 fijo) a usuarios sin registro y reportes sin "
+            "firmar nuevos cada hora (dedupe en HUB_Config "
+            "field_avisos_rep_<IdUsuario>). Claves VAPID en HUB_Config."),
+    },
+    "file_indexer": {
+        "desc": "Índice de archivos (SMB al Fileserver)",
+        "cadencia": "cada 5 min",
+        "app": "Field",
+        "descripcion": (
+            "Recorre Docs/Shared y Docs/Aplicaciones por SMB (FILESERVER "
+            "10.188.141.15, pysmb) y escribe el índice en HUB_FileIndex para "
+            "la búsqueda de archivos de Field."),
+    },
+    "legends_cron": {
+        "desc": "Sincronización de Legends",
+        "cadencia": "cada hora",
+        "app": "Field",
+        "descripcion": (
+            "Sincroniza los datos de Legends cada 3600 s contra la BD "
+            "ECCSA_Admon (usa config.load_db_config con las env HUB_DB_*)."),
+    },
+    "legends_audit": {
+        "desc": "Auditoría de Scores de Legends ⚠️ 1 sola instancia",
+        "cadencia": "cada 5 min",
+        "app": "Field",
+        "descripcion": (
+            "Audita Scores/Partidas cada 300 s. REGLA DURA: solo puede existir "
+            "1 instancia en todo el entorno (con uvicorn --workers 2 se "
+            "duplicaba ScoreLog). Desde 2026-09-26 vive SOLO aquí; `field` "
+            "corre únicamente nginx + api."),
+    },
 }
 
 PROTECTED = {"status_web"}   # programas que el panel no manipula

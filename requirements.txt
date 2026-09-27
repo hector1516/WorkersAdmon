@@ -13,5 +13,15 @@ six
 webauthn==3.0.0
 pyjwt==2.9.0
 qrcode[pil]
+# Workers de Field (migrados el 2026-09-26: avisos, file_indexer, legends_cron,
+# legends_audit — código en api/, ver AGENTS). fastapi/pydantic los necesita
+# routers/push.py (import de avisos); pysmb, el file_indexer. El resto de
+# deps de Field (uvicorn, Pillow, reportlab…) ya está cubierto o no lo usan.
+# fastapi SIN pin: la app de Field usa 0.115.0, pero aquí solo se importa su
+# superficie (APIRouter/Depends/HTTPException/Header/BaseModel) y 0.115.0 exige
+# starlette<0.39 mientras streamlit 1.59.2 exige starlette>=0.40 (conflicto).
+fastapi
+pysmb
+pytz
 # Playwright solo si el build se hace con --build-arg WITH_PLAYWRIGHT=1
 # (ver README: workers de navegador — Go Vale / OxxoGas)

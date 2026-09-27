@@ -10,7 +10,8 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
 | Imagen | `Dockerfile` | python:3.11-slim + freetds + smbclient + supervisor. Playwright **solo** con `--build-arg WITH_PLAYWRIGHT=1` |
 | Arranque | `docker/entrypoint.sh` | genera `secretos_local.py` desde env vars → `/etc/hosts` Fileserver → activa los workers listados en `/data/workers_enabled.txt` → `supervisord` |
 | Programas activos | `docker/conf.d/*.conf` | **hoy solo `status_web`** en la imagen; al habilitar uno, `enable_worker` copia aquí su conf desde `conf.d.available/` |
-| Plantillas | `docker/conf.d.available/*.conf` | Las 10 confs (9 workers + `mcp_server`), **todas habilitadas el 2026-09-26** (lista vigente en `/data/workers_enabled.txt`) |
+| Plantillas | `docker/conf.d.available/*.conf` | Las 14 confs (10 de HUB/mcp + **4 de Field**: `avisos`, `file_indexer`, `legends_cron`, `legends_audit`), **todas habilitadas el 2026-09-26** (lista vigente en `/data/workers_enabled.txt`) |
+| Código Field | `api/` | snapshot de `field/api` (crons + `db.py`/`config.py`/`auth.py`/`routers/`); los conf de Field usan `directory=/app/api` y `environment=TZ="UTC"` |
 | Helpers | `docker/bin/` | `enable_worker`, `disable_worker`, `workers_list` |
 | Panel | `status_server.py` → `panel/` | **Interfaz de control** en `STATUS_PORT` (8080): login HUB, pestañas Workers (activar/desactivar/reiniciar/logs), **Configuración** (`panel/spec.py` + `panel/envconf.py`), **Notificaciones** (`panel/views/notifications.py` + `panel/probes.py`) y **Apps** (`panel/views/apps.py`), `GET /api/status` (JSON) |
 | Heartbeats | `worker_heartbeat.py` | escribe `/data/heartbeats/<worker>.json` con la última ejecución |
@@ -150,6 +151,18 @@ Reglas del panel:
 - El código de workers y la capa de datos es un **snapshot** de HUB para que el
   contenedor sea autosuficiente (HUB se retirará). Si cambia una función en HUB
   que un worker usa, copiar el cambio aquí (o refactorar para desacoplar).
+- **Workers de Field (migrados 2026-09-26)**: `api/` es un snapshot de
+  `field/api`; salieron de `field/docker/supervisord.conf` (el repo Field quedó
+  con solo `nginx` + `api`, commit `017519d`). Reglas:
+  - **`legends_audit` = 1 sola instancia en TODO el entorno** (duplica
+    `ScoreLog`); verificar que `field` no lo corre antes de habilitarlo aquí.
+  - Los 4 conf fijan `environment=TZ="UTC"` (Field corre con TZ=UTC; no mover
+    comportamientos de `datetime.now()` — `cron_avisos` es inmune porque usa
+    `utcnow()-6`).
+  - Env necesaria: solo `HUB_DB_*` (ya presentes); SMB de `file_indexer` y
+    credenciales de push están hardcodeadas/persistidas en `HUB_Config`.
+  - Deps nuevas en `requirements.txt`: `fastapi==0.115.0` (lo importa
+    `routers/push.py` vía `avisos`) y `pysmb` (file_indexer).
 - **Divergencia intencional**: `eccsa_db.get_remisiones_by_range()` (nueva) y el
   5º módulo de `cron_sync_pdf_storage.py` (Remisiones) existen **solo aquí**;
   HUB solo hace 4 módulos. Si HUB vuelve a necesitar el worker, copiar estos
@@ -177,7 +190,8 @@ Reglas del panel:
 - ~~Activar el primer worker~~ — los **10** están activos desde 2026-09-26.
 - Heartbeats: ningún worker llama aún `worker_heartbeat.heartbeat()` (la columna
   "Última ejecución" queda vacía).
-- Smoke de imports por worker (los 10). La **migración 1-a-1 ya terminó**
-  (2026-09-26): los 10 programas corren aquí, `hub_python` quedó solo con
-  `streamlit`, los `.conf` de workers se eliminaron de `docker/prod/conf.d/` del
-  repo HUB y `-p 8000:8000` se quitó de su `deploy.yml`.
+- Smoke de imports por worker (los 14). La **migración 1-a-1 ya terminó**
+  (2026-09-26): los 14 programas (10 de HUB/mcp + 4 de Field) corren aquí,
+  `hub_python` quedó solo con `streamlit`, `field` con `nginx` + `api`, los
+  `.conf` de workers se eliminaron de `docker/prod/conf.d/` del repo HUB y
+  `-p 8000:8000` se quitó de su `deploy.yml`.
