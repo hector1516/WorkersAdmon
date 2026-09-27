@@ -66,7 +66,7 @@ jobs:
             echo "::notice::nada atascado"
             exit 0
           fi
-          echo "::error::deploy(s) con más de 10 min en cola: $(echo "$ATASCADOS" | tr '\n' ' ')"
+          echo "::error::deploy(s) con mas de 10 min en cola: $(echo "$ATASCADOS" | tr '\n' ' ')"
           echo "::error::casi siempre es que este repo NO tiene un runner self-hosted"
           echo "::error::online. El registro es por repo, con folder y nombre propios."
           echo "$ATASCADOS" | while read -r id; do
@@ -97,16 +97,16 @@ jobs:
           $after  = '${{ github.event.after }}'
 
           if ([string]::IsNullOrEmpty($before) -or $before -eq ('0' * 40)) {
-            Write-Output "primer push: rebuild (no hay contra qué comparar)"
+            Write-Output "primer push: rebuild (no hay contra que comparar)"
             Add-Output 'modo' 'rebuild'
             Add-Output 'motivo' 'sin referencia previa'
             exit 0
           }
 
-          # `git diff` con ErrorActionPreference=Stop es problemático en
+          # `git diff` con ErrorActionPreference=Stop es problematico en
           # Windows PowerShell 5.1: si el comando escribe en stderr (sha
           # desconocida, repo shallow) se convierte en error terminante y el
-          # paso muere. Se aísla la llamada y, si no se puede diffear, se
+          # paso muere. Se aisla la llamada y, si no se puede diffear, se
           # reconstruye: es el camino conservador. Nunca adivinar "hotsync".
           $changed = @()
           $ok = $false
@@ -128,7 +128,7 @@ jobs:
           Write-Output "Cambios en este push: $($changed.Count)"
           $changed | ForEach-Object { "  $_" }
 
-          # Lo que de verdad cambia la imagen. Todo lo demás se publica
+          # Lo que de verdad cambia la imagen. Todo lo demas se publica
           # copiando al contenedor que ya corre, sin docker build.
           $imagen = @("Dockerfile", "requirements.txt", "docker/")
           $tocaba = $changed | Where-Object {
@@ -152,7 +152,7 @@ jobs:
           $s = $env:GITHUB_STEP_SUMMARY
           [IO.File]::AppendAllText($s, "### Deploy de WorkersAdmon`n`n")
           [IO.File]::AppendAllText($s, "- **modo**: ${{ steps.gate.outputs.modo }}`n")
-          [IO.File]::AppendAllText($s, "- **por qué**: ${{ steps.gate.outputs.motivo }}`n")
+          [IO.File]::AppendAllText($s, "- **por que**: ${{ steps.gate.outputs.motivo }}`n")
           [IO.File]::AppendAllText($s, "- **commit**: ${{ github.sha }}`n")
 
       - name: Hotsync
@@ -161,9 +161,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $bash = 'C:\Program Files\Git\bin\bash.exe'
-          if (-not (Test-Path $bash)) { throw "Git Bash no está en $bash" }
+          if (-not (Test-Path $bash)) { throw "Git Bash no esta en $bash" }
           & $bash deploy/hotsync.sh
-          if ($LASTEXITCODE -ne 0) { throw "hotsync.sh falló (rc=$LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) { throw "hotsync.sh fallo (rc=$LASTEXITCODE)" }
 
       # ── Camino completo ────────────────────────────────────────────────────
       # El rebuild NO se corre desde el checkout del runner: el script espera el
@@ -176,11 +176,11 @@ jobs:
         shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
         run: |
           $ErrorActionPreference = 'Stop'
-          Write-Host "Lanzando WorkersBuild (schtasks)…"
+          Write-Host "Lanzando WorkersBuild (schtasks)..."
           schtasks /run /tn WorkersBuild
           if ($LASTEXITCODE -ne 0) { throw "no se pudo lanzar WorkersBuild" }
 
-          Write-Host "Esperando a que termine (build.log)…"
+          Write-Host "Esperando a que termine (build.log)..."
           $rc = $null
           for ($i = 0; $i -lt 90; $i++) {
             Start-Sleep -Seconds 10
@@ -192,6 +192,6 @@ jobs:
               break
             }
           }
-          if ($null -eq $rc) { throw "build.log no mostró 'FIN rc=' a tiempo" }
-          if ($rc -ne 0) { throw "el rebuild falló (rc=$rc) — ver C:\WorkersAdmon\build.log" }
-          Write-Host "OK · imagen reconstruida y contenedor recreado"
+          if ($null -eq $rc) { throw "build.log no mostro 'FIN rc=' a tiempo" }
+          if ($rc -ne 0) { throw "el rebuild fallo (rc=$rc) - ver C:\WorkersAdmon\build.log" }
+          Write-Host "OK - imagen reconstruida y contenedor recreado"
