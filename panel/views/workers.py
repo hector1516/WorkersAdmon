@@ -1,11 +1,20 @@
 """
-panel.views.workers — Pestaña "🔧 Workers" del panel
-Tabla de estado + acciones (activar / deshabilitar / reiniciar) + acceso a logs.
+panel.views.workers — Módulos "📊 Estado" y "📄 Logs" del panel
+
+Estado: tarjetas con el estado de cada worker y sus acciones (activar /
+deshabilitar / reiniciar) + acceso al log.
+Logs: la salida reciente de TODOS los workers junto, con los errores
+resaltados, para no tener que recorrer todas las tarjetas para encontrar el
+que falló.
 """
 import html
+import re
 
 from .. import workers
 from ..templates import ST_TAG, esc, page
+
+# tail_log vive en workers.py; se expose acá para el módulo de Logs.
+tail_log = workers.tail_log
 
 
 # Token CSRF de la petición actual (lo fija render() antes de construir la tabla).
@@ -23,7 +32,7 @@ def _csrf_field():
 def _actions(e):
     """Botones disponibles para un programa según su estado (≥44px de alto)."""
     if e.get("protected"):
-        return '<span class="tag t-yes">PANEL</span>'
+        return '<span class="badge badge-info">PANEL</span>'
     buttons = []
     if e.get("enabled"):
         name = esc(e["name"])
@@ -56,7 +65,7 @@ _GROUP_ICON = {"workersadmon": "🖥️", "HUB": "🏢", "Field": "📱", "HUB /
 
 def _card(e):
     """Tarjeta de un programa: legible en el iPhone sin scroll horizontal."""
-    cls, label = ST_TAG.get(e["state"], ("t-off", e["state"]))
+    cls, label = ST_TAG.get(e["state"], ("badge-info", e["state"]))
     card_cls = "wcard"
     if e["state"] in ("FATAL", "BACKOFF", "EXITED", "UNKNOWN"):
         card_cls += " bad"
@@ -68,8 +77,8 @@ def _card(e):
         chips.append(f'<span class="chip">{esc(e["app"])}</span>')
     if e.get("cadencia"):
         chips.append(f'<span class="chip off">{esc(e["cadencia"])}</span>')
-    chips.append('<span class="tag t-yes">HABILITADO</span>' if e.get("enabled")
-                 else '<span class="tag t-off">NO HABILITADO</span>')
+    chips.append('<span class="badge badge-info">HABILITADO</span>' if e.get("enabled")
+                 else '<span class="badge badge-info">NO HABILITADO</span>')
 
     # Hechos: "activo desde" y "última ejecución" con tiempo relativo.
     facts = []
@@ -100,7 +109,7 @@ def _card(e):
     return f"""<article class="{card_cls}">
   <div class="wcard-top">
     <div class="wcard-name">{esc(e['name'])}</div>
-    <span class="tag {cls}">{esc(label)}</span>
+    <span class="badge {cls}">{esc(label)}</span>
   </div>
   <div class="wcard-meta">{''.join(chips)}</div>
   <div class="wcard-facts">{''.join(facts)}</div>
@@ -158,7 +167,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
                 f'align-items:center;flex-wrap:wrap;padding:10px 12px;'
                 f'border:1px solid rgba(34,197,94,.35);border-radius:12px;'
                 f'background:rgba(34,197,94,.08)">'
-                f'<span class="tag t-run">● SHELL AL DÍA</span>'
+                f'<span class="badge badge-success">● SHELL AL DÍA</span>'
                 f'<span class="muted" style="font-size:.8rem">'
                 f'shell {esc(chk.get("shell_version", "?"))} · app '
                 f'{esc(chk.get("app_version", "?"))} · revisado '
@@ -169,7 +178,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
                 f'<div class="card-desc" style="padding:10px 12px;'
                 f'border:1px solid rgba(239,68,68,.45);border-radius:12px;'
                 f'background:rgba(239,68,68,.08)">'
-                f'<span class="tag t-err">▲ SHELL DESINCRONIZADO</span>'
+                f'<span class="badge badge-danger">▲ SHELL DESINCRONIZADO</span>'
                 f'<div class="muted" style="font-size:.8rem;margin-top:6px">'
                 f'{probs}<br>Revisado: {esc(chk.get("revisado", "?"))} · '
                 f'corrige con: python tools/sync_shell.py --all</div></div>')
@@ -196,7 +205,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
                 f'align-items:center;flex-wrap:wrap;padding:10px 12px;'
                 f'border:1px solid rgba(34,197,94,.35);border-radius:12px;'
                 f'background:rgba(34,197,94,.08)">'
-                f'<span class="tag t-run">● VERSIONES AL DÍA</span>'
+                f'<span class="badge badge-success">● VERSIONES AL DÍA</span>'
                 f'<span class="muted" style="font-size:.8rem">'
                 f'{esc(detalle)} · revisado '
                 f'{esc(vchk.get("revisado", "?"))}</span></div>')
@@ -206,7 +215,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
                 f'<div class="card-desc" style="padding:10px 12px;'
                 f'border:1px solid rgba(239,68,68,.45);border-radius:12px;'
                 f'background:rgba(239,68,68,.08)">'
-                f'<span class="tag t-err">▲ VERSIONES DESINCRONIZADAS</span>'
+                f'<span class="badge badge-danger">▲ VERSIONES DESINCRONIZADAS</span>'
                 f'<div class="muted" style="font-size:.8rem;margin-top:6px">'
                 f'{probs_v}<br>Mandato: ECCSA-Shell/versiones/'
                 f'requisitos-canonicos.txt (= field/api/requirements.txt). '
@@ -239,7 +248,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
         sync = "error"
     else:
         sync = "idle"
-    return page("workers", body, user=user, flash_ok=flash_ok,
+    return page("estado", body, user=user, flash_ok=flash_ok,
                 flash_err=flash_err, lugar=lugar, ip=ip, sync=sync,
                 subtitle=f"zona horaria {esc(status['timezone'])} · datos en "
                          f"<code>{esc(status['data_dir'])}</code> · "
@@ -259,5 +268,97 @@ def logs_page(name, text, error, user):
       <a class="btn btn-sm btn-secondary" style="float:right" href="/">← Volver</a></h2>
     {content}
   </div>"""
-    return page("workers", body, user=user,
+    return page("estado", body, user=user,
                 subtitle=f"últimas líneas de <code>{esc(name)}.log</code>")
+
+
+# ── Módulo de Logs ────────────────────────────────────────────────────────────
+# Antes los logs solo se veían entrando al worker uno por uno
+# (/workers/<nombre>/logs). Este módulo los junta: primero se ven los errores
+# de todos, y desde ahí se baja al log completo de cada uno. Es la respuesta a
+# "algo falló, ¿de quién?" sin tener que recorrer 14 tarjetas.
+_ERROR_RE = re.compile(
+    r"\b(traceback|exception|error|failed|failure|fatal|critical)\b|"
+    r"\b(error|err)\b\s*[:=]", re.IGNORECASE)
+
+
+def _error_resaltes(texto, maximo=4):
+    """Últimas líneas que parecen error, para no hacer falta abrir el log."""
+    if not texto:
+        return []
+    out = []
+    for linea in reversed(texto.splitlines()):
+        if _ERROR_RE.search(linea):
+            limpia = linea.strip()
+            if limpia and limpia not in out:
+                out.insert(0, limpia[-160:])
+            if len(out) >= maximo:
+                break
+    return list(reversed(out))
+
+
+def logs_index(status, user, flash_ok="", flash_err="", csrf="",
+               lugar="desconocido", ip=""):
+    """Módulo Logs: un bloque por worker con su log y los errores marcados."""
+    set_csrf(csrf)
+    lineas_por_defecto = 120
+    bloques = []
+    con_error = 0
+    for e in sorted(status["programs"], key=lambda x: x.get("name", "")):
+        nombre = e.get("name", "")
+        texto, error = tail_log(nombre, lineas_por_defecto)
+        if error:
+            bloques.append(
+                f'<div class="card"><div class="wgroup">{esc(nombre)}</div>'
+                f'<div class="empty">⚠️ {esc(error)}</div></div>')
+            continue
+        cox = _error_resaltes(texto)
+        if cox:
+            con_error += 1
+        bloques.append(_log_bloque(nombre, texto, cox, e))
+
+    if not bloques:
+        cuerpo = '<div class="empty">Todavía no hay workers en el contenedor.</div>'
+    else:
+        cuerpo = "".join(bloques)
+
+    aviso = ""
+    if con_error:
+        aviso = (f'<div class="flash err">⚠️ {con_error} worker'
+                 f'{"s" if con_error != 1 else ""} '
+                 f'tiene salida que parece un error. Mirá los bloques marcados.</div>')
+
+    body = f"""
+  {aviso}
+  <div class="wgroup">Salida reciente por worker</div>
+  {cuerpo}"""
+    return page("logs", body, user=user, flash_ok=flash_ok,
+                flash_err=flash_err, lugar=lugar, ip=ip,
+                subtitle="últimas líneas de cada worker · tocá uno para el log completo")
+
+
+def _log_bloque(nombre, texto, errores, e):
+    """Bloque de un worker: resumen + errores + enlace al log completo."""
+    estado = e.get("state", "?")
+    clase = {"RUNNING": "badge-success", "STOPPED": "badge-warning",
+             "FATAL": "badge-danger", "EXITED": "badge-danger",
+             "STARTING": "badge-info"}.get(estado, "badge-info")
+    if errores:
+        lista = "".join(f"<li>{esc(x)}</li>" for x in errores)
+        bloque_err = f'<ul class="shell-modal-list">{lista}</ul>'
+    else:
+        bloque_err = '<div class="empty">Sin errores en las últimas líneas.</div>'
+    cola = "\n".join((texto or "").splitlines()[-12:])
+    return f"""
+  <div class="card">
+    <div class="wcard-top">
+      <div class="wcard-name">{esc(nombre)}</div>
+      <div class="wcard-meta">
+        <span class="badge {clase}">{esc(estado)}</span>
+        <a class="btn btn-sm btn-secondary" href="/workers/{esc(nombre)}/logs">
+          Ver completo</a>
+      </div>
+    </div>
+    {bloque_err}
+    <pre class="log">{html.escape(cola) or "(log vacío)"}</pre>
+  </div>"""

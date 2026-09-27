@@ -40,15 +40,20 @@ def _read_css():
 CSS = _read_css()
 
 
+# Estados -> (clase de badge, texto). Usa los .badge del shell
+# (.badge-success / .badge-warning / .badge-danger / .badge-info) en vez de las
+# clases propias .t-run / .t-stop / .t-err / .t-off, que eran el mismo
+# concepto con otro color y otro padding: por eso los estados se veían
+# distintos a los de Field y Admon.
 ST_TAG = {
-    "RUNNING": ("t-run", "● EN EJECUCIÓN"),
-    "STARTING": ("t-run", "● INICIANDO"),
-    "STOPPED": ("t-stop", "■ DETENIDO"),
-    "EXITED": ("t-stop", "■ TERMINADO"),
-    "BACKOFF": ("t-err", "▲ REINTENTANDO"),
-    "FATAL": ("t-err", "▲ FALLO"),
-    "UNKNOWN": ("t-off", "? SIN ESTADO"),
-    "NO_HABILITADO": ("t-off", "○ NO HABILITADO"),
+    "RUNNING": ("badge-success", "● EN EJECUCIÓN"),
+    "STARTING": ("badge-info", "● INICIANDO"),
+    "STOPPED": ("badge-warning", "■ DETENIDO"),
+    "EXITED": ("badge-warning", "■ TERMINADO"),
+    "BACKOFF": ("badge-danger", "▲ REINTENTANDO"),
+    "FATAL": ("badge-danger", "▲ FALLO"),
+    "UNKNOWN": ("badge-info", "? SIN ESTADO"),
+    "NO_HABILITADO": ("badge-info", "○ NO HABILITADO"),
 }
 
 
@@ -359,6 +364,21 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     # padding de .shell-below-banner o el header queda tapado. Sin banner
     # (login, o sin sesión) no se aplica.
     wrap_cls = "wrap shell-below-banner" if banner else "wrap"
+
+    # Encabezado del MÓDULO. El header de arriba es la marca (identidad de la
+    # app, igual que en Field y Admon) y acá va de qué módulo se trata y qué
+    # hace. Antes el nombre de la sección solo se veía en la barra inferior,
+    # que es lo último en mirarse; con el contenido de una vistaarga larga no
+    # se sabía dónde estabas.
+    tab = config.tab_por_id(active)
+    if tab and tab.get("modulo"):
+        modulo_html = (
+            f'<div class="modulo">'
+            f'<h2 class="modulo-titulo">{esc(tab["modulo"])}</h2>'
+            f'<div class="sub">{esc(tab.get("desc", ""))}</div>'
+            f'</div>')
+    else:
+        modulo_html = ""
     return f"""<!doctype html>
 <html lang="es">
 <head>
@@ -373,18 +393,19 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 <body>
 {banner}
 <div class="{wrap_cls}">
-  <header>
-    <div class="hd">
+  <header class="header">
+    <div class="brand-col">
       <img class="logo" src="/logo.png" alt="{esc(config.TITLE)}">
-      <div>
-      <h1>⚙️ {esc(config.TITLE)} <span>· panel de control</span></h1>
-      <div class="sub">Contenedor <code>workersadmon</code> · {subtitle}</div>
-      {user_html}
+      <div class="brand">
+        <h1>⚙️ {esc(config.TITLE)}</h1>
+        <div class="sub">{subtitle}</div>
+        {user_html}
       </div>
-      {actions_html}
     </div>
-    {f'<div class="badge-live{live_cls}">{live_txt}</div>' if conn else ''}
+    {actions_html}
   </header>
+  {f'<div class="badge-live{live_cls}">{live_txt}</div>' if conn else ''}
+  {modulo_html}
   {flash(flash_ok, "ok")}
   {flash(flash_err, "err")}
   {body}

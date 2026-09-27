@@ -286,6 +286,16 @@ class Handler(BaseHTTPRequestHandler):
                 status, user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
                 **self._shell_ctx()))
 
+        if path == "/logs":
+            user, done = self._require()
+            if done:
+                return
+            status = workers.build_status()
+            ok, err = self._flash(query)
+            return self._html(workers_view.logs_index(
+                status, user, csrf=self._csrf(), flash_ok=ok, flash_err=err,
+                **self._shell_ctx()))
+
         if path.startswith("/workers/") and path.endswith("/logs"):
             user, done = self._require()
             if done:

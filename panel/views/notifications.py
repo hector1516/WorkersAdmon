@@ -55,7 +55,7 @@ def _secret(name, has_value, label="", help_=""):
     ph = "(guardado)" if has_value else "(sin definir)"
     return (f'<div class="cfg-field"><label>{esc(label)}</label>'
             f'<input type="password" name="{esc(name)}" value="" '
-            f'autocomplete="new-password" placeholder="{esc(ph)}">{h}</div>')
+            f'autocomplete="new-password" placeholder="{esc(ph)}" class="input">{h}</div>')
 
 
 def _number(name, value, label="", mn=None, mx=None, help_=""):
@@ -67,7 +67,7 @@ def _number(name, value, label="", mn=None, mx=None, help_=""):
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
     return (f'<div class="cfg-field"><label>{esc(label)}</label>'
             f'<input type="number" name="{esc(name)}" value="{esc(value)}"'
-            f'{attrs}>{h}</div>')
+            f'{attrs} class="input">{h}</div>')
 
 
 def _bool(name, value, label="", help_=""):
@@ -76,14 +76,14 @@ def _bool(name, value, label="", help_=""):
                    for v, l in (("1", "Sí"), ("0", "No")))
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
     return (f'<div class="cfg-field"><label>{esc(label)}</label>'
-            f'<select name="{esc(name)}">{opts}</select>{h}</div>')
+            f'<select class="input" name="{esc(name)}">{opts}</select>{h}</div>')
 
 
 def _textarea(name, value, label="", help_="", rows=3):
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
     lab = f'<label>{esc(label)}</label>' if label else ""
     return (f'<div class="cfg-field" style="grid-column:1/-1">{lab}'
-            f'<textarea name="{esc(name)}" rows="{rows}">{esc(value)}</textarea>{h}</div>')
+            f'<textarea class="input" name="{esc(name)}" rows="{rows}">{esc(value)}</textarea>{h}</div>')
 
 
 def _multi(name, options, selected, label=""):
@@ -93,7 +93,7 @@ def _multi(name, options, selected, label=""):
         f'<option value="{esc(v)}"{" selected" if str(v) in sel else ""}>{esc(t)}</option>'
         for v, t in options)
     return (f'<div class="cfg-field" style="grid-column:1/-1"><label>{esc(label)}</label>'
-            f'<select name="{esc(name)}" multiple size="{min(8, max(3, len(options)))}">'
+            f'<select class="input" name="{esc(name)}" multiple size="{min(8, max(3, len(options)))}">'
             f'{opts}</select></div>')
 
 
@@ -358,7 +358,7 @@ def _tg_vinculados():
         opts = "".join(
             f'<option value="{int(u["Id"])}">{esc(u.get("Nombre") or "")} '
             f'({esc(u.get("Email") or "")})</option>' for u in sin)
-        campo_usuario = f'<select name="IdUsuario">{opts}</select>'
+        campo_usuario = f'<select class="input" name="IdUsuario">{opts}</select>'
         btn_on = ""
     else:
         campo_usuario = ('<div class="ro">Todos los usuarios activos ya están '
@@ -371,10 +371,10 @@ def _tg_vinculados():
         <div class="cfg-field"><label>Usuario sin vincular</label>{campo_usuario}</div>
         <div class="cfg-field"><label>Chat ID de Telegram</label>
           <input type="number" name="ChatId" min="1" step="1" required
-                 placeholder="Ej: 512345678"></div>
+                 placeholder="Ej: 512345678" class="input"></div>
         <div class="cfg-field"><label>Nombre en Telegram (opcional)</label>
           <input type="text" name="NombreTelegram" maxlength="60"
-                 placeholder="@usuario o nombre visible"></div>
+                 placeholder="@usuario o nombre visible" class="input"></div>
       </div>
       <div class="cfg-save"><button class="btn btn-success" type="submit"{btn_on}>\u2795 Vincular</button></div>
     </form>
@@ -461,7 +461,7 @@ def _bloque_correo(user, correo_prueba):
     prueba = (f'<form class="inline" method="post" action="/notificaciones/correo/probar">'
               f'{_csrf_field()}'
               f'<input type="email" name="destino" value="{esc(correo_prueba)}" '
-              f'placeholder="para@correo.com" style="width:190px" required>'
+              f'placeholder="para@correo.com" style="width:190px" required class="input">'
               f'<button class="btn btn-secondary" type="submit">🧪 Enviar prueba</button></form>')
     return _card("📧 Correo SMTP", "AccesoConfigurarCorreo", True, cuerpo,
                  "/notificaciones/correo", prueba=prueba)

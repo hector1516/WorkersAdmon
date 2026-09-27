@@ -44,13 +44,13 @@ def _csrf_field():
 
 
 def _select_tipo(name, actual, con_vacio=False):
-    """<select> de tipo de valor. Si con_vacio, agrega la opción '(elegir)'."""
+    """<select class="input"> de tipo de valor. Si con_vacio, agrega la opción '(elegir)'."""
     opciones = [("", "(elegir)")] if con_vacio else []
     opciones += [(t, ETIQUETA_TIPO[t]) for t in db.TIPOS_APP]
     opts = "".join(
         f'<option value="{v}"{" selected" if v == (actual or "") else ""}>{l}</option>'
         for v, l in opciones)
-    return f'<select name="{esc(name)}">{opts}</select>'
+    return f'<select class="input" name="{esc(name)}">{opts}</select>'
 
 
 def _campo_valor(tipo, valor, name):
@@ -60,7 +60,7 @@ def _campo_valor(tipo, valor, name):
     if tipo == "secret":
         marcador = "(guardado)" if valor else "(sin valor)"
         return (f'<input type="password" name="{esc(name)}" value="" '
-                f'autocomplete="new-password" placeholder="{marcador}">')
+                f'autocomplete="new-password" placeholder="{marcador}" class="input">')
     if tipo == "bool":
         # Sin valor en HUB_Config se muestra "(sin valor)" para no inventar un "No"
         if not str(valor or "").strip():
@@ -71,7 +71,7 @@ def _campo_valor(tipo, valor, name):
             opts = "".join(
                 f'<option value="{v}"{" selected" if val == v else ""}>{l}</option>'
                 for v, l in (("1", "Sí"), ("0", "No")))
-        return f'<select name="{esc(name)}">{opts}</select>'
+        return f'<select class="input" name="{esc(name)}">{opts}</select>'
     tipo_input = "number" if tipo == "number" else "text"
     return (f'<input type="{tipo_input}" name="{esc(name)}" '
             f'value="{esc(valor)}">')
@@ -83,12 +83,12 @@ def _fila_catalogo(f):
     unidad = (f'<div class="muted" style="font-size:.72rem;font-weight:400">'
               f'{esc(f["Unidad"])}</div>' if f.get("Unidad") else "")
     return f"""<tr>
-  <td><input type="text" name="t{fid}" value="{esc(f["Titulo"])}" maxlength="120"></td>
+  <td><input type="text" name="t{fid}" value="{esc(f["Titulo"])}" maxlength="120" class="input"></td>
   <td><code>{esc(f["Clave"])}</code>{unidad}</td>
   <td class="vcol">{_campo_valor(f["Tipo"], f["Valor"], f"val{fid}")}</td>
   <td>{_select_tipo(f"tipo{fid}", f["Tipo"])}</td>
   <td class="hide-sm"><input type="text" name="d{fid}"
-     value="{esc(f["Descripcion"])}" maxlength="400"></td>
+     value="{esc(f["Descripcion"])}" maxlength="400" class="input"></td>
   <td class="actions-cell"><div class="actions">
     <button class="btn btn-success" type="submit" name="edit" value="{fid}"
             title="Guardar esta fila">💾</button>
@@ -108,7 +108,7 @@ def _panel_app(app, filas):
             f'Los valores <b>secretos</b> en blanco no se modifican.</div>')
     return f"""
   <div class="panel" id="app-{esc(app)}">
-    <h2>🗂️ {esc(app)} <span class="tag t-yes">{len(filas)} claves</span></h2>
+    <h2>🗂️ {esc(app)} <span class="badge badge-info">{len(filas)} claves</span></h2>
     <form method="post" action="/apps">
       {_csrf_field()}
       <input type="hidden" name="grupo" value="cat">
@@ -138,11 +138,11 @@ def _panel_libres(libres, apps):
     for i, clave in enumerate(libres[:MAX_GRUPO]):
         filas.append(f"""<tr>
   <td><input type="hidden" name="k{i}" value="{esc(clave)}"><code>{esc(clave)}</code></td>
-  <td><span class="tag t-off">sin clasificar</span></td>
+  <td><span class="badge badge-info">sin clasificar</span></td>
   <td><input type="text" name="app{i}" list="apps-list"
-     placeholder="HUB / Field / admon" maxlength="40"></td>
+     placeholder="HUB / Field / admon" maxlength="40" class="input"></td>
   <td><input type="text" name="tit{i}" placeholder="Título visible"
-     maxlength="120"></td>
+     maxlength="120" class="input"></td>
   <td>{_select_tipo(f"tipo{i}", "text")}</td>
   <td class="actions-cell"><div class="actions">
     <button class="btn btn-secondary" type="submit" name="clasificar" value="{i}"
@@ -151,7 +151,7 @@ def _panel_libres(libres, apps):
 </tr>""")
     return f"""
   <div class="panel" id="app-libres">
-    <h2>🔑 Sin clasificar <span class="tag t-off">{len(libres)} claves</span></h2>
+    <h2>🔑 Sin clasificar <span class="badge badge-info">{len(libres)} claves</span></h2>
     <form method="post" action="/apps">
       {_csrf_field()}
       <input type="hidden" name="grupo" value="libre">
@@ -183,23 +183,23 @@ def _panel_alta(apps):
       <div class="cfg-grid">
         <div class="cfg-field"><label>App</label>
           <input type="text" name="app" list="apps-list-alta"
-                 placeholder="HUB / Field / admon / …" maxlength="40" required></div>
+                 placeholder="HUB / Field / admon / …" maxlength="40" required class="input"></div>
         <div class="cfg-field"><label>Clave (HUB_Config)</label>
           <input type="text" name="clave" placeholder="mi_clave" maxlength="50"
-                 required></div>
+                 required class="input"></div>
         <div class="cfg-field"><label>Título</label>
-          <input type="text" name="titulo" maxlength="120" required></div>
+          <input type="text" name="titulo" maxlength="120" required class="input"></div>
         <div class="cfg-field"><label>Tipo</label>
           {_select_tipo("tipo", "text", con_vacio=True)}</div>
         <div class="cfg-field"><label>Unidad (opcional)</label>
           <input type="text" name="unidad" placeholder="seg / min / …"
-                 maxlength="20"></div>
+                 maxlength="20" class="input"></div>
         <div class="cfg-field"><label>Orden</label>
-          <input type="number" name="orden" value="100" min="0" max="9999"></div>
+          <input type="number" name="orden" value="100" min="0" max="9999" class="input"></div>
         <div class="cfg-field"><label>Valor inicial (opcional)</label>
-          <input type="text" name="valor" maxlength="500"></div>
+          <input type="text" name="valor" maxlength="500" class="input"></div>
         <div class="cfg-field"><label>Descripción</label>
-          <input type="text" name="descripcion" maxlength="400"></div>
+          <input type="text" name="descripcion" maxlength="400" class="input"></div>
       </div>
       <div class="cfg-save">
         <button class="btn btn-success" type="submit" name="add" value="1">➕ Agregar al catálogo</button>
@@ -264,8 +264,8 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido", ip="")
         cuerpo = kpis + _sin_migracion(todos)
     else:
         intro = ('<div class="empty" style="text-align:left;padding-top:0">'
-                 'Catálogo <span class="tag t-yes">HUB_ConfigCatalogo</span> '
-                 '(metadatos) + valores en <span class="tag t-yes">HUB_Config</span>: '
+                 'Catálogo <span class="badge badge-info">HUB_ConfigCatalogo</span> '
+                 '(metadatos) + valores en <span class="badge badge-info">HUB_Config</span>: '
                  'lo que guardes aquí lo ve al instante HUB, Field o admon, sin '
                  'reiniciar. Ordenado por app y por <code>Orden</code>.</div>')
         cuerpo = (kpis + intro

@@ -21,10 +21,11 @@ def _csrf_field():
 
 
 def _tag(origen):
-    return {"env": ('t-off', "ENTORNO"),
-            "hub_config": ('t-yes', "HUB_CONFIG"),
-            "const": ('t-stop', "CÓDIGO"),
-            "info": ('t-stop', "INFO")}.get(origen, ("t-off", origen))
+    """De dónde sale el valor. Usa los .badge del shell, como ST_TAG."""
+    return {"env": ("badge-info", "ENTORNO"),
+            "hub_config": ("badge-info", "HUB_CONFIG"),
+            "const": ("badge-warning", "CÓDIGO"),
+            "info": ("badge-warning", "INFO")}.get(origen, ("badge-info", origen))
 
 
 def _placeholder_secret(has_value):
@@ -39,12 +40,12 @@ def _field_html(f, env_vals, cfg_vals, worker):
     if tipo == "info" or origen == "info":
         value = esc(f.get("valor", ""))
         return (f'<div class="cfg-field"><label>{esc(f["label"])} '
-                f'<span class="tag {tag_cls}">{tag_txt}</span></label>'
+                f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<div class="ro">{value}</div></div>')
 
     if tipo == "const" or origen == "const":
         return (f'<div class="cfg-field"><label>{esc(f["label"])} '
-                f'<span class="tag {tag_cls}">{tag_txt}</span></label>'
+                f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<div class="ro">{esc(f.get("valor", ""))}</div>'
                 f'<div class="help">{esc(f.get("ayuda", ""))}</div></div>')
 
@@ -62,7 +63,7 @@ def _field_html(f, env_vals, cfg_vals, worker):
 
     if tipo == "readonly":
         return (f'<div class="cfg-field"><label>{esc(f["label"])} '
-                f'<span class="tag {tag_cls}">{tag_txt}</span></label>'
+                f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<div class="ro">{esc(shown) or "—"}</div>'
                 f'<div class="help">{esc(f.get("ayuda", ""))}</div></div>')
 
@@ -74,10 +75,10 @@ def _field_html(f, env_vals, cfg_vals, worker):
     if tipo == "secret":
         # El valor nunca viaja al navegador: en blanco = no cambiar.
         return (f'<div class="cfg-field"><label>{esc(f["label"])}{unit} '
-                f'<span class="tag {tag_cls}">{tag_txt}</span></label>'
+                f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<input type="password" name="{esc(fid)}" value="" '
                 f'autocomplete="new-password" '
-                f'placeholder="{esc(_placeholder_secret(has_value))}">'
+                f'placeholder="{esc(_placeholder_secret(has_value))}" class="input">'
                 f'{help_html}</div>')
 
     if tipo == "bool":
@@ -86,8 +87,8 @@ def _field_html(f, env_vals, cfg_vals, worker):
             f'<option value="{v}"{" selected" if val == v else ""}>{lbl}</option>'
             for v, lbl in (("1", "Sí"), ("0", "No")))
         return (f'<div class="cfg-field"><label>{esc(f["label"])} '
-                f'<span class="tag {tag_cls}">{tag_txt}</span></label>'
-                f'<select name="{esc(fid)}">{opts}</select>{help_html}</div>')
+                f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
+                f'<select class="input" name="{esc(fid)}">{opts}</select>{help_html}</div>')
 
     if tipo in ("number", "hour", "minute"):
         attrs = ""
@@ -95,19 +96,19 @@ def _field_html(f, env_vals, cfg_vals, worker):
             if f.get(bound) is not None:
                 attrs += f' {bound}="{int(f[bound])}"'
         return (f'<div class="cfg-field"><label>{esc(f["label"])}{unit} '
-                f'<span class="tag {tag_cls}">{tag_txt}</span></label>'
+                f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<input type="number" name="{esc(fid)}" value="{esc(shown)}"'
-                f'{attrs}>{help_html}</div>')
+                f'{attrs} class="input">{help_html}</div>')
 
     return (f'<div class="cfg-field"><label>{esc(f["label"])} '
-            f'<span class="tag {tag_cls}">{tag_txt}</span></label>'
-            f'<input type="text" name="{esc(fid)}" value="{esc(shown)}">'
+            f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
+            f'<input type="text" name="{esc(fid)}" value="{esc(shown)}" class="input">'
             f'{help_html}</div>')
 
 
 def _card(name, estado, fields, env_vals, cfg_vals):
     """Tarjeta de un worker: cabecera + formulario con todos sus campos."""
-    cls, label = ST_TAG.get(estado, ("t-off", estado or "SIN ESTADO"))
+    cls, label = ST_TAG.get(estado, ("badge-info", estado or "SIN ESTADO"))
     fields_html = "".join(_field_html(f, env_vals, cfg_vals, name) for f in fields)
 
     test_form = ""
@@ -153,7 +154,7 @@ def _card(name, estado, fields, env_vals, cfg_vals):
     return f"""
   <div class="panel" id="cfg-{esc(name)}">
     <h2><code>{esc(name)}</code>
-      <span class="tag {cls}">{esc(label)}</span>
+      <span class="badge {cls}">{esc(label)}</span>
       <span style="float:right">{logs}</span></h2>
     {desc_html}
     {inner}
@@ -200,9 +201,9 @@ def render(status, user, flash_ok="", flash_err="", csrf="", lugar="desconocido"
 
     intro = ('<div class="empty" style="text-align:left;padding-top:0">'
              'Misma configuración que el HUB, centralizada por worker: '
-             '<span class="tag t-yes">HUB_CONFIG</span> aplica al instante desde SQL, '
-             '<span class="tag t-off">ENTORNO</span> se persiste en el volumen y '
-             '<span class="tag t-stop">CÓDIGO</span> es solo lectura '
+             '<span class="badge badge-info">HUB_CONFIG</span> aplica al instante desde SQL, '
+             '<span class="badge badge-info">ENTORNO</span> se persiste en el volumen y '
+             '<span class="badge badge-warning">CÓDIGO</span> es solo lectura '
              '(la fuente de verdad es el repo HUB).</div>')
 
     body = kpis + intro + "".join(cards)

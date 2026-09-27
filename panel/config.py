@@ -114,17 +114,39 @@ PANEL_PERMISSIONS = {           # permisos por pestaña (fases B y C)
 LOGIN_MAX_FAILS = 5
 LOGIN_LOCK_SECONDS = 60
 
-# ─── Pestañas del panel ───────────────────────────────────────────────────────
+# ─── Módulos del panel ────────────────────────────────────────────────────────
+# El panel se organiza en MÓDULOS, uno por sección, igual que las otras apps
+# del shell. Antes la pestaña de inicio se llamaba "Workers" y mostraba el
+# estado de los programas: ese contenido es un módulo de estado, y así se llama.
+#
 # "disabled": la pestaña se muestra grisada hasta que llegue su fase.
+# "perm": si el usuario no lo tiene, la pestaña sale grisada con el motivo.
 TABS = [
-    {"id": "workers", "label": "🔧 Workers", "href": "/", "enabled": True},
-    {"id": "config", "label": "⚙️ Configuración",
-     "href": "/configuracion", "enabled": True},
+    {"id": "estado", "label": "📊 Estado", "href": "/", "enabled": True,
+     "modulo": "Estado",
+     "desc": "Qué está corriendo ahora mismo: cada worker, en qué estado y "
+             "hace cuánto."},
+    {"id": "logs", "label": "📄 Logs", "href": "/logs", "enabled": True,
+     "modulo": "Logs",
+     "desc": "La última salida de cada worker, y los errores recientes."},
+    {"id": "config", "label": "⚙️ Configuración", "href": "/configuracion",
+     "enabled": True, "modulo": "Configuración",
+     "desc": "Variables de entorno y claves por worker."},
     {"id": "notificaciones", "label": "🔔 Notificaciones",
-     "href": "/notificaciones", "enabled": True},
+     "href": "/notificaciones", "enabled": True, "modulo": "Notificaciones",
+     "desc": "Telegram, correo saliente y ajustes de IA."},
     {"id": "apps", "label": "⚙️ Apps", "href": "/apps", "enabled": True,
-     "perm": "AccesoAppConfig"},
+     "perm": "AccesoAppConfig", "modulo": "Apps",
+     "desc": "Catálogo de apps: tipo, endpoint y credenciales."},
 ]
+
+
+def tab_por_id(tab_id):
+    """Devuelve la definición del módulo, o None si el id no existe."""
+    for t in TABS:
+        if t["id"] == tab_id:
+            return t
+    return None
 
 
 def is_cookie_secure(handler):

@@ -54,7 +54,7 @@ config de apps de HUB/admon/Field/futuras). Fases:
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| **A** | `panel/` + login HUB + pestaña Workers (acciones y logs) | ✅ |
+| **A** | `panel/` + login HUB + módulos Estado y Logs (acciones y logs) | ✅ |
 | **B** | pestaña **Configuración por worker**: `panel/spec.py` (catálogo), `panel/envconf.py` (overrides de entorno persistidos en `/data/worker_env.json` y reaplicados por el entrypoint), edición de `HUB_Config`, constantes solo lectura, bitácora sin valores secretos | ✅ |
 | **C** | pestaña Notificaciones (Telegram `HUB_Telegram*` con **5 sub-pestañas** Conexión/Eventos/Destinatarios/Vinculados/Historial iguales a `views/telegram.py` del HUB, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón de prueba | ✅ |
 | **D** | pestaña Apps: catálogo `HUB_ConfigCatalogo` (metadatos) + valores en `HUB_Config`, agrupados por app; permiso `AccesoAppConfig` | ✅ |
@@ -208,6 +208,51 @@ socket.
 - Estructura de un worker: docstring → imports → constantes con env var →
   `main()` con loop → `if __name__ == "__main__": main()`.
 - Sin placeholders `?` en SQL (pymssql/DB-Lib no los soporta) → interpolar `%s`.
+
+
+## Módulos del panel (shell ECCSA)
+
+El panel se organiza en **módulos**, uno por sección, declarados en
+`panel/config.py:TABS`. Cada uno tiene `id`, `label` (con emoji, para la barra
+inferior), `href`, `modulo` (el título de la página) y `desc`.
+
+| id | Módulo | Ruta | Permiso |
+|---|---|---|---|
+| `estado` | 📊 Estado | `/` | — |
+| `logs` | 📄 Logs | `/logs` | — |
+| `config` | ⚙️ Configuración | `/configuracion` | — |
+| `notificaciones` | 🔔 Notificaciones | `/notificaciones` | AccesoTelegram / AccesoConfigurarCorreo / AccesoConfigAI |
+| `apps` | ⚙️ Apps | `/apps` | AccesoAppConfig |
+
+- El `id` es lo que las vistas pasan a `templates.page(id, ...)` para marcar la
+  pestaña activa. **Renombrar un `id` obliga a actualizar las llamadas.**
+- La barra inferior (`templates._nav`) usa `.bottom-nav` / `.nav-item` / `.nav-icon`
+  del shell. Un módulo sin permiso o deshabilitado sale como `.nav-item off`.
+- `views/workers.py` implementa dos módulos: `logs_index()` (el índice de Logs)
+  y `logs_page()` (el log crudo de un worker, en `/workers/<nombre>/logs`).
+
+### El panel usa los componentes del shell, no los suyos
+
+Todo lo que el shell ya define **no** se re-declara en `panel/panel.css`. Si
+aparece una clase duplicada ahí, es una regresión: como `panel.css` carga
+DESPUÉS de `shell.css`, la versión del panel gana y el panel deja de verse como
+Field y Admon.
+
+Del shell: `.header` `.brand` `.brand-col` `.card` `.btn` `.btn-primary`
+`.btn-secondary` `.btn-success` `.btn-warning` `.btn-sm` `.btn-block` `.input`
+`.field` `.badge` `.badge-success` `.badge-warning` `.badge-danger`
+`.badge-info` `.bottom-nav` `.nav-item` `.nav-icon` `.empty` `.sync-header`
+`.shell-actions` `.shell-modal` `.version-badge` y los tokens `--color-*`.
+
+Lo propio del panel (no existe en el shell, por eso vive acá): `.wcard*`
+(tarjeta de worker), `.chklist`/`.chk` (checklist), `.cfg-*` (configuración),
+`.tnav` (pestañas internas), `.wgroup` (separador con línea), `.ro` (solo
+lectura), `.pill`, `.box` (login), `.version-badge`, `.submit`, `.logs`.
+
+Los tokens cortos del panel (`--bg`, `--txt`, `--orange`…) son **alias** de los
+del shell, no hex propios: si se repite el valor a mano, el panel deja de
+seguir al shell.
+
 
 ## Relación con HUB (migración gradual)
 
