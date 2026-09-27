@@ -91,13 +91,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(data)
 
-    def _logo(self):
-        """Sirve el logo del panel (PNG) con caché de un día."""
+    def _png(self, file_path, what="imagen"):
+        """Sirve un PNG del repo con caché de un día (logo, textura de fondo)."""
         try:
-            with open(config.LOGO_FILE, "rb") as fh:
+            with open(file_path, "rb") as fh:
                 data = fh.read()
         except OSError:
-            return self._send(404, "logo no encontrado", "text/plain")
+            return self._send(404, f"{what} no encontrada", "text/plain")
         self.send_response(200)
         self.send_header("Content-Type", "image/png")
         self.send_header("Content-Length", str(len(data)))
@@ -106,6 +106,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(data)
+
+    def _logo(self):
+        """Sirve el logo del panel (PNG) con caché de un día."""
+        return self._png(config.LOGO_FILE, "logo")
 
     def _json(self, obj, code=200, extra=()):
         self._send(code, json.dumps(obj, ensure_ascii=False, indent=2),
@@ -190,6 +194,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, "ok", "text/plain")
         if path == "/logo.png":
             return self._logo()
+        if path == "/engrane.png":
+            return self._png(config.ENGRANE_FILE, "textura")
         if path == "/favicon.ico":
             return self._redirect("/logo.png")
 

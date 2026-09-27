@@ -47,6 +47,15 @@ def _logo_path():
 
 LOGO_FILE = _logo_path()
 
+# Textura de fondo (engrane) — la misma que usan Field y Admon; el panel la
+# pinta como body::before al 5% de opacidad (patrón "ECCSA Shell", ver DESIGN.md).
+def _asset(name):
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, name)
+
+
+ENGRANE_FILE = os.environ.get("PANEL_ENGRANE", _asset("engrane.png"))
+
 # ─── Assets PWA (manifest + service worker + iconos) ────────────────────────
 # Viven en static/ (igual que Field y Admon): el servidor los sirve en la raíz
 # del sitio (/manifest.webmanifest, /sw.js, /icons/*.png) para que el navegador

@@ -1407,7 +1407,7 @@ class PanelTest(unittest.TestCase):
         self.assertIn("serviceWorker", html)
         self.assertNotIn("Admin Panel", html)
 
-    # ── UI para teléfonos (responsive) ───────────────────────────────────────
+    # ── UI para teléfonos (responsive, patrón "ECCSA Shell") ─────────────────
     def test_51_ui_para_movil(self):
         c = Client()
         _, _, html = c.get("/login")
@@ -1415,25 +1415,50 @@ class PanelTest(unittest.TestCase):
             "@media(max-width:820px)",       # tabletas y celulares
             "@media(max-width:430px)",       # celulares angostos
             ".tscroll{overflow-x:auto",      # tablas con scroll propio
-            "min-height:40px",               # objetivos táctiles
+            "min-height:44px",               # objetivos táctiles (patrón Field)
             "font-size:16px",                # evita el zoom de iOS al enfocar
             "env(safe-area-inset-bottom)",   # notch / barra inferior
-            ".actions-cell{white-space:normal}",
+            "min-height:100dvh",             # alto real de la barra de direcciones
+            "touch-action:manipulation",     # quita el retardo de 300 ms
+            "-webkit-tap-highlight-color:transparent",
             "-webkit-text-size-adjust:100%",
         ):
             self.assertIn(trozo, html, f"falta {trozo}")
 
-    def test_52_tablas_scrolleables(self):
+    def test_52_shell_estilo_field_admon(self):
+        """El shell sigue el patrón de Field/Admon: tab bar inferior + textura."""
         c = self._logged()
         code, _, html = c.get("/")
         self.assertEqual(code, 200)
-        self.assertGreaterEqual(html.count("<table"), 1)
-        # cada tabla debe vivir dentro de un contenedor con scroll
-        self.assertEqual(html.count("<table"), html.count('class="tscroll"'))
+        self.assertIn('<nav class="bottom-nav"', html)   # tab bar inferior fija
+        self.assertIn('class="nav-icon"', html)         # icono + etiqueta
+        self.assertNotIn('<div class="nav">', html)     # ya no hay pills arriba
+        self.assertIn("url('/engrane.png')", html)      # misma textura de fondo
+        self.assertIn("position:sticky", html)          # header fijo al hacer scroll
+        self.assertIn("badge-live", html)               # piloto de conexión
+
+    def test_53_workers_en_tarjetas_por_app(self):
+        """La lista de programas son tarjetas agrupadas por app (no una tabla)."""
+        c = self._logged()
+        code, _, html = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertNotIn("<table", html)                # sin scroll horizontal
+        self.assertIn('class="wgroup"', html)           # encabezado de grupo
+        self.assertIn('<div class="wgrid">', html)       # rejilla de tarjetas
+        self.assertGreaterEqual(html.count('<article class="wcard'), 3)
+        # cada tarjeta trae estado, chips y acciones táctiles
+        self.assertIn('class="wcard-name"', html)
+        self.assertIn('class="wcard-facts"', html)
+        self.assertIn("📄 Logs", html)
+
+    def test_54_tablas_scrolleables(self):
+        """Las pestañas de datos (Apps) conservan tablas con scroll propio."""
+        c = self._logged()
         code, _, html = c.get("/apps")
         self.assertEqual(code, 200)
         # 3 tablas de catálogo (+ la de "sin clasificar" si hay claves libres)
         self.assertGreaterEqual(html.count("<table"), 3)
+        # cada tabla debe vivir dentro de un contenedor con scroll
         self.assertEqual(html.count("<table"), html.count('class="tscroll"'))
 
 
