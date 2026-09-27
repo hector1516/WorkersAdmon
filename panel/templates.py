@@ -441,15 +441,26 @@ def login_page(error="", csrf="", locked=False):
 <style>{CSS}</style>
 </head>
 <body>
-<div class="wrap">
-  <div class="box">
-    <img class="logo-big" src="/logo.png" alt="{esc(config.TITLE)}">
-    <h1>🔐 {esc(config.TITLE)}</h1>
-    <div class="muted">Panel de control de workers, notificaciones y
-      configuración. Entra con tu cuenta del HUB.</div>
+<div class="wrap login-page">
+  <header class="header">
+    <div class="brand-col">
+      <img class="logo" src="/logo.png" alt="{esc(config.TITLE)}">
+      <div class="brand">
+        <h1>⚙️ {esc(config.TITLE)}</h1>
+        <div class="sub">Panel de control de workers, notificaciones y apps</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="card login-card">
+    <div class="modulo">
+      <h2 class="modulo-titulo">🔐 Entrar</h2>
+      <div class="sub">Con tu cuenta del HUB.</div>
+    </div>
 
     <div class="pk" id="pk" hidden>
-      <button class="submit" type="button" id="pk_btn">🔐 Entrar con passkey</button>
+      <button class="btn btn-secondary btn-block" type="button" id="pk_btn">
+        🔐 Entrar con passkey</button>
       <div class="pk-status" id="pk_status" role="status"></div>
       <div class="pk-note muted" id="pk_note" hidden></div>
       <div class="pk-divider"><span>o con contraseña</span></div>
@@ -457,15 +468,19 @@ def login_page(error="", csrf="", locked=False):
 
     <form method="post" action="/login">
       <input type="hidden" name="csrf" value="{esc(csrf)}">
-      <label for="email">Correo</label>
-      <input id="email" type="email" name="email" autocomplete="username"
-             placeholder="usuario@ecc-ssa.com.mx" required>
-      <label for="password">Contraseña</label>
-      <input id="password" type="password" name="password"
-             autocomplete="current-password" required>
-      <button class="submit" type="submit"{disabled}>Entrar</button>
+      <div class="field">
+        <label for="email">Correo</label>
+        <input class="input" id="email" type="email" name="email" autocomplete="username"
+               placeholder="usuario@ecc-ssa.com.mx" required>
+      </div>
+      <div class="field">
+        <label for="password">Contraseña</label>
+        <input class="input" id="password" type="password" name="password"
+               autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit"{disabled}>Entrar</button>
     </form>
-    {f'<div class="err">{esc(error)}</div>' if error else ''}
+    {f'<div class="flash err">{esc(error)}</div>' if error else ''}
   </div>
 </div>
 <script>
@@ -582,13 +597,23 @@ def offline_page():
 <style>{CSS}</style>
 </head>
 <body>
-<div class="wrap">
-  <div class="box">
-    <img class="logo-big" src="/logo.png" alt="{esc(config.TITLE)}">
-    <h1>📡 Sin conexión</h1>
-    <div class="muted">No se pudo contactar con el panel. Revisa tu red y
-      vuelve a intentar.</div>
-    <button class="submit" type="button" onclick="location.reload()">
+<div class="wrap login-page">
+  <header class="header">
+    <div class="brand-col">
+      <img class="logo" src="/logo.png" alt="{esc(config.TITLE)}">
+      <div class="brand">
+        <h1>⚙️ {esc(config.TITLE)}</h1>
+        <div class="sub">Panel de control de workers, notificaciones y apps</div>
+      </div>
+    </div>
+  </header>
+  <div class="card login-card">
+    <div class="modulo">
+      <h2 class="modulo-titulo">📡 Sin conexión</h2>
+      <div class="sub">No se pudo contactar con el panel. Revisa tu red y
+        vuelve a intentar.</div>
+    </div>
+    <button class="btn btn-primary btn-block" type="button" onclick="location.reload()">
       🔄 Reintentar</button>
   </div>
 </div>
@@ -599,6 +624,7 @@ def offline_page():
 
 def forbidden_page(reason, csrf=""):
     """Página de 'sin permiso' (usuario válido pero sin acceso a la sección)."""
-    body = (f'<div class="panel"><div class="empty">⛔ {esc(reason)}<br><br>'
-            f'<a href="/">← Volver al panel</a></div></div>')
+    body = (f'<div class="card"><div class="empty">⛔ {esc(reason)}<br><br>'
+            f'<a class="btn btn-sm btn-secondary" href="/">← Volver al panel</a>'
+            f'</div></div>')
     return page("forbidden", body)

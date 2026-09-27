@@ -54,11 +54,9 @@ header.header{position:sticky;top:0;z-index:90;flex-wrap:wrap;gap:16px;
  border-bottom:1px solid var(--line)}
 .modulo-titulo{font-size:1.35rem;font-weight:700;margin:0;letter-spacing:.3px;
  line-height:1.2}
-.logo-big{display:block;width:104px;height:auto;margin:0 auto 12px;
- padding:8px;background:var(--inset);border:1px solid var(--line);border-radius:18px}
 /* El h1 del shell (.header h1) manda en la pagina del panel. Este queda para
    las que no usan ese header: login y sin conexion. */
-.box h1,.splash h1{font-size:1.3rem;margin:0;letter-spacing:.3px;line-height:1.2}
+.splash h1{font-size:1.3rem;margin:0;letter-spacing:.3px;line-height:1.2}
 .sub{color:var(--muted);font-size:.82rem;margin-top:4px;line-height:1.45}
 .badge-live{background:rgba(34,197,94,.12);color:var(--green);border:1px solid
  rgba(34,197,94,.4);padding:6px 12px;border-radius:999px;font-size:.78rem;
@@ -139,9 +137,7 @@ tbody tr:hover{background:rgba(255,107,0,.05)}
  border:1px solid}
 .flash.ok{background:rgba(34,197,94,.10);color:var(--green);
  border-color:rgba(34,197,94,.4)}
-.flash.err{background:rgba(239,68,68,.10);color:#FCA5A5;
- border-color:rgba(239,68,68,.4)}
-/* Los botones usan el vocabulario del shell (.btn, .btn-primary, .btn-secondary,
+.flash/* Los botones usan el vocabulario del shell (.btn, .btn-primary, .btn-secondary,
    .btn-success, .btn-warning, .btn-sm, .btn-block). El panel ya no inventa
    .btn.on / .off / .re / .log / .ghost: eran su propio sistema de colores y
    de tamaños, y por eso los botones se veían distintos a los de Field y Admon
@@ -194,10 +190,15 @@ code{background:var(--panel2);padding:2px 6px;border-radius:6px;font-size:.82em}
  .wcard .actions form.inline{flex:1 1 46%}
  .wcard .actions .btn{width:100%}
 }
-/* ── Login ───────────────────────────────────────────────────────────────── */
-.box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
- padding:26px 24px;max-width:430px;margin:36px auto}
-.box h1{font-size:1.3rem;margin-bottom:6px}
+/* ── Login ─────────────────────────────────────────────────────────────────
+   El login usa los mismos componentes que el resto: .header del shell para la
+   marca, .card para la caja y .btn-primary/.btn-block/.input/.field/.badge del
+   shell para el formulario. Antes tenía una caja propia (.box) con un logo
+   gigante y un botón .submit propio: era la primera pantalla que veía la
+   gente y era justo la que más distinta se veía. */
+.login-page{max-width:26rem;margin:0 auto;padding-top:calc(3.8rem + env(safe-area-inset-top))}
+.login-card{margin-top:1.5rem}
+
 /* Los labels usan los del shell (.field label: 0.85rem, sin mayusculas,
    muted, peso 500). El panel los ponia en MAYUSCULAS con otro margen, y
    eso se leia como otra app. Se conserva la regla global para el login y
@@ -209,11 +210,6 @@ label{display:block;font-size:.85rem;color:var(--muted);margin:0 0 .35rem;
 .cfg-field,.pk>*{margin-bottom:1rem}
 /* Boton de enviar del login: no es un .btn del shell porque ocupa el
    ancho completo del formulario y tiene su propio alto tactil. */
-.submit{width:100%;margin-top:20px;padding:13px;border:none;
- border-radius:var(--radius-sm);background:var(--color-primary);color:#fff;
- font-weight:600;font-size:1rem;cursor:pointer;min-height:48px}
-.submit:hover{background:var(--yellow)}
-.submit:disabled{opacity:.55;cursor:wait}
 .pk-status{min-height:1.15em;margin-top:8px;font-size:.88rem;text-align:center;
  color:var(--yellow)}
 .pk-note{margin-top:12px;font-size:.82rem;text-align:center;line-height:1.5}
@@ -221,7 +217,6 @@ label{display:block;font-size:.85rem;color:var(--muted);margin:0 0 .35rem;
  color:var(--muted);font-size:.74rem;text-transform:uppercase;letter-spacing:.7px}
 .pk-divider::before,.pk-divider::after{content:"";flex:1;height:1px;
  background:var(--line)}
-.err{color:#FCA5A5;font-size:.87rem;margin-top:12px}
 .cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
  gap:16px;padding:18px}
 .cfg-field label{margin-top:0}
@@ -276,8 +271,7 @@ label{display:block;font-size:.85rem;color:var(--muted);margin:0 0 .35rem;
  .cfg-save{padding:0 14px 14px;flex-wrap:wrap}
  .cfg-note{padding:10px 14px}
  .card-desc{padding:12px 14px 2px}
- .box{margin:20px auto;padding:22px 18px}
- pre.log{padding:13px 14px;font-size:.72rem}
+  pre.log{padding:13px 14px;font-size:.72rem}
  footer{flex-direction:column;gap:6px}
 }
 @media(max-width:430px){
@@ -291,7 +285,6 @@ label{display:block;font-size:.85rem;color:var(--muted);margin:0 0 .35rem;
  .card .n{font-size:1.4rem}
  .tscroll table{min-width:560px}
  .cfg-grid{grid-template-columns:1fr;padding:12px}
- .box{margin:14px auto;padding:20px 14px}
- .btn{font-size:.82rem;padding:10px 12px}
+  .btn{font-size:.82rem;padding:10px 12px}
  .nav-item{font-size:.62rem;min-width:56px;padding:6px 4px}
 }
