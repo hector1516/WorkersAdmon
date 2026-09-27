@@ -618,30 +618,34 @@ animation: pulse-offline 2s infinite;
    ═══════════════════════════════════════════════════════════════════════════ */
 .module-grid {
 	display: grid;
-	gap: 0.4rem;
-	justify-content: center;
-	/* La tarjeta mide SIEMPRE 140px y es cuadrada (aspect-ratio: 1, mas
-	   abajo). Lo unico que cambia es cuantas entran por fila, y en movil son
-	   SIEMPRE 2, sin excepciones: es lo que se pidió para que las 3 apps se
-	   vean iguales en un telefono.
+	gap: 0.5rem;
+	/* 1fr, no ancho fijo: la tarjeta se ESTIRA al ancho disponible, como
+	   siempre estuvo en Field (que usaba 1fr 1fr). Es el look que se pide:
+	   dos columnas que ocupan todo el ancho de la pantalla, no dos bloques
+	   chicos flotando en el medio con hueco alrededor.
 
-	     movil (<560px)   2 columnas
-	     tablet           3 columnas
-	     escritorio medio 4 columnas
-	     pantalla grande  5 columnas
+	   En movil son 2 estrictas; de ahi para arriba se va agregando una
+	   columna por breakpoint, siempre estirando:
 
-	   El tamano no se toca nunca, asi que un boton no crece al pasar de
-	   movil a escritorio: solo aparece mas al lado. */
-	grid-template-columns: repeat(2, 140px);
+	     <560px    2 columnas
+	     560-899   3 columnas
+	     900-1279  4 columnas
+	     1280+     5 columnas
+
+	   El max-width evita que en un monitor de 2560 las tarjetas queden de
+	   400px: el menu se ordena en un ancho legible y centrado. */
+	max-width: 900px;
+	margin: 0 auto;
+	grid-template-columns: repeat(2, 1fr);
 }
 @media (min-width: 560px) {
-	.module-grid { grid-template-columns: repeat(3, 140px); }
+	.module-grid { grid-template-columns: repeat(3, 1fr); }
 }
 @media (min-width: 900px) {
-	.module-grid { grid-template-columns: repeat(4, 140px); }
+	.module-grid { grid-template-columns: repeat(4, 1fr); }
 }
 @media (min-width: 1280px) {
-	.module-grid { grid-template-columns: repeat(5, 140px); }
+	.module-grid { grid-template-columns: repeat(5, 1fr); }
 }
 .module-card {
 	position: relative;
@@ -650,8 +654,10 @@ animation: pulse-offline 2s infinite;
 	align-items: center;
 	justify-content: center;
 	gap: 0.25rem;
-	/* Cuadradas, como los botones de accion del panel. */
+	/* Cuadradas: la altura sigue al ancho de la columna (que es 1fr), con un
+	   tope para que en un monitor grande no queden de 250px. */
 	aspect-ratio: 1;
+	max-height: 190px;
 	min-height: 88px;
 	padding: 0.5rem 0.35rem;
 	overflow: hidden;
