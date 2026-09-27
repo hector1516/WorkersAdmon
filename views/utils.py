@@ -1,4 +1,18 @@
-import streamlit as st
+# Streamlit es OPCIONAL (ver ECCSA-Shell / AGENTS.md): aquí solo se usaba para
+# el decorador de caché. Sin Streamlit se usan funciones sin cachear.
+try:
+    import streamlit as st
+except ImportError:  # pragma: no cover - ruta de los workers
+    st = None
+
+def _cache(ttl=60):
+    """st.cache_data si hay Streamlit; si no, la función se usa tal cual."""
+    if st is not None:
+        return st.cache_data(ttl=ttl)
+    def deco(func):
+        return func
+    return deco
+
 import base64
 import os
 import random
@@ -61,11 +75,11 @@ def custom_spinner(text="Cargando..."):
     finally:
         placeholder.empty()
 
-@st.cache_data(ttl=60)
+@_cache(60)
 def load_resumen_cotizaciones():
     return db.get_resumen_cotizaciones()
 
-@st.cache_data(ttl=60)
+@_cache(60)
 def load_virtual_machines_software():
     return db.get_virtual_machines_software()
 

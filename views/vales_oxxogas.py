@@ -1,11 +1,22 @@
-import streamlit as st
+# Streamlit es OPCIONAL: los workers de este contenedor usan solo la lógica de
+# sincronización de este módulo. La app de HUB (Streamlit) ya no forma parte del
+# ecosistema, así que el import no debe romper a los workers si no está.
+try:
+    import streamlit as st
+except ImportError:  # pragma: no cover - ruta de los workers
+    st = None
 import eccsa_db as db
 import imaplib
 import email
 from email.header import decode_header
 import re
 import datetime
-import pandas as pd
+# pandas solo lo usa show_page() (la UI de HUB, que se retiró): import opcional
+# para que los workers de este contenedor no dependan de él.
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover - ruta de los workers
+    pd = None
 import time
 from views.utils import custom_spinner
 
@@ -15,7 +26,7 @@ def get_current_week_start():
 
 def fetch_and_sync_oxxogas_emails(user_id=None):
     """Conecta a Gmail via IMAP usando la App Password guardada del usuario y descarga las facturas de OxxoGas."""
-    if not user_id:
+    if not user_id and st is not None:
         user_id = st.session_state.get("user_id")
     if not user_id:
         return 0, "No se identificó el usuario logueado."

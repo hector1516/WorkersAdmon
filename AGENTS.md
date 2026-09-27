@@ -17,6 +17,24 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
 | Heartbeats | `worker_heartbeat.py` | escribe `/data/heartbeats/<worker>.json` con la última ejecución |
 | Datos | `eccsa_db.py`, `config_db.py` | snapshot de la capa de datos de HUB (misma BD `ECCSA_Admon`) |
 
+## Ecosistema sin Streamlit (2026-09-27)
+
+- La app del **HUB (Streamlit) está retirada**: no se toma en cuenta para nada
+  (ni para versiones, ni para desplegar, ni para el shell). `hub_python` queda
+  apagado salvo que se vuelva a levantar.
+- Por lo tanto **esta imagen no lleva Streamlit** (ni `pandas`, `altair` ni
+  `openpyxl`): se quitaron de `requirements.txt` tras verificar con un import
+  real que ni el panel ni los 14 workers los necesitan. La imagen bajó de
+  2.93 GB a 2.45 GB.
+- Quedaron 3 imports *tolerantes* (`try/except ImportError`) por si acaso:
+  `eccsa_db.py` y `telegram_alerts.py` (ya lo eran: usan `st.session_state` /
+  `st.cache_data` con fallback) y `views/vales_oxxogas.py` + `views/utils.py`
+  (la UI de HUB que ya no se usa; los workers solo llaman
+  `fetch_and_sync_oxxogas_emails`, que no toca `st` cuando recibe `user_id`).
+- Ojo: `views/` es carpeta de UI heredada del HUB. La lógica que usan los
+  workers (sync de vales) vive ahí; si algún día se quiere limpiar, mover
+  `fetch_and_sync_oxxogas_emails` a un módulo sin `views/`.
+
 ## Regla de oro: un worker = 3 cosas
 
 1. **Código**: `<worker>.py` en la raíz (loop infinito con `try/except` + `time.sleep`).
