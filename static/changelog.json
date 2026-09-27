@@ -1,0 +1,10 @@
+{
+  "app": "workersadmon",
+  "version": "1.1.0",
+  "cambios": [
+    "📋 Novedades: la primera vez que abras una versión nueva, esta ventanita te dice qué cambió. El botón 📋 la vuelve a abrir cuando quieras.",
+    "🏢 El banner ahora sí dice si estás en la oficina o en remoto: antes decía \"Oficina\" para todo el mundo, porque leía la IP del puente de Docker en vez de la tuya.",
+    "🔎 Verificación automática diaria del shell, con el resultado visible en el panel.",
+    "🚪 El botón de salir ahora es el del shell, igual que en Field y Admon."
+  ]
+}

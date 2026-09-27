@@ -1,0 +1,32 @@
+<!--
+  ECCSA-Shell · modal de novedades para apps SIN build (HTML/Python).
+  ------------------------------------------------------------------
+  Mismo markup que banner/Changelog.svelte. El panel lo pinta siempre pero
+  oculto, y un script pequeño decide si lo muestra: así el HTML sigue siendo
+  estático (el panel no tiene build) y aun así el popup "salta solo la primera
+  vez de cada versión".
+
+  La lógica de "solo una vez" es la misma que en las apps Svelte, con la misma
+  clave de localStorage: `eccsa:changelog:<appId>`. Si algún día conviven un
+  panel y una app en el mismo origen, cada una tiene su propia clave.
+
+  Quién produce esto en la práctica: panel/templates.py → changelog_modal().
+-->
+<div class="shell-modal" id="shellChangelog" hidden
+     data-app="{{ app.id }}" data-version="{{ app.version }}">
+  <div class="shell-modal-card">
+    <div class="shell-modal-hd">
+      <h2>📋 Novedades</h2>
+      {% if app.version %}<span class="shell-modal-ver">v{{ app.version }}</span>{% endif %}
+    </div>
+    <p class="shell-modal-sub">Cambios de {{ app.nombre }}</p>
+    {% if cambios %}
+    <ul class="shell-modal-list">
+      {% for c in cambios %}<li>{{ c }}</li>{% endfor %}
+    </ul>
+    {% else %}
+    <p class="shell-modal-empty">No hay novedades registradas todavía.</p>
+    {% endif %}
+    <button class="btn btn-primary btn-block" data-changelog-cerrar>Entendido</button>
+  </div>
+</div>

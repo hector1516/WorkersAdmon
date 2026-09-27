@@ -32,7 +32,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import auth, config, db, envconf, probes, spec, webauthn, workers
 from .templates import (esc, forbidden_page, lugar_de, login_page,
-                         offline_page, page)
+                         offline_page, page, shell_banner, shell_actions)
+from .lugar import lugar_de_handler
 from .views import apps as apps_view
 from .views import config as config_view
 from .views import notifications as notif_view
@@ -165,9 +166,21 @@ class Handler(BaseHTTPRequestHandler):
     def _client_ip(self):
         return auth.client_ip(self)
 
+    def _lugar(self):
+        """(modo, ip) del banner — la regla canónica del ECCSA-Shell.
+
+        OJO: no se usa self._client_ip() para esto. auth.client_ip() mira
+        X-Real-IP primero, y el nginx del ServerVM la sobreescribe con el
+        $remote_addr del proxy inmediato (la IP del puente de Docker, que es
+        privada) → el banner decía "Oficina" para todo el mundo.
+        lugar_de_handler() usa la precedencia correcta: X-Forwarded-For
+        (primera entrada) → X-Real-IP → socket.
+        """
+        return lugar_de_handler(self)
+
     def _shell_ctx(self):
         """Contexto del banner común (ECCSA-Shell): ¿oficina o remoto?"""
-        lugar, ip = lugar_de(self._client_ip())
+        lugar, ip = self._lugar()
         return {"lugar": lugar, "ip": ip}
 
     # ── gate de acceso ───────────────────────────────────────────────────────
@@ -227,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
             user = self._user()
             if not user:
                 return self._json({"error": "sin sesión"}, 401)
-            lugar, ip = lugar_de(self._client_ip())
+            lugar, ip = self._lugar()
             try:
                 st = workers.build_status()
                 progs = st.get("programs", [])

@@ -1,0 +1,109 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# WorkersAdmon · deploy automático
+#
+# El caso más fácil de los tres: el panel es Python de biblioteca estándar y se
+# lee desde disco, así que no hay nada que compilar. El deploy es copiar el
+# código al contenedor y reiniciar los procesos.
+#
+# Aun así hay un gate, por el mismo motivo que en Field y Admon: si el push toca
+# Dockerfile, requirements.txt o docker/, hay que reconstruir la imagen (por
+# ejemplo, para instalar paquetes nuevos o cambiar la conf de supervisor).
+#
+# El runner es self-hosted en el ServerVM. OJO: un folder de runner solo sirve
+# a UN repo — si este workflow se queda en cola, es que el runner no está
+# registrado en ESTE repo.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Deploy WorkersAdmon
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Nunca dos deploys a la vez: un push mientras corre el anterior se cancela.
+concurrency:
+  group: deploy-workersadmon
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decidir rebuild vs hotsync
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.after }}"
+          echo "Cambios entre $BEFORE y $AFTER:"
+
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] \
+             || [ "$BEFORE" = "" ]; then
+            echo "modo=rebuild" >> "$GITHUB_OUTPUT"
+            echo "motivo=sin referencia para comparar" >> "$GITHUB_OUTPUT"
+            echo "::notice::primer push: rebuild"
+            exit 0
+          fi
+
+          CHANGED="$(git diff --name-only "$BEFORE" "$AFTER" || true)"
+          echo "$CHANGED" | sed 's/^/  /'
+
+          if echo "$CHANGED" | grep -qE '^(Dockerfile|requirements\.txt|docker/)'; then
+            echo "modo=rebuild" >> "$GITHUB_OUTPUT"
+            echo "motivo=cambió la imagen (Dockerfile / requirements / docker/)" >> "$GITHUB_OUTPUT"
+            echo "::notice::modo REBUILD: cambió un insumo de la imagen"
+          else
+            echo "modo=hotsync" >> "$GITHUB_OUTPUT"
+            echo "motivo=solo cambió código Python, CSS y estáticos" >> "$GITHUB_OUTPUT"
+            echo "::notice::modo HOTSYNC: sin rebuild"
+          fi
+
+      - name: Resumen
+        shell: bash
+        run: |
+          echo "### Deploy de WorkersAdmon" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **modo**: ${{ steps.gate.outputs.modo }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **por qué**: ${{ steps.gate.outputs.motivo }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **commit**: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Hotsync
+        if: steps.gate.outputs.modo == 'hotsync'
+        shell: bash
+        run: bash deploy/hotsync.sh
+
+      # El rebuild NO se corre desde el checkout del runner: build.bat espera el
+      # clon canónico (C:\WorkersAdmon) y así el contenedor se recrea con la
+      # misma configuración de siempre. Se lanza la tarea ya probada, que es
+      # además el patrón del ServerVM: por SSH los procesos hijos mueren al
+      # cerrarse la sesión, por eso esto va con schtasks.
+      - name: Rebuild
+        if: steps.gate.outputs.modo == 'rebuild'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Lanzando WorkersBuild (schtasks)…"
+          schtasks /run /tn WorkersBuild
+          if ($LASTEXITCODE -ne 0) { throw "no se pudo lanzar WorkersBuild" }
+
+          Write-Host "Esperando a que termine (build.log)…"
+          $rc = $null
+          for ($i = 0; $i -lt 90; $i++) {
+            Start-Sleep -Seconds 10
+            $log = Get-Content 'C:\WorkersAdmon\build.log' -ErrorAction SilentlyContinue
+            $line = $log | Select-String 'FIN rc=(\d+)' | Select-Object -Last 1
+            if ($line) {
+              $log | Select-Object -Last 25 | ForEach-Object { Write-Host $_ }
+              $rc = [int]$line.Matches[0].Groups[1].Value
+              break
+            }
+          }
+          if ($null -eq $rc) { throw "build.log no mostró 'FIN rc=' en 15 min" }
+          if ($rc -ne 0) { throw "el rebuild falló (rc=$rc) — ver C:\WorkersAdmon\build.log" }
+          Write-Host "OK · imagen reconstruida"

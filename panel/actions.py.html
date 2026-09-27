@@ -1,0 +1,21 @@
+<!--
+  ECCSA-Shell · barra de acciones para apps SIN build (HTML/Python).
+  ------------------------------------------------------------------
+  Mismo markup que banner/ActionsBar.svelte. Los estilos van en shell.css
+  como `.shell-actions` (docs/CONTRATO.md), no aquí.
+
+  Cada botón se emite solo si su manejador existe: en el panel, Configuración y
+  Notificaciones ya son pestañas de la tab bar, así que ahí se pasan en null y
+  no se duplican. Solo queda 🚪 Salir, que es un GET a /logout.
+
+  En el panel las acciones se enlazan con <a> porque son naveACIONES (el panel
+  es HTML plano con formularios POST y redirección Post/Redirect/Get), no
+  manejadores JS como en las apps Svelte.
+
+  Quién produce esto en la práctica: panel/templates.py → shell_actions().
+-->
+<div class="shell-actions">
+  {% if onlogout %}
+  <a class="btn btn-sm btn-secondary" href="{{ onlogout }}" title="Cerrar sesión">🚪 Salir</a>
+  {% endif %}
+</div>

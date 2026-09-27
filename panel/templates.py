@@ -10,6 +10,7 @@ import os
 import urllib.parse
 
 from . import config
+from .lugar import lugar_de_ip
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CSS del panel = shell común (ECCSA-Shell) + CSS propio del panel
@@ -87,49 +88,177 @@ def flash(message, kind="ok"):
 
 
 # ─── Banner común (ECCSA-Shell · ver docs/CONTRATO.md en el repo) ───────────
-# Fijo arriba, semitransparente: estado de sincronización + usuario + si está
-# en la oficina o remoto + versiones. Mismos textos en Field y Admon.
+# El markup y los textos son los del shell, iguales en las 3 apps. Lo que
+# cambia en el panel es que el banner es de solo lectura (no hay cola offline
+# que empujar) y por eso es un <div> y no un <button>.
 BANNER_TEXT = {
     "idle": "Todo sincronizado",
-    "syncing": "Sincronizando…",
-    "pending": "{n} pendientes — toca para sincronizar",
-    "offline": "Sin conexión — modo offline",
+    "syncing": "Sincronizando...",
     "error": "Error al sincronizar — reintentando",
+    "offline": "Sin conexión — modo offline",
 }
+
+# 'pending' no tiene texto fijo: se arma con el número de pendientes.
+BANNER_ESTADOS = ("idle", "syncing", "pending", "offline", "error")
+
+# Clase del <span class="dot"> según el estado. El CSS (.sync-header .dot.*)
+# lo pone el shell, así que el panel no define ningún color propio.
+BANNER_DOT = {
+    "offline": "offline",
+    "syncing": "syncing",
+    "error": "error",
+    "pending": "pending",
+    "idle": "ok",
+}
+
+# Fondo del banner por estado; lo usa la clase del <div>.
+BANNER_CLAVE = {
+    "offline": "offline",
+    "syncing": "syncing",
+    "error": "",
+    "pending": "has-items",
+    "idle": "",
+}
+
+LUGAR_TXT = {"oficina": ("🏢", "Oficina"),
+             "remoto": ("🏠", "Remoto"),
+             "desconocido": ("📍", "—")}
 
 
 def shell_banner(user=None, sync="idle", pendientes=0, lugar="desconocido", ip=""):
-    """Devuelve el HTML del banner, o '' si no hay nada que mostrar."""
+    """Devuelve el HTML del banner, o '' si no hay nada que mostrar.
+
+    Réplica de banner/SyncHeader.svelte → el CSS es shell.css (.sync-header).
+    """
     if user is None:
         return ""
-    estado = sync if sync in BANNER_TEXT else "idle"
-    texto = BANNER_TEXT[estado].replace("{n}", str(pendientes or 0))
-    lugar_txt = {"oficina": "Oficina", "remoto": "Remoto"}.get(lugar, "—")
-    lugar_icono = {"oficina": "🏢", "remoto": "🏠"}.get(lugar, "📍")
+    estado = sync if sync in BANNER_ESTADOS else "idle"
+    if estado == "pending":
+        texto = f"{pendientes or 0} pendiente{(pendientes or 0) != 1 and 's' or ''} — toca para sincronizar"
+    else:
+        texto = BANNER_TEXT[estado]
+    icono, lugar_texto = LUGAR_TXT.get(lugar, LUGAR_TXT["desconocido"])
+    clase = BANNER_CLAVE.get(estado, "")
     return (
-        f'<div class="shell-banner {estado}">'
-        f'<span class="dot"></span><span class="txt">{esc(texto)}</span>'
-        f'<span class="sep"></span>'
-        f'<span class="who">👤 {esc(user.get("nombre") or user.get("email") or "")}</span>'
+        f'<div class="sync-header {clase}">'
+        f'<span class="dot {BANNER_DOT.get(estado, "ok")}"></span>'
+        f'<span>{esc(texto)}</span>'
+        f'<span class="who">👤 {esc(user.get("nombre") or user.get("email") or "")}'
         f'<span class="lugar {lugar}" title="{esc(ip)}">'
-        f'{lugar_icono} {lugar_txt}</span>'
+        f'{icono} {lugar_texto}</span></span>'
         f'<span class="vers">v{esc(config.APP_VERSION)} · '
         f'shell {esc(config._shell_version())}</span>'
         f'</div>')
 
 
+def shell_actions(user=None, logout="/logout", changelog=True):
+    """Barra de acciones del shell (banner/ActionsBar.svelte).
+
+    El panel ya tiene Configuración y Notificaciones como pestañas de su tab
+    bar, así que aquí solo se expone 🚪 Salir: un botón se pinta únicamente si
+    su manejador existe, y esas dos no se pasan. En el panel las acciones son
+    navegaciones (<a>) o <button data-changelog-abrir>, porque es HTML plano
+    con formularios POST y Post/Redirect/Get, no manejadores JS como en las
+    apps Svelte.
+    """
+    if user is None:
+        return ""
+    partes = []
+    if logout:
+        partes.append(f'<a class="btn btn-sm btn-secondary" href="{esc(logout)}" '
+                      f'title="Cerrar sesión">🚪 Salir</a>')
+    if changelog:
+        # El 📋 no necesita manejador: el script del changelog lo enlaza al
+        # modal. Mismo comportamiento que el prop onchangelog por defecto del
+        # componente de Svelte.
+        partes.append('<button class="btn btn-sm btn-secondary" '
+                      'data-changelog-abrir title="Novedades">📋</button>')
+    if not partes:
+        return ""
+    return '<div class="shell-actions">' + "".join(partes) + "</div>"
+
+
+# ─── Novedades (changelog) ───────────────────────────────────────────────────
+def _changelog():
+    """(app, version, cambios) leyendo static/changelog.json.
+
+    El texto vive en un JSON, igual que en Field y Admon, para que se pueda
+    editar sin tocar Python. Si falta o está roto, el popup simplemente no
+    aparece: nunca debe tumbar el panel.
+    """
+    import json
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(base, "static", "changelog.json"),
+                  encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return config.APP_ID, config.APP_VERSION, []
+    return (d.get("app") or config.APP_ID,
+            d.get("version") or config.APP_VERSION,
+            [c for c in (d.get("cambios") or []) if c])
+
+
+def changelog_modal():
+    """Modal de novedades del shell (banner/changelog.py.html).
+
+    El panel no tiene build, así que el HTML se pinta siempre oculto y un
+    script pequeño decide si lo muestra. La lógica es la misma que en las apps
+    Svelte, con la misma clave: `eccsa:changelog:<appId>`.
+    """
+    app_id, version, cambios = _changelog()
+    if not version or not cambios:
+        return ""
+    items = "".join(f"<li>{esc(c)}</li>" for c in cambios)
+    return (
+        f'<div class="shell-modal" id="shellChangelog" hidden '
+        f'data-app="{esc(app_id)}" data-version="{esc(version)}">'
+        f'<div class="shell-modal-card">'
+        f'<div class="shell-modal-hd"><h2>📋 Novedades</h2>'
+        f'<span class="shell-modal-ver">v{esc(version)}</span></div>'
+        f'<p class="shell-modal-sub">Cambios de {esc(config.TITLE)}</p>'
+        f'<ul class="shell-modal-list">{items}</ul>'
+        f'<button class="btn btn-primary btn-block" data-changelog-cerrar>'
+        f'Entendido</button>'
+        f'</div></div>')
+
+
+# Script del popup de novedades: misma regla que Changelog.svelte — salta solo
+# la primera vez que se ve cada versión, y el botón 📋 lo abre a mano.
+CHANGELOG_JS = """
+(function () {
+  var el = document.getElementById('shellChangelog');
+  if (!el) return;
+  var app = el.dataset.app || 'app';
+  var ver = el.dataset.version || '';
+  var clave = 'eccsa:changelog:' + app;
+  var vista = null;
+  try { vista = localStorage.getItem(clave); } catch (e) {}
+  function cerrar() { el.hidden = true; }
+  var cerrarBtn = el.querySelector('[data-changelog-cerrar]');
+  if (cerrarBtn) cerrarBtn.addEventListener('click', cerrar);
+  el.addEventListener('click', function (ev) { if (ev.target === el) cerrar(); });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') cerrar();
+  });
+  var abrir = document.querySelector('[data-changelog-abrir]');
+  if (abrir) abrir.addEventListener('click', function () { el.hidden = false; });
+  if (!ver || vista === ver) return;
+  el.hidden = false;
+  try { localStorage.setItem(clave, ver); } catch (e) {}
+})();
+"""
+
+
 def lugar_de(request_ip):
     """'oficina' si la IP es privada/red ECCSA, 'remoto' si es pública.
-    Misma regla que Field (GET /api/online/ubicacion → on_network)."""
-    import ipaddress
-    ip = (request_ip or "").strip()
-    if not ip:
-        return "desconocido", ""
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return "desconocido", ip
-    return ("oficina" if (addr.is_private or addr.is_loopback) else "remoto"), ip
+
+    NO usar: la regla vive UNA sola vez en panel/lugar.py (copia canónica del
+    ECCSA-Shell) y el server la pide con lugar_de_handler(self), que además
+    resuelve la IP con la precedencia correcta de cabeceras. Esta función se
+    queda solo como atajo para cuando ya se tiene la IP resuelta.
+    """
+    return lugar_de_ip(request_ip), (request_ip or "").strip()
 
 
 # ─── PWA: metadatos de instalación y registro del service worker ────────────
@@ -205,16 +334,22 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
         banner = shell_banner(user, sync=sync, lugar=lugar, ip=ip)
     refresh_js = (AUTO_REFRESH_JS.replace("__SECS__", str(int(refresh)))
                   if refresh else "")
+    # Barra de acciones del shell (⚙️ config · 🚪 salir). El panel ya tiene
+    # Configuración y Notificaciones como pestañas, así que solo va 🚪.
+    # Reemplaza el "Cerrar sesión" suelto que estaba en el <header>.
+    actions_html = shell_actions(user)
     user_html = ""
     if user:
         user_html = (
-            f'<div class="sub">👤 {esc(user.get("nombre") or user.get("email"))} · '
-            f'<form class="inline" method="post" action="/logout">'
-            f'<button class="linklike" type="submit">Cerrar sesión</button>'
-            f'</form></div>')
+            f'<div class="sub">👤 {esc(user.get("nombre") or user.get("email"))}</div>'
+        )
     # conn: "online" (verde) / "offline" (rojo) — lo pasa la vista de Workers
     live_cls = "" if conn is None else ("" if conn == "online" else " off")
     live_txt = "● CONECTADO" if conn != "offline" else "● SIN CONEXIÓN"
+    # El banner es fijo (position: fixed), así que el contenido necesita el
+    # padding de .shell-below-banner o el header queda tapado. Sin banner
+    # (login, o sin sesión) no se aplica.
+    wrap_cls = "wrap shell-below-banner" if banner else "wrap"
     return f"""<!doctype html>
 <html lang="es">
 <head>
@@ -227,7 +362,7 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 </head>
 <body>
 {banner}
-<div class="wrap">
+<div class="{wrap_cls}">
   <header>
     <div class="hd">
       <img class="logo" src="/logo.png" alt="{esc(config.TITLE)}">
@@ -236,6 +371,7 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
       <div class="sub">Contenedor <code>workersadmon</code> · {subtitle}</div>
       {user_html}
       </div>
+      {actions_html}
     </div>
     {f'<div class="badge-live{live_cls}">{live_txt}</div>' if conn else ''}
   </header>
@@ -246,9 +382,12 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     <span>WorkersAdmon · config central de workers, notificaciones y apps</span>
     <span>API JSON en <a href="/api/status">/api/status</a></span>
   </footer>
+  <div class="version-badge">WorkersAdmon v{esc(config.APP_VERSION)}</div>
 </div>
 {_nav(active, user)}
+{changelog_modal()}
 {refresh_js}
+{CHANGELOG_JS}
 {PWA_JS}
 </body>
 </html>"""

@@ -14,6 +14,7 @@
 	--color-success: #22C55E;
 	--color-warning: #F59E0B;
 	--color-danger: #EF4444;
+	--color-info: #3B82F6;
 	--font-family: 'Outfit', system-ui, sans-serif;
 
 	/* Tokens de estructura del shell (los usa shell.css) */
@@ -389,10 +390,16 @@ animation: pulse-offline 2s infinite;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ECCSA-Shell · banner común (ver docs/CONTRATO.md)
-   Fijo arriba, semitransparente con blur: versión, estado de sync, usuario y
-   si estás en la oficina o remoto. Mismos textos en todas las apps.
+   Este es EL estándar: el componente de referencia (banner/SyncHeader.svelte
+   para Svelte, banner/banner.py.html para el panel) pinta esta misma
+   estructura. Fijo arriba, semitransparente con blur: estado de sync,
+   usuario, si estás en la oficina o remoto, y v{app} · shell {versión}.
+
+   Todo selector va anidado bajo .sync-header a propósito: .dot, .who, .vers
+   y .lugar son nombres genéricos y este CSS es global (las apps no compilan
+   el <style> del componente). Prefijarlos evita que se filtren a otras vistas.
    ═══════════════════════════════════════════════════════════════════════════ */
-.shell-banner {
+.sync-header {
 	position: fixed;
 	top: 0;
 	left: 0;
@@ -401,29 +408,206 @@ animation: pulse-offline 2s infinite;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 0.5rem;
-	padding: 0.4rem 1rem;
-	padding-top: max(0.4rem, env(safe-area-inset-top));
+	gap: 0.45rem;
+	flex-wrap: wrap;
+	width: 100%;
+	padding: calc(0.55rem + env(safe-area-inset-top)) 1rem 0.55rem;
+	background: rgba(30, 41, 59, 0.58);
+	-webkit-backdrop-filter: blur(12px) saturate(1.2);
+	backdrop-filter: blur(12px) saturate(1.2);
+	color: var(--color-text);
+	border: none;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 	font-size: 0.8rem;
 	font-weight: 600;
-	color: var(--color-text);
-	background: rgba(15, 23, 42, 0.82);
-	-webkit-backdrop-filter: blur(12px);
-	backdrop-filter: blur(12px);
-	border: none;
-	border-bottom: 1px solid var(--color-line);
 	font-family: inherit;
-	width: 100%;
 	cursor: pointer;
 }
-.shell-banner .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--color-success); flex: 0 0 auto; }
-.shell-banner.syncing .dot, .shell-banner.pending .dot { background: var(--color-warning); }
-.shell-banner.offline .dot, .shell-banner.error .dot { background: var(--color-danger); }
-.shell-banner .sep { width: 1px; height: 14px; background: rgba(255, 255, 255, 0.15); }
-.shell-banner .who, .shell-banner .lugar, .shell-banner .vers {
-	color: var(--color-text-muted); font-weight: 500; font-size: 0.74rem; white-space: nowrap; }
-.shell-banner .lugar.oficina { color: var(--color-success); }
-.shell-banner .lugar.remoto { color: var(--color-primary-light); }
-.shell-banner .vers { margin-left: auto; font-variant-numeric: tabular-nums; }
-@media (max-width: 820px) { .shell-banner .vers { display: none; } }
-@media (max-width: 430px) { .shell-banner .lugar { display: none; } }
+/* Los fondos de estado quedan un punto más opaque que el de reposo: el banner
+   en reposo puede ser bien translúcido, pero un aviso o un error tienen que
+   leerse de un vistazo. */
+.sync-header.offline { background: rgba(127, 29, 29, 0.64); }
+.sync-header.syncing { background: rgba(30, 58, 95, 0.64); }
+.sync-header.has-items { background: rgba(120, 53, 15, 0.64); }
+
+.sync-header .dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	display: inline-block;
+	flex-shrink: 0;
+}
+.sync-header .dot.ok { background: var(--color-success); }
+.sync-header .dot.pending { background: var(--color-warning); animation: pulse 1.5s infinite; }
+.sync-header .dot.syncing { background: var(--color-info); animation: spin 1s linear infinite; }
+.sync-header .dot.offline,
+.sync-header .dot.error { background: var(--color-danger); }
+
+.sync-header .who {
+	flex-basis: 100%;
+	text-align: center;
+	font-size: 0.68rem;
+	font-weight: 400;
+	color: var(--color-text-muted);
+}
+.sync-header .who .lugar { margin-left: 0.35rem; font-weight: 600; }
+.sync-header .lugar,
+.sync-header .vers {
+	font-size: 0.7rem;
+	font-weight: 500;
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+.sync-header .lugar.oficina { color: var(--color-success); }
+.sync-header .lugar.remoto { color: var(--color-primary-light); }
+.sync-header .vers { margin-left: auto; font-variant-numeric: tabular-nums; }
+@media (max-width: 820px) { .sync-header .vers { display: none; } }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* El banner es fijo: el contenido de la app necesita este padding para no
+   quedar debajo (regla 1 del contrato). El número sale de la altura real del
+   banner, por eso vive acá y no inline en el layout de cada app. */
+.shell-below-banner { padding-top: calc(3.8rem + env(safe-area-inset-top)); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ECCSA-Shell · barra de acciones (ver docs/CONTRATO.md)
+   Los botones de siempre —👥 en línea · 🔔 notificaciones · ⚙️ config · 🚪
+   salir— con el MISMO markup y los MISMOS estilos en las 3 apps. Antes cada
+   app los tenía copiados en el <style> de una sola página (por eso no había
+   forma de salir desde /reportes, y Admon no tenía 🔔): ahora viven en el
+   shell y la app solo pasa los números y los manejadores por props.
+   Usa los .btn / .btn-sm / .btn-secondary de más arriba, así que no repite
+   estilos de botón.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.shell-actions {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	flex: 1;
+	justify-content: flex-end;
+}
+/* El contador va apoyado en la esquina del botón, no en el flujo. */
+.shell-actions .act-btn { position: relative; }
+.shell-actions .act-badge {
+	position: absolute;
+	top: -6px;
+	right: -6px;
+	background: var(--color-info);
+	color: #fff;
+	border-radius: 999px;
+	font-size: 0.6rem;
+	font-weight: 700;
+	line-height: 1;
+	min-width: 1.1rem;
+	height: 1.1rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0 0.25rem;
+	pointer-events: none;
+}
+.shell-actions .act-badge.alert { background: var(--color-danger); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ECCSA-Shell · badge de versión (abajo de todo el contenido)
+   Las 3 apps muestran aquí su versión; el texto lo pone cada app con su
+   APP_VERSION (vía $lib/shell.js o config.APP_VERSION) para que no haya
+   números escritos a mano. El CSS vive en el shell para que se vea igual en
+   las tres.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.version-badge {
+	text-align: center;
+	padding: 1rem;
+	color: var(--color-text-muted, #64748b);
+	font-size: 0.7rem;
+	opacity: 0.6;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ECCSA-Shell · modal de novedades (changelog)
+   Salta solo la primera vez que se abre una versión nueva y se vuelve a abrir
+   con el botón 📋 de la barra de acciones. El contenido (qué cambió) es de
+   cada app; el modal, la lógica de "solo una vez" y estos estilos son del
+   shell. Ver docs/CONTRATO.md.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.shell-modal[hidden] { display: none; }
+.shell-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 400;                 /* por encima del banner (250) y los toasts (300) */
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 1rem;
+	background: rgba(11, 18, 32, 0.7);
+	-webkit-backdrop-filter: blur(6px);
+	backdrop-filter: blur(6px);
+}
+.shell-modal-card {
+	width: 100%;
+	max-width: 32rem;
+	max-height: 80dvh;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	background: var(--color-surface);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 16px;
+	padding: 1.25rem;
+	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.shell-modal-hd {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	margin-bottom: 0.25rem;
+}
+.shell-modal-hd h2 {
+	margin: 0;
+	font-size: 1.05rem;
+	font-weight: 700;
+	flex: 1;
+}
+.shell-modal-ver {
+	font-size: 0.7rem;
+	font-weight: 600;
+	color: var(--color-primary-light);
+	background: rgba(255, 174, 0, 0.12);
+	border-radius: 999px;
+	padding: 0.2rem 0.6rem;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+.shell-modal-sub {
+	font-size: 0.75rem;
+	color: var(--color-text-muted);
+	margin: 0 0 0.9rem;
+}
+.shell-modal-list {
+	list-style: none;
+	margin: 0 0 1.1rem;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.55rem;
+}
+.shell-modal-list li {
+	display: flex;
+	gap: 0.55rem;
+	font-size: 0.85rem;
+	line-height: 1.45;
+	color: var(--color-text);
+}
+/* El bullet es un guion en lugar de una lista con viñetas: en pantallas
+   angostas la sangría se come el ancho y el texto se parte raro. */
+.shell-modal-list li::before {
+	content: '—';
+	color: var(--color-primary);
+	flex: 0 0 auto;
+}
+.shell-modal-empty {
+	font-size: 0.85rem;
+	color: var(--color-text-muted);
+	margin: 0 0 1.1rem;
+}

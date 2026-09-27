@@ -1,0 +1,27 @@
+<!--
+  ECCSA-Shell · banner de referencia para apps SIN build (HTML/Python).
+  ------------------------------------------------------------------
+  Mismo markup que banner/SyncHeader.svelte (que a su vez es el de Field), para
+  que el panel de WorkersAdmon se vea idéntico a las otras dos apps. Los
+  estilos NO van aquí: viven en shell.css como `.sync-header` (docs/CONTRATO.md).
+
+  Es un <div> y no un <button> a propósito: el banner es de solo lectura en el
+  panel (no hay cola offline que empujar), y un botón que no hace nada sería
+  un control muerto. En Field y Admon sí es un <button> porque ahí el clic
+  dispara la sincronización de la app.
+
+  Datos: GET /api/shell/state  →  ver docs/CONTRATO.md
+  Reglas: fail silent (si /api/shell/state falla, el lugar queda 📍 —).
+
+  Quién produce esto en la práctica: panel/templates.py → shell_banner().
+-->
+<div class="sync-header {{ clase_estado }}">
+  <span class="dot {{ clase_punto }}"></span><span class="txt">{{ texto }}</span>
+  {% if user %}
+  <span class="who">
+    👤 {{ user.nombre }}
+    <span class="lugar {{ lugar.modo }}" title="{{ lugar.ip }}">{{ lugar.icono }} {{ lugar.texto }}</span>
+  </span>
+  {% endif %}
+  <span class="vers">v{{ app.version }} · shell {{ shell.version }}</span>
+</div>
