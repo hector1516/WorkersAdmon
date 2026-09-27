@@ -88,6 +88,10 @@ jobs:
       - name: Decidir rebuild vs hotsync
         id: gate
         shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
+        env:
+          # gh lo necesita para la API de compare; sin esto responde con un
+          # error de ayuda y rc=4, y el gate no puede leer la lista de cambios.
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           function Add-Output($k, $v) {
@@ -108,40 +112,56 @@ jobs:
           # desconocida, repo shallow) se convierte en error terminante y el
           # paso muere. Se aisla la llamada y, si no se puede diffear, se
           # reconstruye: es el camino conservador. Nunca adivinar "hotsync".
-          # El diff se pide de DOS maneras y con diagnostico de verdad. Antes
-          # el mensaje era el mismo para "git fallo" y para "diff vacio", y
-          # stderr iba a $null, asi que cuando fallaba no habia forma de saber
-          # por que: el gate caia a rebuild siempre y el camino rapido nunca se
-          # exertaba. Ahora se captura el error de git y, si aun asi falla, se
-          # reintenta por la API de compare, que no depende del clon.
+          # Que archivos cambio, con DIAGNOSTICO de verdad.
+          #
+          # Por que la API va PRIMERO: `git diff <before> <after>` depende de
+          # que el clon del runner tenga ese commit, y en este ServerVM no lo
+          # tenia ("error: Could not access <sha>"), asi que el gate caia a
+          # rebuild en cada push y el camino rapido nunca se ejercito. La API
+          # de compare es autoritativa y no depende del clon.
+          #
+          # Si la API no responde, se reintenta con git. Si no hay forma de
+          # saber, se reconstruye: es el camino conservador, nunca adivinar.
           $changed = @()
           $diag = ''
+
+          $apiNames = @()
           try {
             $ErrorActionPreference = 'Continue'
-            $out  = & git diff --name-only $before $after 2>&1
-            $code = $LASTEXITCODE
+            $cmp = & gh api "repos/$env:GITHUB_REPOSITORY/compare/$before...$after" --jq '.files[].filename' 2>&1
+            $ccode = $LASTEXITCODE
             $ErrorActionPreference = 'Stop'
-            $lines = @($out | ForEach-Object { $_.ToString() })
-            $errs  = @($lines | Where-Object { $_ -match '^(fatal|error|warning):' })
-            $names = @($lines | Where-Object { $_ -notmatch '^(fatal|error|warning):' -and $_.Trim() -ne '' })
-            $diag  = "git rc=$code nombres=$($names.Count) stderr=$(($errs -join ' '))"
-            if ($code -eq 0 -and $names.Count -gt 0) { $changed = $names }
+            $apiNames = @($cmp | ForEach-Object { $_.ToString() } |
+                          Where-Object { $_.Trim() -ne '' -and $_ -notmatch '^(gh:|To use GitHub CLI|error:|fatal:)' })
+            $diag = "api rc=$ccode archivos=$($apiNames.Count)"
           } catch {
-            $diag = "git lanzo excepcion: $($_.Exception.Message)"
+            $diag = "api lanzo excepcion: $($_.Exception.Message)"
           }
 
+          # La API de compare corta en 300 archivos. Si los toca todos, la
+          # lista puede estar incompleta y no nos serviria para decidir:
+          # reconstruimos, que es lo seguro.
+          if ($apiNames.Count -ge 300) {
+            Write-Host "DIAG gate: $diag -> >=300 archivos, lista podria estar truncada; se reconstruye"
+            Add-Output 'modo' 'rebuild'
+            Add-Output 'motivo' 'push demasiado grande para decidir por lista'
+            exit 0
+          }
+          if ($apiNames.Count -gt 0) { $changed = $apiNames }
+
           if ($changed.Count -eq 0) {
-            # Respaldo: la API de compare no depende del clon ni de fetch-depth.
             try {
               $ErrorActionPreference = 'Continue'
-              $cmp = & gh api "repos/$env:GITHUB_REPOSITORY/compare/$before...$after" --jq '.files[].filename' 2>&1
-              $ccode = $LASTEXITCODE
+              $out  = & git diff --name-only $before $after 2>&1
+              $code = $LASTEXITCODE
               $ErrorActionPreference = 'Stop'
-              $names2 = @($cmp | ForEach-Object { $_.ToString() } | Where-Object { $_.Trim() -ne '' -and $_ -notmatch '^(fatal|error):' })
-              $diag = "$diag | compare rc=$ccode nombres=$($names2.Count)"
-              if ($names2.Count -gt 0) { $changed = $names2 }
+              $lines = @($out | ForEach-Object { $_.ToString() })
+              $errs  = @($lines | Where-Object { $_ -match '^(fatal|error|warning):' })
+              $names = @($lines | Where-Object { $_ -notmatch '^(fatal|error|warning):' -and $_.Trim() -ne '' })
+              $diag  = "$diag | git rc=$code nombres=$($names.Count) stderr=$(($errs -join ' '))"
+              if ($code -eq 0 -and $names.Count -gt 0) { $changed = $names }
             } catch {
-              $diag = "$diag | compare lanzo excepcion"
+              $diag = "$diag | git lanzo excepcion: $($_.Exception.Message)"
             }
           }
 
@@ -149,6 +169,10 @@ jobs:
           if ($changed.Count -eq 0) {
             Write-Output "no se pudo determinar que cambio; se reconstruye por seguridad"
             Write-Output "  (detalle arriba en 'DIAG gate')"
+            Add-Output 'modo' 'rebuild'
+            Add-Output 'motivo' 'no se pudo determinar que cambio'
+            exit 0
+          }
             Add-Output 'modo' 'rebuild'
             Add-Output 'motivo' 'no se pudo determinar que cambio'
             exit 0
