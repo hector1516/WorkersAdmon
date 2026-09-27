@@ -65,6 +65,13 @@ def _nav(active, user=None):
     """Barra de pestañas INFERIOR fija (patrón Field/Admon): icono + etiqueta.
     Sin habilitar = "próxima fase"; sin permiso = gris."""
     from . import auth as _auth
+    # En la HOME la barra no se pinta: la grilla de modulos ES el menu, y
+    # repetirla abajo en la misma pantalla es duplicarla. Field tampoco tiene
+    # barra inferior (su .bottom-nav esta en el CSS pero ningun markup lo usa):
+    # se navega con la grilla y el logo vuelve al inicio. Adentro de un modulo
+    # si sirve para saltar a otro sin volver a la home, y ahi se queda.
+    if active == config.MODULO_INICIO["id"]:
+        return ""
     items = []
     for tab in config.TABS:
         # La home no va en la barra: es la grilla de módulos, y un botón

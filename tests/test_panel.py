@@ -1449,8 +1449,14 @@ class PanelTest(unittest.TestCase):
         c = self._logged()
         code, _, html = c.get("/")
         self.assertEqual(code, 200)
-        self.assertIn('<nav class="bottom-nav"', html)   # tab bar inferior fija
-        self.assertIn('class="nav-icon"', html)         # icono + etiqueta
+        # La barra inferior NO va en la home: la grilla de modulos es el menu
+        # y repetirla abajo en la misma pantalla es duplicarla. Field tampoco
+        # la tiene. Adentro de un modulo si esta, para saltar sin volver.
+        self.assertNotIn('<nav class="bottom-nav"', html)
+        code2, _, html2 = c.get("/configuracion")
+        self.assertEqual(code2, 200)
+        self.assertIn('<nav class="bottom-nav"', html2)  # tab bar inferior fija
+        self.assertIn('class="nav-icon"', html2)        # icono + etiqueta
         self.assertNotIn('<div class="nav">', html)     # ya no hay pills arriba
         self.assertIn("url('/engrane.png')", html)      # misma textura de fondo
         self.assertIn("position:sticky", html)          # header fijo al hacer scroll
