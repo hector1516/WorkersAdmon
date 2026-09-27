@@ -30,6 +30,15 @@ CONTAINER=workersadmon
 HEALTH_URL=http://localhost:8200/healthz
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# En Git Bash (MSYS2) las rutas que empiezan con / se convierten solas a rutas
+# de Windows antes de llegar al comando. Con `docker cp` eso hace que la copia
+# no llegue a entrar al contenedor: el comando sale con codigo 0 y el archivo
+# adentro sigue siendo el del build de imagen. Este es el mismo problema que
+# se resolvio en Field y Admon con MSYS_NO_PATHCONV, que aqui faltaba.
+export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL='*'
+ROOT_DOCKER="$(cygpath -m "$ROOT" 2>/dev/null || echo "$ROOT")"
+
 DRY=0
 FULL=0
 for a in "$@"; do
@@ -76,31 +85,57 @@ fi
 # ── 1. Copiar el código ──────────────────────────────────────────────────────
 # El panel lee su CSS de disco (panel/shell.css + panel/panel.css) para que el
 # shell se pueda actualizar sin tocar Python, así que el CSS entra por aquí.
-say "1/3 copiando panel/, api/ y los módulos raíz"
-run docker cp "$ROOT/panel/." "$CONTAINER:/app/panel"
-run docker cp "$ROOT/api/." "$CONTAINER:/app/api"
+say "1/4 copiando panel/, api/ y los módulos raíz"
+run docker cp "$ROOT_DOCKER/panel/." "$CONTAINER:/app/panel"
+run docker cp "$ROOT_DOCKER/api/." "$CONTAINER:/app/api"
 for f in eccsa_db.py eccsa_db_server.py config_db.py telegram_alerts.py \
          pdf_generator.py shared_report_pdf.py numbers_helper.py \
          worker_heartbeat.py; do
-  [ -f "$ROOT/$f" ] && run docker cp "$ROOT/$f" "$CONTAINER:/app/$f"
+  [ -f "$ROOT/$f" ] && run docker cp "$ROOT_DOCKER/$f" "$CONTAINER:/app/$f"
 done
 # Los .conf de supervisor viven en conf.d.available: se copian para que un
 # worker nuevo sea activable sin reconstruir la imagen.
 [ -d "$ROOT/docker/conf.d.available" ] && \
-  run docker cp "$ROOT/docker/conf.d.available/." "$CONTAINER:/app/docker/conf.d.available"
+  run docker cp "$ROOT_DOCKER/docker/conf.d.available/." "$CONTAINER:/app/docker/conf.d.available"
 # La copia vendorizada del shell (la usa el chequeo diario del panel).
-[ -d "$ROOT/shell" ] && run docker cp "$ROOT/shell/." "$CONTAINER:/app/shell"
+[ -d "$ROOT/shell" ] && run docker cp "$ROOT_DOCKER/shell/." "$CONTAINER:/app/shell"
 # La versión del shell, que lee el banner.
-run docker cp "$ROOT/ECCSA_SHELL_VERSION" "$CONTAINER:/app/ECCSA_SHELL_VERSION"
+run docker cp "$ROOT_DOCKER/ECCSA_SHELL_VERSION" "$CONTAINER:/app/ECCSA_SHELL_VERSION"
+
+# ── 1b. Verificar que la copia ENTRÓ de verdad ────────────────────────────────
+# Un `docker cp` puede salir con codigo 0 sin haber escrito nada (tipico en
+# Windows cuando la ruta viene de Git Bash), y el script se reportaba igual
+# como "actualizado". Un deploy que miente es peor que uno que falla: uno se
+# nota, el otro no. Se compara el hash del archivo de origen con el que quedo
+# ADENTRO del contenedor; si difieren, se aborta sin reiniciar nada.
+say "1b/4 comprobando que la copia quedo dentro del contenedor"
+fallos=0
+for par in panel/panel.css panel/templates.py panel/shell.css ECCSA_SHELL_VERSION; do
+  [ -f "$ROOT_DOCKER/$par" ] || continue
+  a=$(sha256sum "$ROOT_DOCKER/$par" | cut -d' ' -f1)
+  b=$(docker exec "$CONTAINER" sha256sum "/app/$par" 2>/dev/null | cut -d' ' -f1)
+  if [ -n "$a" ] && [ "$a" = "$b" ]; then
+    say "    OK    $par"
+  else
+    say "    FALLO $par  origen=${a:0:12} contenedor=${b:0:12}"
+    fallos=$((fallos + 1))
+  fi
+done
+if [ "$fallos" -gt 0 ]; then
+  say "ERROR: $fallos archivo(s) no llegaron al contenedor."
+  say "       No se reinicia nada: produccion sigue como estaba."
+  say "       Suele ser el canal de docker o una ruta mal convertida por MSYS."
+  exit 1
+fi
 
 # ── 2. Reiniciar procesos ────────────────────────────────────────────────────
 # El panel lee los .py al importar, así que hay que reiniciarlo sí o sí.
 # Los workers solo si cambió algo que usan; con --full se reinician todos.
 if [ "$FULL" = "1" ]; then
-  say "2/3 reiniciando TODOS los programas de supervisor"
+  say "2/4 reiniciando TODOS los programas de supervisor"
   run docker exec "$CONTAINER" supervisorctl restart all
 else
-  say "2/3 reiniciando el panel y los workers que tocan estos módulos"
+  say "2/4 reiniciando el panel y los workers que tocan estos módulos"
   run docker exec "$CONTAINER" supervisorctl restart status_web
   run docker exec "$CONTAINER" supervisorctl restart mcp_server
   run docker exec "$CONTAINER" supervisorctl restart oxxogas_worker
@@ -120,7 +155,7 @@ fi
 
 # ── 3. Health check ──────────────────────────────────────────────────────────
 if [ "$DRY" = "0" ]; then
-  say "3/3 esperando salud en $HEALTH_URL"
+  say "3/4 esperando salud en $HEALTH_URL"
   ok=0
   for i in $(seq 1 20); do
     if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then
