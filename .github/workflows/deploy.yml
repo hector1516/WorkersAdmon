@@ -87,7 +87,7 @@ jobs:
 
       - name: Decidir rebuild vs hotsync
         id: gate
-        shell: powershell
+        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
         run: |
           $ErrorActionPreference = 'Stop'
           function Add-Output($k, $v) {
@@ -126,7 +126,7 @@ jobs:
           }
 
       - name: Resumen
-        shell: powershell
+        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
         run: |
           $s = $env:GITHUB_STEP_SUMMARY
           [IO.File]::AppendAllText($s, "### Deploy de WorkersAdmon`n`n")
@@ -136,7 +136,7 @@ jobs:
 
       - name: Hotsync
         if: steps.gate.outputs.modo == 'hotsync'
-        shell: powershell
+        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
         run: |
           $ErrorActionPreference = 'Stop'
           $bash = 'C:\Program Files\Git\bin\bash.exe'
@@ -152,7 +152,7 @@ jobs:
       # mata los procesos hijos al cerrarse la sesión.
       - name: Rebuild
         if: steps.gate.outputs.modo == 'rebuild'
-        shell: powershell
+        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host "Lanzando WorkersBuild (schtasks)…"
