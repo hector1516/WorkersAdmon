@@ -103,7 +103,28 @@ jobs:
             exit 0
           }
 
-          $changed = @(git diff --name-only $before $after 2>$null)
+          # `git diff` con ErrorActionPreference=Stop es problemático en
+          # Windows PowerShell 5.1: si el comando escribe en stderr (sha
+          # desconocida, repo shallow) se convierte en error terminante y el
+          # paso muere. Se aísla la llamada y, si no se puede diffear, se
+          # reconstruye: es el camino conservador. Nunca adivinar "hotsync".
+          $changed = @()
+          $ok = $false
+          try {
+            $ErrorActionPreference = 'Continue'
+            $raw = & git diff --name-only $before $after 2>$null
+            $ok = ($LASTEXITCODE -eq 0)
+            $ErrorActionPreference = 'Stop'
+            if ($ok) { $changed = @($raw) }
+          } catch {
+            $ok = $false
+          }
+          if (-not $ok -or $changed.Count -eq 0) {
+            Write-Output "no se pudo diffear el push; se reconstruye por seguridad"
+            Add-Output 'modo' 'rebuild'
+            Add-Output 'motivo' 'no se pudo determinar que cambio'
+            exit 0
+          }
           Write-Output "Cambios en este push: $($changed.Count)"
           $changed | ForEach-Object { "  $_" }
 
