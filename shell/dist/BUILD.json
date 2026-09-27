@@ -1,8 +1,8 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "sha": {
-    "shell.t4.css": "6167fe902b08",
-    "shell.t3.css": "7ad4fd3ad998",
-    "shell.plain.css": "544b2560c657"
+    "shell.t4.css": "c2770241a6d5",
+    "shell.t3.css": "6e92a69af249",
+    "shell.plain.css": "388d672c0d66"
   }
 }

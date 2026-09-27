@@ -118,10 +118,10 @@ def _card(name, estado, fields, env_vals, cfg_vals):
                      f'<form class="inline" method="post" '
                      f'action="/configuracion/{esc(name)}/probar">'
                      f'{_csrf_field()}'
-                     f'<button class="btn btn-secondary" type="submit">🧪 Probar</button>'
+                     f'<button class="btn btn-sm btn-secondary" type="submit">🧪 Probar</button>'
                      f'</form></div>')
 
-    logs = (f'<a class="btn btn-secondary" href="/workers/{esc(name)}/logs">📄 Logs</a>'
+    logs = (f'<a class="btn btn-sm btn-secondary" href="/workers/{esc(name)}/logs">📄 Logs</a>'
             if workers.log_path(name) else "")
 
     # Qué hace el worker (misimo texto que la pestaña Workers)
@@ -144,7 +144,7 @@ def _card(name, estado, fields, env_vals, cfg_vals):
                 and f["tipo"] not in ("readonly", "info", "const")]
     if editable:
         save_bar = ('<div class="cfg-save">'
-                    '<button class="btn btn-success" type="submit">💾 Guardar</button></div>')
+                    '<button class="btn btn-sm btn-success" type="submit">💾 Guardar</button></div>')
         inner = (f'<form method="post" action="/configuracion/{esc(name)}">'
                  f'{_csrf_field()}'
                  f'<div class="cfg-grid">{fields_html}</div>{save_bar}</form>')

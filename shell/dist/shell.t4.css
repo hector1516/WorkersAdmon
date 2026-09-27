@@ -635,12 +635,20 @@ animation: pulse-offline 2s infinite;
    ═══════════════════════════════════════════════════════════════════════════ */
 .module-grid {
 	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 1rem;
+	gap: 0.6rem;
+	/* Cuantas columnas entran depende del ancho, sin breakpoints: `auto-fit`
+	   con un minimo de 96px arma una fila mas llena a medida que la pantalla
+	   crece (3 en un telefono, 4-5 en tablet, mas en escritorio). Antes eran
+	   2 columnas fijas con tarjetas de 176px de alto: se veian enormes y solo
+	   cabian 4 modulos en la pantalla de un telefono. */
+	grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
 }
-/* En pantallas muy angostas pasa a una columna, como en Field. */
-@media (max-width: 420px) {
-	.module-grid { grid-template-columns: 1fr; }
+/* A partir de tablet la tarjeta crece un poco, para que en una pantalla
+   ancha no queden 11 baldosas de 100px en una sola hilera: se buscan
+   tarjetas de ~150px, o sea 4-5 columnas. El telefono no cambia (3
+   columnas), que es donde el cambio se notaba. */
+@media (min-width: 700px) {
+	.module-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 }
 .module-card {
 	position: relative;
@@ -648,13 +656,16 @@ animation: pulse-offline 2s infinite;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 0.5rem;
-	min-height: 176px;
-	height: 100%;
-	padding: 1.25rem 0.75rem;
+	gap: 0.25rem;
+	/* Cuadradas, como los botones de accion del panel. */
+	aspect-ratio: 1;
+	min-height: 88px;
+	max-height: 150px;
+	padding: 0.5rem 0.35rem;
+	overflow: hidden;
 	background: var(--color-surface);
 	border: 1px solid rgba(255, 255, 255, 0.05);
-	border-radius: var(--radius);
+	border-radius: var(--radius-sm);
 	cursor: pointer;
 	transition: all 0.15s;
 	text-align: center;
@@ -667,25 +678,29 @@ animation: pulse-offline 2s infinite;
 	background: var(--color-surface-2);
 }
 .module-icon {
-	font-size: 2.5rem;
+	font-size: 1.7rem;
 	line-height: 1;
-	height: 2.5rem;
+	height: 1.7rem;
 	display: flex;
 	align-items: center;
 }
 .module-title {
 	font-weight: 700;
-	font-size: 0.95rem;
-	line-height: 1.25;
-	min-height: 2.4em;
+	font-size: 0.82rem;
+	line-height: 1.2;
 	display: flex;
 	align-items: center;
 }
 .module-desc {
-	font-size: 0.75rem;
+	font-size: 0.68rem;
 	color: var(--color-text-muted);
-	line-height: 1.3;
-	min-height: 2.6em;
+	line-height: 1.25;
+	/* En una tarjeta cuadrada y chica la descripcion es lo primero que no
+	   entra. Se recorta con puntos suspensivos en vez de desbordar. */
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
 }
 /* Contador arriba a la derecha (por ejemplo remisiones sin firmar en Field). */
 .module-badge {
