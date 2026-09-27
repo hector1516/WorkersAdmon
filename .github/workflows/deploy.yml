@@ -94,7 +94,7 @@ jobs:
           $salida = $env:GITHUB_OUTPUT
 
           if ([string]::IsNullOrEmpty($before) -or $before -eq ('0' * 40)) {
-            Write-Output "primer push: rebuild (no hay contra qué comparar)"
+            Write-Output "primer push: rebuild (no hay contra que comparar)"
             "modo=rebuild" | Out-File -FilePath $salida -Append -Encoding utf8
             "motivo=sin referencia previa" | Out-File -FilePath $salida -Append -Encoding utf8
             exit 0
@@ -104,8 +104,9 @@ jobs:
           Write-Output "Cambios en este push: $($changed.Count)"
           $changed | ForEach-Object { "  $_" }
 
-          # Lo que de verdad cambia la imagen. El resto se publica copiando al
-          # contenedor que ya corre, sin docker build.
+          # Lo que de verdad cambia la imagen. El resto (frontend, panel,
+          # estaticos) se publica copiando al contenedor que ya corre, sin
+          # docker build.
           $imagen = @("Dockerfile", "requirements.txt", "docker/")
           $tocaba = $changed | Where-Object {
             $f = $_
