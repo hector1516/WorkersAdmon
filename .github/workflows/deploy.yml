@@ -23,58 +23,58 @@ on:
 # Nunca dos deploys a la vez: un push mientras corre el anterior se cancela.
 concurrency:
   group: deploy-workersadmon
-  cancel-in-progress: false
+  # Un push nuevo cancela el anterior en vez de esperarlo en cola: si el
+  # anterior esta atascado por falta de runner, el nuevo tampoco podria empezar.
+  cancel-in-progress: true
 
 jobs:
-  # Un runner self-hosted registrado en un repo NO sirve para otro: los folders
-  # de runner se registran de a uno. Si el repo no tiene uno propio, este
-  # workflow se quedaría en "pending" para siempre y sin decir por qué. Este
-  # job corre en ubuntu-latest (que siempre está) y convierte esa cola
-  # silenciosa en un rojo que dice exactamente qué hacer.
-  verificar-runner:
+  # Por qué existe esto: un runner self-hosted registrado en un repo NO sirve
+  # para otro, y si al repo no se le registra uno, su workflow se queda en
+  # "queued" PARA SIEMPRE y sin decir por qué. GitHub no avisa.
+  #
+  # No se puede consultar la API de runners desde el workflow: exige permiso de
+  # administración de repos, que el GITHUB_TOKEN no tiene (devuelve 403). Así
+  # que en vez de preguntar, este job hace las dos cosas que sí puede con
+  # `actions: write`:
+  #   1. cancela Deploys que llevan atascados más de N minutos, y
+  #   2. deja un comentario que dice qué hacer.
+  # Además, el push nuevo nunca queda esperando al anterior: ver
+  # cancel-in-progress arriba.
+  #
+  # Si esto aparece, el arreglo es registrar un runner para ESTE repo, con
+  # folder y nombre propios (un folder de runner solo sirve para un repo).
+  desbloquear:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    outputs:
-      hay: ${{ steps.check.outputs.hay }}
+    permissions:
+      actions: write      # para cancelar y comentar
+      contents: read
     steps:
-      - id: check
+      - name: Cancelar deploys atascados
         env:
           GH_TOKEN: ${{ github.token }}
+          ATASCADO_MIN: 10
         run: |
           set -euo pipefail
-          TOTAL=$(gh api "repos/${{ github.repository }}/actions/runners" \
-            --jq '.runners | length')
-          ONLINE=$(gh api "repos/${{ github.repository }}/actions/runners" \
-            --jq '[.runners[] | select(.status=="online")] | length')
-          echo "runners registrados: $TOTAL · online: $ONLINE"
-          if [ "$ONLINE" -eq 0 ]; then
-            echo "hay=false" >> "$GITHUB_OUTPUT"
-            {
-              echo "## ❌ No hay runner self-hosted en este repo"
-              echo
-              echo "Registrados: $TOTAL · online: $ONLINE"
-              echo
-              echo "El deploy **no puede correr**: se quedaría en cola para siempre."
-              echo
-              echo "Cada repo necesita su propio runner (un folder de runner solo"
-              echo "sirve para un repo). Para registrarlo en el ServerVM:"
-              echo
-              echo '```'
-              echo "powershell -ExecutionPolicy Bypass -File C:\\actions-runner\\config.cmd \\"
-              echo "  --url https://github.com/${{ github.repository }} \\"
-              echo "  --token ${{ secrets.RUNNER_REGISTRATION_TOKEN }} \\"
-              echo "  --name <NOMBRE-UNICO> --labels self-hosted"
-              echo '```'
-              echo
-              echo "El `--name` tiene que ser distinto por repo, y el folder también."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::error::No hay runner self-hosted online en ${{ github.repository }}."
-            exit 1
+          ATASCADO=$(gh api "repos/${{ github.repository }}/actions/runs?status=queued" \
+            --jq '[.workflow_runs[] | select(.name | startswith("Deploy"))
+                   | select(.created_at < "'"$(date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ)"'")] | length' 2>/dev/null || echo 0)
+          echo "Deploys en cola hace más de $ATASCADO_MIN min: $ATASCADO"
+          if [ "$ATASCADO" -eq 0 ]; then
+            echo "::notice::nada atascado"
+            exit 0
           fi
-          echo "hay=true" >> "$GITHUB_OUTPUT"
+          echo "::error::$ATASCADO deploy(s) llevan más de $ATASCADO_MIN min en cola."
+          echo "::error::Casi siempre es que este repo NO tiene un runner self-hosted"
+          echo "::error::online. El registro es por repo, con folder y nombre propios."
+          echo "::error::Se cancelan para que no bloqueen el siguiente push."
+          for id in $(gh api "repos/${{ github.repository }}/actions/runs?status=queued" \
+              --jq '.workflow_runs[] | select(.name | startswith("Deploy")) | .id'); do
+            gh api -X POST "repos/${{ github.repository }}/actions/runs/$id/cancel" >/dev/null 2>&1 \
+              && echo "  cancelado $id" || true
+          done
 
   deploy:
-    needs: verificar-runner
     runs-on: self-hosted
     timeout-minutes: 20
 
