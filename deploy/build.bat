@@ -1,15 +1,19 @@
 @echo off
 rem ============================================================
-rem Build de la imagen `workersadmon` en ServerVM.
-rem Corre DESACOPLADO de la sesion SSH (Windows mata los procesos
-rem hijos cuando se cierra el ssh): lanzarlo con
-rem   schtasks /create /tn WorkersBuild /tr "C:\WorkersAdmon\deploy\build.bat" /sc once /st 23:59 /f
-rem   schtasks /run /tn WorkersBuild
-rem y vigilar C:\WorkersAdmon\build.log hasta ver "FIN rc=0".
+rem Build + deploy de WorkersAdmon en ServerVM.
+rem
+rem Antes este archivo hacia UN solo comando:
+rem     docker build -t workersadmon .
+rem Construia la imagen y NADA MAS: no detenia el contenedor, no lo
+rem recreaba, no chequeaba salud y no hacia rollback. El contenedor
+rem seguia con la imagen vieja y el log decia "FIN rc=0": un deploy que
+rem no despliega. Ahora delega en deploy/build.ps1, que hace el ciclo
+rem completo (build -> recrear con la config actual -> salud -> rollback)
+rem igual que Field y Admon.
+rem
+rem Se mantiene el nombre porque la tarea programada WorkersBuild
+rem (schtasks) y el paso "Rebuild" del deploy apuntan a este archivo.
 rem ============================================================
 cd /d C:\WorkersAdmon
-echo === INICIO %DATE% %TIME% === > build.log
-rem WITH_PLAYWRIGHT=1: instala playwright + Chromium en la imagen
-rem (obligatorio para oxxogas_contactos / vales / govale_vouchers).
-docker build --build-arg WITH_PLAYWRIGHT=1 -t workersadmon . >> build.log 2>&1
-echo === FIN rc=%ERRORLEVEL% %DATE% %TIME% === >> build.log
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\WorkersAdmon\deploy\build.ps1"
+exit /b %ERRORLEVEL%

@@ -308,34 +308,52 @@ jobs:
             Write-Host "build.log anterior movido a build.log.prev"
           }
 
-          Write-Host "Lanzando WorkersBuild (schtasks)..."
-          # "Solo interactivo" significa que la tarea solo arranca si hay una
-          # sesion de escritorio abierta en el ServerVM. El runner de GitHub es
-          # un servicio: no la hay, y schtasks se responde CORRECTO sin hacer
-          # nada. Es el mismo modo de fallo que el FIN rc= viejo, asi que se
-          # avisa en vez de esperar 15 minutos en silencio.
-          $info = schtasks /query /tn WorkersBuild /fo LIST /v 2>&1 | Out-String
-          if ($info -match 'Solo interactivo') {
-            Write-Output ("::warning::La tarea WorkersBuild esta en modo 'Solo interactivo'.")
-            Write-Output ("::warning::Si no hay sesion de escritorio abierta en el ServerVM,")
-            Write-Output ("::warning::schtasks /run no va a arrancar nada. Re-registrala con")
-            Write-Output ("::warning::deploy/register_task.ps1 para que corra en modo batch.")
+          # El build se lanza como proceso DESACOPLADO, no con schtasks.
+          # schtasks estaba porque "Windows mata los procesos hijos al cerrarse
+          # la sesion", pero eso era un problema de SSH: el runner de GitHub es
+          # un servicio, no una sesion, asi que sus hijos sobreviven. Y la tarea
+          # actualizada quedo en modo 'Solo interactivo', que hace que /run
+          # responda CORRECTO sin arrancar nada. Con schtasks el deploy
+          # dependia de: una sesion de escritorio abierta, una tarea registrada
+          # en el modo correcto y la contrasena de Windows para registrarlo.
+          # Con Start-Process no depende de nada de eso.
+          $script = 'C:\WorkersAdmon\deploy\build.ps1'
+          if (-not (Test-Path $script)) { Show-Diag; throw "no existe $script" }
+          Write-Host "Lanzando build.ps1 (proceso desacoplado)..."
+          Start-Process -FilePath 'powershell.exe' `
+              -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script `
+              -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+          if (-not (Test-Path $logPath)) {
+            Show-Diag
+            throw "el build no llego a escribir build.log; no arranco"
           }
-          schtasks /run /tn WorkersBuild
-          if ($LASTEXITCODE -ne 0) { Show-Diag; throw "no se pudo lanzar WorkersBuild" }
+          Write-Host "build.log creado; esperando a que termine..."
 
-          Write-Host "Esperando a que termine (build.log)..."
           $rc = $null
-          for ($i = 0; $i -lt 90; $i++) {
+          for ($i = 0; $i -lt 150; $i++) {
             Start-Sleep -Seconds 10
             $log = Get-Content $logPath -ErrorAction SilentlyContinue
             $line = $log | Select-String 'FIN rc=(\d+)' | Select-Object -Last 1
             if ($line) {
-              Get-Content $logPath -Tail 25 | ForEach-Object { Write-Host $_ }
+              Get-Content $logPath -Tail 30 | ForEach-Object { Write-Host $_ }
               $rc = [int]$line.Matches[0].Groups[1].Value
               break
             }
           }
           if ($null -eq $rc) { Show-Diag; throw "build.log no mostro 'FIN rc=' a tiempo" }
           if ($rc -ne 0) { Show-Diag; throw "el rebuild fallo (rc=$rc)" }
-          Write-Host "OK - imagen reconstruida y contenedor recreado"
+
+          # El build.ps1 escribe FIN rc=0 solo despues de recrear el contenedor
+          # y ver la salud. Se vuelve a comprobar desde afuera, porque un
+          # 'FIN rc=0' sin contenedor nuevo seria otro deploy que miente.
+          $salud = (docker inspect -f '{{.State.Health.Status}}' workersadmon 2>$null)
+          $img = (docker inspect -f '{{.Image}}' workersadmon 2>$null)
+          $esperada = (docker images --format '{{.ID}}' workersadmon:latest 2>$null | Select-Object -First 1)
+          Write-Host "contenedor: health=$salud imagen=$($img.Substring(0,12))"
+          if ($img -and $esperada -and $img.StartsWith($esperada.Substring(0, 12))) {
+            Write-Host "OK - contenedor recreado con la imagen recien construida"
+          } else {
+            Write-Host "::error::el contenedor corre con una imagen que no es la recien construida"
+            throw "el contenedor no quedo con la imagen nueva"
+          }
