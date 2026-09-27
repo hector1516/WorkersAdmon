@@ -1580,5 +1580,31 @@ class PanelTest(unittest.TestCase):
         self.assertIn(".wcard", html)             # del CSS propio del panel
 
 
+    def test_58_todo_worker_tiene_ficha_de_config(self):
+        """Cada programa del panel debe tener entrada en el catálogo de config;
+        si no, su botón "Config" del worker es un enlace muerto."""
+        from panel import spec
+        from panel.workers import CATALOGO
+        faltan = [w for w in CATALOGO if w not in spec.all_workers()]
+        self.assertEqual(faltan, [], f"workers sin ficha de config: {faltan}")
+        # y la página de configuración trae un anchor por cada uno
+        c = self._logged()
+        code, _, html = c.get("/configuracion")
+        self.assertEqual(code, 200)
+        for w in CATALOGO:
+            self.assertIn(f'id="cfg-{w}"', html, f"falta el anchor cfg-{w}")
+
+    def test_59_workers_de_field_en_el_catalogo(self):
+        from panel import spec
+        for w in ("avisos", "file_indexer", "legends_cron", "legends_audit"):
+            self.assertIn(w, spec.all_workers())
+        # legends_audit deja por escrito la regla de 1 sola instancia
+        textos = " ".join(
+            f"{f.get('valor', '')} {f.get('ayuda', '')}"
+            for f in spec.spec_for("legends_audit"))
+        self.assertIn("UNA instancia", textos)
+        self.assertIn("ScoreLog", textos)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

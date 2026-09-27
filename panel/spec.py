@@ -135,6 +135,57 @@ WORKERS_SPEC = {
         _f("nota", "Sin configuración expuesta", "info", "info",
            valor="Este panel no expone variables de entorno editables."),
     ],
+    # ─── Workers de Field (migrados 2026-09-26) ──────────────────────────────
+    # Sus intervalos y credenciales están escritos en el código (field/api),
+    # que es la fuente de verdad: aquí solo se documentan. Lo que sí es
+    # editable son las claves de HUB_Config que el código ya lee.
+    "avisos": [
+        _f("TZ", "Zona horaria del proceso", "const", "const", valor="UTC",
+           ayuda="El conf fija environment=TZ=\"UTC\" para no mover el "
+                 "comportamiento de datetime.now() que tenía en Field. "
+                 "cron_avisos usa utcnow()-6, así que los lunes 8:00 AM "
+                 "siguen siendo hora México."),
+        _f("intervalo_rep", "Revisión de reportes", "const", "const",
+           valor="3600 s (código)",
+           ayuda="Reportes sin firmar nuevos; el dedupe vive en "
+                 "HUB_Config.field_avisos_rep_<IdUsuario>, así que reiniciar "
+                 "no re-envía avisos."),
+        _f("km_lunes", "Kilómetros semanales", "const", "const",
+           valor="lunes 8:00 AM (código)",
+           ayuda="UTC-6 fijo calculado con utcnow(); push a usuarios con auto "
+                 "asignado sin registro desde el lunes."),
+        _f("vapid", "Claves VAPID", "info", "info",
+           valor="HUB_Config.vapid_private_key / vapid_public_key",
+           ayuda="Se generan solas la primera vez y se comparten con Field, "
+                 "por eso las suscripciones push no se invalidan."),
+    ],
+    "file_indexer": [
+        _f("smb_user", "Usuario SMB", "const", "const", valor="eccsa",
+           ayuda="FILESERVER 10.188.141.15; usuario y contraseña están "
+                 "escritos en cron_index_files.py (origen: repo Field)."),
+        _f("intervalo", "Intervalo de indexado", "const", "const", valor="300 s (código)",
+           ayuda="Indexa Docs/Shared y Docs/Aplicaciones en HUB_FileIndex."),
+    ],
+    "legends_cron": [
+        _f("ganador", "Cálculo del ganador", "const", "const",
+           valor="domingo 3:00 AM (código)",
+           ayuda="Usa pytz America/Mexico_City explícito, así que el TZ=UTC del "
+                 "conf no mueve el corte. Guarda en HUB_WeeklyWinners y resetea "
+                 "HUB_UserScores.PuntuacionSemanal."),
+        _f("intervalo", "Frecuencia de verificación", "const", "const",
+           valor="3600 s (código)", ayuda="Solo calcula si ya pasó el domingo 3 AM."),
+    ],
+    "legends_audit": [
+        _f("instancia", "Instancias en el entorno", "const", "const",
+           valor="1 (obligatorio)",
+           ayuda="⚠️ REGLA DURA: solo puede existir UNA instancia en todo el "
+                 "entorno; con dos se duplica HUB_ScoreLog. Verificado: field "
+                 "corre solo nginx+api y admon no lo tiene."),
+        _f("intervalo", "Frecuencia de auditoría", "const", "const", valor="300 s (código)",
+           ayuda="Recalcula HUB_UserScores desde ReportesServicio, "
+                 "HUB_RegistroKilometros y HUB_OxxoGasTickets, con dedupe por "
+                 "Metrica+ReferenciaId."),
+    ],
 }
 
 
