@@ -201,6 +201,20 @@ def shell_check():
         return None
 
 
+def versiones_check():
+    """Último resultado del chequeo de versiones de las 3 apps (o None).
+
+    Devuelve el JSON tal cual; el resumen por app (ok/total) lo calcula la
+    vista, que es quien sabe cómo se llama cada una.
+    """
+    import json
+    try:
+        with open(config.VERSIONES_CHECK_FILE, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
 def now():
     return datetime.datetime.now()
 

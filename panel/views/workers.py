@@ -178,6 +178,44 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
             '<div class="card-desc" style="font-size:.8rem">ℹ️ Sin datos del '
             'chequeo del shell todavía (se genera diario en ServerVM).</div>')
 
+    # Estado de versiones de las 3 apps contra el mandato de Field.
+    # Mismo chequeo diario que el shell: si esto se pone rojo, alguien instaló
+    # algo distinto a lo que dice ECCSA-Shell/versiones/requisitos-canonicos.txt.
+    vchk = workers.versiones_check()
+    if vchk:
+        resumen = []
+        for app in ("field", "admon", "workersadmon"):
+            filas = (vchk.get("apps") or {}).get(app) or {}
+            if filas:
+                ok = sum(1 for f in filas.values() if f.get("ok"))
+                resumen.append(f"{app} {ok}/{len(filas)}")
+        detalle = " · ".join(resumen)
+        if vchk.get("ok"):
+            versiones_html = (
+                f'<div class="card-desc" style="display:flex;gap:10px;'
+                f'align-items:center;flex-wrap:wrap;padding:10px 12px;'
+                f'border:1px solid rgba(34,197,94,.35);border-radius:12px;'
+                f'background:rgba(34,197,94,.08)">'
+                f'<span class="tag t-run">● VERSIONES AL DÍA</span>'
+                f'<span class="muted" style="font-size:.8rem">'
+                f'{esc(detalle)} · revisado '
+                f'{esc(vchk.get("revisado", "?"))}</span></div>')
+        else:
+            probs_v = "<br>".join(esc(p) for p in (vchk.get("problemas") or []))
+            versiones_html = (
+                f'<div class="card-desc" style="padding:10px 12px;'
+                f'border:1px solid rgba(239,68,68,.45);border-radius:12px;'
+                f'background:rgba(239,68,68,.08)">'
+                f'<span class="tag t-err">▲ VERSIONES DESINCRONIZADAS</span>'
+                f'<div class="muted" style="font-size:.8rem;margin-top:6px">'
+                f'{probs_v}<br>Mandato: ECCSA-Shell/versiones/'
+                f'requisitos-canonicos.txt (= field/api/requirements.txt). '
+                f'Revisado: {esc(vchk.get("revisado", "?"))}</div></div>')
+    else:
+        versiones_html = (
+            '<div class="card-desc" style="font-size:.8rem">ℹ️ Sin datos del '
+            'chequeo de versiones todavía (se genera diario en ServerVM).</div>')
+
     t = status["totals"]
     cards = f"""
   <div class="cards">
@@ -191,7 +229,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
       <div class="l">Disponibles en el repo</div></div>
   </div>"""
 
-    body = f"{err}{shell_html}{cards}{''.join(secciones)}{hint}"
+    body = f"{err}{shell_html}{versiones_html}{cards}{''.join(secciones)}{hint}"
     conn = "offline" if status.get("supervisor_error") else "online"
     # Estado del banner común: el panel no tiene cola offline, así que
     # "sincronizado" = todos los programas bien; si hay FATAL/BACKOFF, error.

@@ -58,6 +58,9 @@ ENGRANE_FILE = os.environ.get("PANEL_ENGRANE", _asset("engrane.png"))
 
 # Estado del chequeo automático del shell (lo escribe shell/tools/check_daily.py)
 SHELL_CHECK_FILE = os.environ.get("SHELL_CHECK_FILE", "/data/shell_check.json")
+# Resultado del chequeo de versiones de las 3 apps contra el mandato de Field
+# (lo escribe C:\ECCSA-Shell\tools\check_versiones.py en el chequeo diario).
+VERSIONES_CHECK_FILE = os.environ.get("VERSIONES_CHECK_FILE", "/data/versiones.json")
 
 # ─── Assets PWA (manifest + service worker + iconos) ────────────────────────
 # Viven en static/ (igual que Field y Admon): el servidor los sirve en la raíz

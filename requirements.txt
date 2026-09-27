@@ -1,26 +1,48 @@
-# Dependencias de WorkersAdmon.
-#
+# WorkersAdmon — dependencias
+# ============================================================================
 # ECOSISTEMA SIN STREAMLIT: el 2026-09-27 se retiró la app del HUB (Streamlit)
 # y con ella sus dependencias. Esta imagen solo corre los workers, el servidor
 # MCP/passkeys/push y el panel de control — todos con la biblioteca estándar.
 # Nada aquí importa streamlit, pandas, altair ni openpyxl (verificado con un
-# import real sin esas paquetes).
-pymssql
-reportlab
-pywebpush
+# import real sin esos paquetes).
+#
+# VERSIONES: manda Field. Lo que está pinado abajo es copia de
+# ECCSA-Shell/versiones/requisitos-canonicos.txt (= field/api/requirements.txt).
+# Si cambiás una versión, primero en Field, después acá, y verificá con
+#   python tools/check_versiones.py
+# ============================================================================
+
+# --- Datos (mandato: Field) --------------------------------------------------
+pymssql==2.2.11
+
+# --- API web de los workers de Field (mandato) -------------------------------
+fastapi==0.115.0
+pydantic==2.9.0
+python-multipart==0.0.9
+
+# --- Autenticación / passkeys (mandato) --------------------------------------
 pyjwt==2.9.0
 webauthn==3.0.0
-qrcode[pil]
-google-generativeai
-requests
-# Playwright: solo con --build-arg WITH_PLAYWRIGHT=1 (Go Vale / OxxoGas).
-# En producción lo pasa deploy/build.bat.
-# Workers de Field (migrados 2026-09-26: avisos, file_indexer, legends_cron,
-# legends_audit — código en api/, ver AGENTS). fastapi/pydantic los necesita
-# routers/push.py (import de avisos); pysmb, el file_indexer; pytz, legends.
-# fastapi SIN pin: la app de Field usa 0.115.0, pero aquí solo se importa su
-# superficie (APIRouter/Depends/HTTPException/Header/BaseModel) y 0.115.0 exige
-# starlette<0.39 mientras streamlit 1.59.2 exigía starlette>=0.40 (conflicto).
-fastapi
-pysmb
+
+# --- Push a las PWAs (mandato) ----------------------------------------------
+pywebpush==2.0.0
+py-vapid==1.9.1
+
+# --- PDFs e imágenes (mandato) ----------------------------------------------
+reportlab==4.4.0
+Pillow==11.0.0
+
+# --- Legends / Field workers (mandato) --------------------------------------
 pytz
+pysmb
+
+# --- IA (mandato, sin pin en las 3 apps) ------------------------------------
+google-generativeai
+google.ai.generativelanguage
+
+# --- Solo de este contenedor (Field no los usa) ------------------------------
+qrcode[pil]        # imagen QR de los vales (govale_vouchers_worker)
+supervisor         # el panel corre bajo supervisor
+requests           # módulo Telegram heredado del HUB (api.telegram.org)
+# playwright: NO va aquí. Se instala en la imagen con
+#   docker build --build-arg WITH_PLAYWRIGHT=1  (lo pasa deploy/build.bat)

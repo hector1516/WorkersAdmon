@@ -1543,10 +1543,10 @@ class PanelTest(unittest.TestCase):
         c = self._logged()
         code, _, html = c.get("/")
         self.assertEqual(code, 200)
-        self.assertIn('class="shell-banner', html)      # banner fijo arriba
+        self.assertIn('class="sync-header', html)       # banner fijo arriba
         self.assertIn("👤 Admin", html)                 # usuario
-        self.assertIn("shell 1.0.0", html)              # versión del shell
-        self.assertIn("v1.0.0", html)                   # versión de la app
+        self.assertIn("shell 1.1.0", html)              # versión del shell
+        self.assertIn("v1.1.0", html)                   # versión de la app
         self.assertIn("Todo sincronizado", html)        # estado idle
 
     def test_56_lugar_oficina_o_remoto(self):
@@ -1557,7 +1557,7 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         body = _json.loads(raw)
         self.assertEqual(body["app"]["id"], "workersadmon")
-        self.assertEqual(body["shell"]["version"], "1.0.0")
+        self.assertEqual(body["shell"]["version"], "1.1.0")
         self.assertIn(body["lugar"]["modo"], ("oficina", "remoto", "desconocido"))
         self.assertIn(body["sync"]["estado"],
                       ("idle", "syncing", "pending", "offline", "error"))
@@ -1576,7 +1576,7 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(base, "panel.css")))
         c = Client()
         _, _, html = c.get("/login")
-        self.assertIn(".shell-banner", html)      # del shell canónico
+        self.assertIn(".sync-header", html)       # del shell canónico
         self.assertIn(".wcard", html)             # del CSS propio del panel
 
 
