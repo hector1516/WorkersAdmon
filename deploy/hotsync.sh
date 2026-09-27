@@ -51,10 +51,24 @@ say() { echo "[hotsync] $*"; }
 
 # ── 0. Precondiciones ────────────────────────────────────────────────────────
 if [ "$DRY" = "0" ]; then
-  command -v docker >/dev/null || { say "ERROR: no está docker en el PATH"; exit 1; }
+  # Primero: ¿responde docker? Sin esta comprobación, un runner cuyo servicio
+  # no tiene acceso al pipe de Docker Desktop(reporta "el contenedor no está
+  # corriendo", que es un diagnóstico FALSO: el problema es el runner).
+  # Pasa cuando el servicio corre como NETWORK SERVICE, que es el default de
+  # config.cmd --runasservice.
+  if ! docker ps >/dev/null 2>&1; then
+    say "ERROR: 'docker' no responde desde esta cuenta."
+    say "       Si esto es el runner de un deploy, el servicio corre con una"
+    say "       cuenta sin acceso a Docker Desktop. En el ServerVM tiene que"
+    say "       estar en la misma cuenta que el runner de hubmail (eccsa), no en"
+    say "       NETWORK SERVICE."
+    docker ps 2>&1 | head -3 | sed 's/^/       /'
+    exit 1
+  fi
   if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
-    say "ERROR: el contenedor '$CONTAINER' no está corriendo."
-    say "       Para uno caído o sin contenedor, reconstruye la imagen."
+    say "ERROR: el contenedor '$CONTAINER' no está corriendo (docker sí responde)."
+    say "       Para una app caída o sin contenedor, usa el deploy completo:"
+    say "       schtasks /run /tn WorkersBuild"
     exit 1
   fi
 fi
