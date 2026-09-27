@@ -637,24 +637,28 @@ animation: pulse-offline 2s infinite;
 	display: grid;
 	gap: 0.4rem;
 	justify-content: center;
-	/* La tarjeta mide SIEMPRE 104px, en las 3 apps y en cualquier pantalla.
-	   Lo unico que cambia es cuantas entran por fila, y eso si se rearrange:
-	     <360px     2 columnas   (telefono muy chico)
-	     movil      3 columnas
-	     tablet     4 columnas
-	     escritorio 5 columnas
-	   Asi el menu se acomoda al ancho sin que un boton cambie de tamano, que
-	   es lo que hacia que las tarjetas se vieran distintas entre apps. */
-	grid-template-columns: repeat(2, 104px);
+	/* La tarjeta mide SIEMPRE 140px y es cuadrada (aspect-ratio: 1, mas
+	   abajo). Lo unico que cambia es cuantas entran por fila, y en movil son
+	   SIEMPRE 2, sin excepciones: es lo que se pidió para que las 3 apps se
+	   vean iguales en un telefono.
+
+	     movil (<560px)   2 columnas
+	     tablet           3 columnas
+	     escritorio medio 4 columnas
+	     pantalla grande  5 columnas
+
+	   El tamano no se toca nunca, asi que un boton no crece al pasar de
+	   movil a escritorio: solo aparece mas al lado. */
+	grid-template-columns: repeat(2, 140px);
 }
-@media (min-width: 360px) {
-	.module-grid { grid-template-columns: repeat(3, 104px); }
+@media (min-width: 560px) {
+	.module-grid { grid-template-columns: repeat(3, 140px); }
 }
-@media (min-width: 700px) {
-	.module-grid { grid-template-columns: repeat(4, 104px); }
+@media (min-width: 900px) {
+	.module-grid { grid-template-columns: repeat(4, 140px); }
 }
-@media (min-width: 1024px) {
-	.module-grid { grid-template-columns: repeat(5, 104px); }
+@media (min-width: 1280px) {
+	.module-grid { grid-template-columns: repeat(5, 140px); }
 }
 .module-card {
 	position: relative;
