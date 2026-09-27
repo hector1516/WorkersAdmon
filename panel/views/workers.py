@@ -109,7 +109,8 @@ def _card(e):
 </article>"""
 
 
-def render(status, user, flash_ok="", flash_err="", csrf=""):
+def render(status, user, flash_ok="", flash_err="", csrf="",
+           lugar="desconocido", ip=""):
     """Devuelve el HTML completo de la pestaña Workers (tarjetas, sin tabla)."""
     set_csrf(csrf)
     programs = status["programs"]
@@ -163,8 +164,16 @@ def render(status, user, flash_ok="", flash_err="", csrf=""):
 
     body = f"{err}{cards}{''.join(secciones)}{hint}"
     conn = "offline" if status.get("supervisor_error") else "online"
+    # Estado del banner común: el panel no tiene cola offline, así que
+    # "sincronizado" = todos los programas bien; si hay FATAL/BACKOFF, error.
+    if status.get("supervisor_error"):
+        sync = "offline"
+    elif [e for e in programs if e.get("state") in ("FATAL", "BACKOFF", "EXITED")]:
+        sync = "error"
+    else:
+        sync = "idle"
     return page("workers", body, user=user, flash_ok=flash_ok,
-                flash_err=flash_err,
+                flash_err=flash_err, lugar=lugar, ip=ip, sync=sync,
                 subtitle=f"zona horaria {esc(status['timezone'])} · datos en "
                          f"<code>{esc(status['data_dir'])}</code> · "
                          f"actualizado {esc(status['now'])}",

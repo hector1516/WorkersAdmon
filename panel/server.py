@@ -31,7 +31,8 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import auth, config, db, envconf, probes, spec, webauthn, workers
-from .templates import esc, forbidden_page, login_page, offline_page, page
+from .templates import (esc, forbidden_page, lugar_de, login_page,
+                         offline_page, page)
 from .views import apps as apps_view
 from .views import config as config_view
 from .views import notifications as notif_view
@@ -164,6 +165,11 @@ class Handler(BaseHTTPRequestHandler):
     def _client_ip(self):
         return auth.client_ip(self)
 
+    def _shell_ctx(self):
+        """Contexto del banner común (ECCSA-Shell): ¿oficina o remoto?"""
+        lugar, ip = lugar_de(self._client_ip())
+        return {"lugar": lugar, "ip": ip}
+
     # ── gate de acceso ───────────────────────────────────────────────────────
     def _user(self):
         """Usuario con sesión válida o None."""
@@ -216,6 +222,35 @@ class Handler(BaseHTTPRequestHandler):
                 return self._static(os.path.join(config.ICONS_DIR, name),
                                     "image/png", "public, max-age=604800")
             return self._send(404, "icono no encontrado", "text/plain")
+        if path == "/api/shell/state":
+            # Contrato del banner común (ECCSA-Shell · docs/CONTRATO.md)
+            user = self._user()
+            if not user:
+                return self._json({"error": "sin sesión"}, 401)
+            lugar, ip = lugar_de(self._client_ip())
+            try:
+                st = workers.build_status()
+                progs = st.get("programs", [])
+                bad = [e["name"] for e in progs
+                       if e.get("state") in ("FATAL", "BACKOFF", "EXITED")]
+                if st.get("supervisor_error"):
+                    sync = "offline"
+                elif bad:
+                    sync = "error"
+                else:
+                    sync = "idle"
+            except Exception:
+                sync, progs = "offline", []
+            return self._json({
+                "app": {"id": config.APP_ID, "nombre": config.TITLE,
+                        "version": config.APP_VERSION},
+                "shell": {"version": config._shell_version()},
+                "user": {"nombre": user.get("nombre"), "email": user.get("email"),
+                         "rol": "admin" if auth.has_perm(user, "AccesoConfiguracion")
+                               else "usuario"},
+                "sync": {"estado": sync, "pendientes": 0, "ultimo": None},
+                "lugar": {"modo": lugar, "ip": ip},
+            })
         if path == "/api/status":
             try:
                 return self._json(workers.build_status())
@@ -235,7 +270,8 @@ class Handler(BaseHTTPRequestHandler):
             status = workers.build_status()
             ok, err = self._flash(query)
             return self._html(workers_view.render(
-                status, user, flash_ok=ok, flash_err=err, csrf=self._csrf()))
+                status, user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                **self._shell_ctx()))
 
         if path.startswith("/workers/") and path.endswith("/logs"):
             user, done = self._require()
@@ -252,7 +288,7 @@ class Handler(BaseHTTPRequestHandler):
             ok, err = self._flash(query)
             return self._html(config_view.render(
                 workers.build_status(), user, flash_ok=ok, flash_err=err,
-                csrf=self._csrf()))
+                csrf=self._csrf(), **self._shell_ctx()))
 
         if path == "/notificaciones":
             user, done = self._require()
@@ -261,6 +297,7 @@ class Handler(BaseHTTPRequestHandler):
             ok, err = self._flash(query)
             return self._html(notif_view.render(
                 user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                **self._shell_ctx(),
                 correo_prueba=query.get("para", [""])[0] or user.get("email", ""),
                 vista_tg=query.get("tg", [""])[0] or "conexion"))
 
@@ -274,7 +311,8 @@ class Handler(BaseHTTPRequestHandler):
                     "HUB. Pídeselo al administrador."), 403)
             ok, err = self._flash(query)
             return self._html(apps_view.render(
-                user, flash_ok=ok, flash_err=err, csrf=self._csrf()))
+                user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                **self._shell_ctx()))
 
         return self._send(404, "No encontrado", "text/plain")
 

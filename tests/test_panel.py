@@ -1538,6 +1538,47 @@ class PanelTest(unittest.TestCase):
         finally:
             _TG["eventos"][0]["Activo"] = 1
 
+    # ── ECCSA-Shell: banner común y contrato /api/shell/state ────────────────
+    def test_55_banner_comun(self):
+        c = self._logged()
+        code, _, html = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn('class="shell-banner', html)      # banner fijo arriba
+        self.assertIn("👤 Admin", html)                 # usuario
+        self.assertIn("shell 1.0.0", html)              # versión del shell
+        self.assertIn("v1.0.0", html)                   # versión de la app
+        self.assertIn("Todo sincronizado", html)        # estado idle
+
+    def test_56_lugar_oficina_o_remoto(self):
+        c = self._logged()
+        # el endpoint del contrato responde con app/shell/user/sync/lugar
+        import json as _json
+        code, _, raw = c.get("/api/shell/state")
+        self.assertEqual(code, 200)
+        body = _json.loads(raw)
+        self.assertEqual(body["app"]["id"], "workersadmon")
+        self.assertEqual(body["shell"]["version"], "1.0.0")
+        self.assertIn(body["lugar"]["modo"], ("oficina", "remoto", "desconocido"))
+        self.assertIn(body["sync"]["estado"],
+                      ("idle", "syncing", "pending", "offline", "error"))
+        # la lógica de lugar: IP privada = oficina
+        from panel.templates import lugar_de
+        self.assertEqual(lugar_de("10.188.141.57")[0], "oficina")
+        self.assertEqual(lugar_de("189.203.10.4")[0], "remoto")
+        self.assertEqual(lugar_de("")[0], "desconocido")
+
+    def test_57_shell_css_desde_disco(self):
+        """El CSS se arma con panel/shell.css (copia canónica) + panel.css."""
+        import os
+        base = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "panel")
+        self.assertTrue(os.path.isfile(os.path.join(base, "shell.css")))
+        self.assertTrue(os.path.isfile(os.path.join(base, "panel.css")))
+        c = Client()
+        _, _, html = c.get("/login")
+        self.assertIn(".shell-banner", html)      # del shell canónico
+        self.assertIn(".wcard", html)             # del CSS propio del panel
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

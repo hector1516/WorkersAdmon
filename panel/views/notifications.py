@@ -486,7 +486,8 @@ def _bloque_ia(user):
 
 
 # ─── página ──────────────────────────────────────────────────────────────────
-def render(user, flash_ok="", flash_err="", csrf="", correo_prueba="",
+def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
+           ip="", correo_prueba="",
            vista_tg="conexion"):
     set_csrf(csrf)
     m = db.telegram_metrics()
@@ -510,6 +511,7 @@ def render(user, flash_ok="", flash_err="", csrf="", correo_prueba="",
               + _bloque_correo(user, correo_prueba)
               + _bloque_ia(user))
     return page("notificaciones", cuerpo, user=user, flash_ok=flash_ok,
+                lugar=lugar, ip=ip,
                 flash_err=flash_err,
                 subtitle="Telegram (Conexión · Eventos · Destinatarios · "
                          "Vinculados · Historial) · Push · Correo · IA")

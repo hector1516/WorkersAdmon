@@ -162,7 +162,7 @@ def _card(name, estado, fields, env_vals, cfg_vals):
   </div>"""
 
 
-def render(status, user, flash_ok="", flash_err="", csrf=""):
+def render(status, user, flash_ok="", flash_err="", csrf="", lugar="desconocido", ip=""):
     """Devuelve el HTML completo de la pestaña Configuración."""
     set_csrf(csrf)
     progs = {p["name"]: p for p in status.get("programs", [])}
@@ -207,6 +207,7 @@ def render(status, user, flash_ok="", flash_err="", csrf=""):
 
     body = kpis + intro + "".join(cards)
     return page("config", body, user=user, flash_ok=flash_ok, flash_err=flash_err,
+                lugar=lugar, ip=ip,
                 subtitle=f"{len(spec.all_workers())} workers con catálogo "
                          f"de configuración",
                 refresh=0)

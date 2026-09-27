@@ -235,7 +235,7 @@ HUB_DB_DATABASE=ECCSA_Admon HUB_MIGRATE_PRODUCTION=1 python apply_migrations.py<
   </div>"""
 
 
-def render(user, flash_ok="", flash_err="", csrf=""):
+def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido", ip=""):
     """Devuelve el HTML completo de la pestaña Apps."""
     set_csrf(csrf)
     tiene_tabla = db.config_catalog_exists()
@@ -274,6 +274,7 @@ def render(user, flash_ok="", flash_err="", csrf=""):
                   + _panel_alta(apps))
 
     return page("apps", cuerpo, user=user, flash_ok=flash_ok,
+                lugar=lugar, ip=ip,
                 flash_err=flash_err,
                 subtitle=f"config central por app · {len(todos)} claves en "
                          f"HUB_Config")

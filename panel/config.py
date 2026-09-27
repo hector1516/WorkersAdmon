@@ -78,6 +78,22 @@ ICONS_WHITELIST = ("icon-120x120.png", "icon-152x152.png", "icon-167x167.png",
 PANEL_PORT = int(os.environ.get("STATUS_PORT", "8080"))
 TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 
+# ─── Banner común (ECCSA-Shell) ───────────────────────────────────────────────
+# Versión del panel (la de la app) y del shell (estampada por
+# tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
+APP_ID = "workersadmon"
+APP_VERSION = "1.0.0"
+
+
+def _shell_version():
+    """Lee ECCSA_SHELL_VERSION (copia del repo) → '?' si no está."""
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(base, "ECCSA_SHELL_VERSION"), encoding="utf-8") as fh:
+            return fh.read().strip() or "?"
+    except OSError:
+        return "?"
+
 # ─── Autenticación (mismo esquema que el HUB: cookie + HUB_Sessions) ──────────
 COOKIE_NAME = "ecsa_token"      # cookie de sesión compartida conceptualmente con HUB
 CSRF_COOKIE = "panel_csrf"      # cookie de doble envío para formularios POST
