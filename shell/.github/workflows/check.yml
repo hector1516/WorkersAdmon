@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ECCSA-Shell · verificación
+#
+# Esto es lo que hace que la estandarización se sostenga. Corre tres checks:
+#
+#   1. build_shell.py --check     → dist/ corresponde a tokens.css + src/.
+#                                  Sin esto se puede propagar un CSS viejo a
+#                                  las 3 apps y que nadie lo note.
+#   2. check_changelog.py --all   → el popup de novedades dice la misma versión
+#                                  que el banner de cada app. Si se separan, el
+#                                  📋 deja de saltar justo cuando hay algo que
+#                                  contar.
+#   3. propagate.py --check       → que las 3 apps tengan EXACTAMENTE la copia
+#                                  del shell, mirando sus repos por la API.
+#                                  Este es el que caza a alguien editando a
+#                                  mano src/app.css o panel/shell.css.
+#
+# Corre en push, en cada PR y una vez por día. El diario es lo importante: sin
+# él, alguien puede editar la copia de una app y nadie se entera hasta que el
+# shell vuelva a cambiar.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Check shell
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 12:23 UTC = 06:23 hora de México: fuera del horario de deploys, para no
+    # competir por el runner ni cruzar builds con un despliegue.
+    - cron: '23 12 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: check-shell
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ── 1. dist/ generado ──────────────────────────────────────────────────
+      - name: dist/ corresponde a tokens.css + src/
+        run: |
+          python tools/build_shell.py --check
+        # A propósito NO se corre build_shell.py antes: si se regenera acá, el
+        # --check siempre pasa y no verifica nada.
+
+      - name: Resumen al log
+        if: always()
+        run: |
+          echo "shell $(cat VERSION) · $(git rev-parse --short HEAD)" \
+               >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 2 + 3. las 3 apps ────────────────────────────────────────────────
+      # Los dos checks siguientes necesitan leer los repos de las apps, así que
+      # hace falta el token. Todo el manejo del secret va DENTRO de los scripts
+      # y el resultado se pasa por `outputs`: depender de `if: env.X != ''` es
+      # frágil (el contexto env de un step es el del job, no el suyo), y cuando
+      # falla lo que hace es clonar con el token vacío y reventar con
+      # "Authentication failed", que no dice nada del origen real.
+      - name: "Clonar las 3 apps"
+        id: clone
+        env:
+          SHELL_DEPLOY_TOKEN: ${{ secrets.SHELL_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SHELL_DEPLOY_TOKEN" ]; then
+            echo "hay=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::sin SHELL_DEPLOY_TOKEN no se pueden verificar las apps"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/apps"
+          git config --global user.name "ECCSA Shell Bot"
+          git config --global user.email "robot@ecc-sa.com.mx"
+          for spec in field:hector1516/field:main \
+                          admon:hector1516/AdmonApp:master \
+                          workersadmon:hector1516/WorkersAdmon:main; do
+            name="${spec%%:*}"; rest="${spec#*:}"
+            repo="${rest%:*}"; branch="${rest##*:}"
+            git clone --depth 1 -b "$branch" \
+              "https://x-access-token:$SHELL_DEPLOY_TOKEN@github.com/$repo.git" \
+              "$RUNNER_TEMP/apps/$name"
+            echo "  $name ← $repo ($branch)"
+          done
+          echo "hay=true" >> "$GITHUB_OUTPUT"
+
+      - name: El popup de novedades dice la versión del banner
+        if: steps.clone.outputs.hay == 'true'
+        env:
+          SHELL_APP_FIELD: ${{ runner.temp }}/apps/field
+          SHELL_APP_ADMON: ${{ runner.temp }}/apps/admon
+          SHELL_APP_WORKERSADMON: ${{ runner.temp }}/apps/workersadmon
+        run: python tools/check_changelog.py --all
+
+      - name: Las 3 apps están al día con el shell
+        if: steps.clone.outputs.hay == 'true'
+        env:
+          SHELL_DEPLOY_TOKEN: ${{ secrets.SHELL_DEPLOY_TOKEN }}
+        run: python tools/propagate.py --check
+
+      # Sin el secret no se puede verificar contra las apps (los checks 2 y 3
+      # necesitan clonar/leer los repos). NO se falla el build a propósito:
+      # un rojo permanente se aprende a ignorar, que es justo lo contrario de
+      # lo que queremos. Se avisa fuerte y queda marcado en el resumen.
+      #
+      # Lo que NO se pierde sin el token: el check 1 (dist/ generado) y los
+      # check.yml de cada app, que detectan que alguien editó el CSS a mano.
+      # Lo que sí se pierde: saber si una app quedó ATRASADA respecto del shell.
+      - name: "Sin secret: la verificación contra las apps no corrió"
+        if: steps.clone.outputs.hay != 'true'
+        run: |
+          echo "::warning title=Verificación cruzada desactivada::SHELL_DEPLOY_TOKEN no está configurado: no se pudo comprobar que Field, Admon y el panel tengan la copia del shell."
+          {
+            echo "## ⚠️ Verificación cruzada NO ejecutada"
+            echo
+            echo "Falta el secret \`SHELL_DEPLOY_TOKEN\` en este repo, así que los"
+            echo "checks 2 y 3 no corrieron. Sigue sin poder detectarse que una app"
+            echo "haya quedado **atrás** respecto del shell (lo que sí se detecta, sin"
+            echo "el token, es que le editen el CSS a mano: eso lo hace el"
+            echo "\`check.yml\` de cada app)."
+            echo
+            echo "Para activarlo: **Settings → Secrets and variables → Actions → New"
+            echo "repository secret** → \`SHELL_DEPLOY_TOKEN\` (un PAT classic con"
+            echo "alcance \`repo\` de un usuario con acceso a los 3 repos de apps)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ECCSA-Shell · auto-propagación a las 3 apps
+#
+# Qué hace: cuando cambia el diseño del shell (tokens.css, src/, banner/ o
+# VERSION), este workflow corre tools/propagate.py, que empuja el CSS y los
+# artefactos del banner a Field, Admon y WorkersAdmon por la API de GitHub.
+# Cada app tiene su propio workflow de deploy, así que a partir de ahí el
+# cambio se publica solo: un push al shell termina en las 3 apps.
+#
+# Antes había que correr `sync_shell.py --all` a mano y hacer commit en 3 repos.
+#
+# ── Configuración (una sola vez, en GitHub) ───────────────────────────────────
+# Secret en el repo ECCSA-Shell:
+#   SHELL_DEPLOY_TOKEN → un PAT classic con alcance `repo`, de un usuario con
+#   acceso a los 3 repos de apps. NUNCA subirlo al código.
+#
+# Si el secret no está, el workflow NO falla: avisa y termina. Para no romper
+# el repo mientras se configura.
+#
+# El mapa de "qué archivo va a dónde" lo lee propagate.py de tools/sync_shell.py
+# (la fuente canónica), así que agregar un artefacto al shell no requiere tocar
+# este workflow.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Propagar shell a las apps
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tokens.css'
+      - 'src/**'
+      - 'banner/**'
+      - 'VERSION'
+      - 'dist/**'
+      - 'tools/sync_shell.py'
+  workflow_dispatch:
+    inputs:
+      solo:
+        description: 'Propagar solo a una app (vacío = todas)'
+        required: false
+        default: ''
+
+concurrency:
+  group: propagar-shell
+  cancel-in-progress: false
+
+jobs:
+  propagar:
+    # No necesita el runner del ServerVM: esto solo habla con la API de GitHub.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Simular (sin escribir nada)
+        run: python3 tools/propagate.py --dry-run
+
+      - name: Propagar a las apps
+        env:
+          SHELL_DEPLOY_TOKEN: ${{ secrets.SHELL_DEPLOY_TOKEN }}
+          SOLO: ${{ inputs.solo }}
+        run: |
+          if [ -z "$SHELL_DEPLOY_TOKEN" ]; then
+            echo "::warning::SHELL_DEPLOY_TOKEN no está configurado: no se propaga."
+            echo "::warning::correr 'python tools/sync_shell.py --all' a mano."
+            exit 0
+          fi
+          if [ -n "$SOLO" ]; then
+            python3 tools/propagate.py --only "$SOLO"
+          else
+            python3 tools/propagate.py
+          fi

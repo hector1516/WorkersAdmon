@@ -326,6 +326,15 @@ AUTO_REFRESH_JS = """
 VIEWPORT = ('<meta name="viewport" content="width=device-width,initial-scale=1,'
             'maximum-scale=1,user-scalable=no,viewport-fit=cover">')
 
+# La fuente del shell. El token --font-family del shell pide 'Outfit', y Field
+# (src/app.html) y Admon (index.html) la CARGAN desde Google Fonts. El panel
+# solo la nominaba en el fallback stack, sin cargarla nunca: por eso se veía en
+# Segoe UI mientras las otras dos apps se veían en Outfit. Mismo href que ellas.
+FUENTES = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
+           '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+           '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+           'family=Outfit:wght@300;400;500;600;700&display=swap">')
+
 
 def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refresh=0,
          conn=None, banner="", sync="idle", lugar="desconocido", ip=""):
@@ -357,6 +366,7 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 {VIEWPORT}
 <title>{esc(config.TITLE)}</title>
 {PWA_HEAD}
+{FUENTES}
 <link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
@@ -405,6 +415,7 @@ def login_page(error="", csrf="", locked=False):
 {VIEWPORT}
 <title>Iniciar sesión — {esc(config.TITLE)}</title>
 {PWA_HEAD}
+{FUENTES}
 <link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
@@ -545,6 +556,7 @@ def offline_page():
 {VIEWPORT}
 <title>Sin conexión — {esc(config.TITLE)}</title>
 {PWA_HEAD}
+{FUENTES}
 <link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>

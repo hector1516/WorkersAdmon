@@ -2,11 +2,21 @@
    shell común). Se carga DESPUÉS de panel/shell.css (copia canónica de
    ECCSA-Shell), así que aquí gana cualquier ajuste específico del panel.
    Lo que es de todas las apps (tokens, base, banner, tab bar, botones, cards,
-   tablas, reglas de iPhone) vive en ECCSA-Shell y NO se edita aquí. */
-:root{--bg:#0F172A;--panel:#1E293B;--panel2:#334155;--line:rgba(255,255,255,.08);
---txt:#F8FAFC;--muted:#94A3B8;--orange:#FF6B00;--yellow:#FFAE00;
---green:#22C55E;--red:#EF4444;--gray:#64748B;--blue:#38BDF8;
---radius:16px;--radius-sm:12px;--nav-h:64px}
+   tablas, reglas de iPhone) vive en ECCSA-Shell y NO se edita aquí.
+
+   Los nombres cortos (--bg, --txt, --orange…) son ALIAS de los tokens del
+   shell, no valores propios. Antes repetían los hex a mano: como este archivo
+   carga después de shell.css, un :root local con literales pisaba al shell y
+   el panel dejaba de seguirlo — si el shell cambiaba un color, el panel se
+   quedaba atrás y dejaba de verse como las otras dos apps. Con alias, el
+   panel hereda siempre el diseño del shell y no hay dos verdades. */
+:root{
+ --bg:var(--color-bg);--panel:var(--color-surface);--panel2:var(--color-surface-2);
+ --line:var(--color-line);--txt:var(--color-text);--muted:var(--color-text-muted);
+ --orange:var(--color-primary);--yellow:var(--color-primary-light);
+ --green:var(--color-success);--red:var(--color-danger);--blue:var(--color-info);
+ --gray:#64748B;--inset:var(--inset);
+ --radius:16px;--radius-sm:12px;--nav-h:64px}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--txt);
@@ -26,9 +36,9 @@ header{position:sticky;top:0;z-index:90;display:flex;align-items:center;
  margin:0 -20px 0;padding-left:20px;padding-right:20px}
 .hd{display:flex;gap:14px;align-items:flex-start;min-width:0}
 .logo{width:56px;height:56px;object-fit:contain;flex:0 0 auto;padding:5px;
- background:#0B1220;border:1px solid var(--line);border-radius:var(--radius)}
+ background:var(--inset);border:1px solid var(--line);border-radius:var(--radius)}
 .logo-big{display:block;width:104px;height:auto;margin:0 auto 12px;
- padding:8px;background:#0B1220;border:1px solid var(--line);border-radius:18px}
+ padding:8px;background:var(--inset);border:1px solid var(--line);border-radius:18px}
 h1{font-size:1.35rem;margin:0;letter-spacing:.3px;line-height:1.2}
 h1 span{color:var(--orange)}
 .sub{color:var(--muted);font-size:.82rem;margin-top:4px;line-height:1.45}
@@ -64,7 +74,7 @@ h1 span{color:var(--orange)}
  font-size:.86rem;font-weight:600;min-height:38px;display:inline-flex;
  align-items:center}
 .tnav a:hover{border-color:var(--orange);color:var(--yellow)}
-.tnav a.on{background:var(--orange);border-color:var(--orange);color:#0F172A}
+.tnav a.on{background:var(--orange);border-color:var(--orange);color:var(--bg)}
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;
  font-size:.78rem;font-weight:600}
 .pill.ok{background:rgba(34,197,94,.14);color:#4ade80}
@@ -83,7 +93,7 @@ p.desc{margin:0}
 .chip.warn{background:rgba(239,68,68,.12);color:#f87171;
  border-color:rgba(239,68,68,.45)}
 .chklist{max-height:330px;overflow:auto;-webkit-overflow-scrolling:touch;
- border:1px solid var(--line);border-radius:10px;background:#0B1220;padding:5px}
+ border:1px solid var(--line);border-radius:10px;background:var(--inset);padding:5px}
 .chk{display:flex;gap:10px;align-items:center;min-height:44px;
  padding:8px 10px;border-radius:8px;cursor:pointer;
  border-left:3px solid transparent}
@@ -144,10 +154,10 @@ tbody tr:hover{background:rgba(255,107,0,.05)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:.35rem;
  min-height:44px;padding:10px 15px;border-radius:var(--radius-sm);
  font-size:.85rem;font-weight:700;border:1px solid transparent;cursor:pointer;
- text-decoration:none;color:#0F172A;background:var(--gray);
+ text-decoration:none;color:var(--bg);background:var(--gray);
  touch-action:manipulation;transition:transform .12s ease,filter .15s ease}
 .btn:active{transform:scale(.97)}
-.btn.on{background:var(--green);border-color:var(--green);color:#0F172A}
+.btn.on{background:var(--green);border-color:var(--green);color:var(--bg)}
 .btn.off{background:var(--yellow);border-color:var(--yellow)}
 .btn.re{background:var(--blue);border-color:var(--blue)}
 .btn.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
@@ -159,7 +169,7 @@ button.linklike{background:none;border:none;color:var(--yellow);font:inherit;
  cursor:pointer;padding:0;text-decoration:underline;min-height:24px}
 .actions-cell{white-space:nowrap}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
-pre.log{margin:0;padding:16px 18px;background:#0B1220;color:#CBD5E1;
+pre.log{margin:0;padding:16px 18px;background:var(--inset);color:#CBD5E1;
  font-family:ui-monospace,Consolas,monospace;font-size:.76rem;line-height:1.5;
  white-space:pre-wrap;word-break:break-word;max-height:64vh;overflow:auto;
  -webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -197,11 +207,11 @@ label{display:block;font-size:.8rem;color:var(--muted);margin:14px 0 6px;
  text-transform:uppercase;letter-spacing:.6px}
 input[type=email],input[type=password],input[type=text],
 input[type=number]{width:100%;padding:12px 13px;
- border-radius:var(--radius-sm);border:1px solid var(--line);background:#0B1220;
+ border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--inset);
  color:var(--txt);font-size:1rem;font-family:inherit}
 input:focus{outline:none;border-color:var(--orange)}
 .submit{width:100%;margin-top:20px;padding:13px;border:none;
- border-radius:var(--radius-sm);background:var(--orange);color:#0F172A;
+ border-radius:var(--radius-sm);background:var(--orange);color:var(--bg);
  font-weight:700;font-size:1rem;cursor:pointer;min-height:48px}
 .submit:hover{background:var(--yellow)}
 .submit:disabled{opacity:.55;cursor:wait}
@@ -214,18 +224,18 @@ input:focus{outline:none;border-color:var(--orange)}
  background:var(--line)}
 .err{color:#FCA5A5;font-size:.87rem;margin-top:12px}
 select{width:100%;padding:12px 13px;border-radius:var(--radius-sm);
- border:1px solid var(--line);background:#0B1220;color:var(--txt);
+ border:1px solid var(--line);background:var(--inset);color:var(--txt);
  font-size:1rem;font-family:inherit}
 select:focus{outline:none;border-color:var(--orange)}
 textarea{width:100%;padding:12px 13px;border-radius:var(--radius-sm);
- border:1px solid var(--line);background:#0B1220;color:var(--txt);
+ border:1px solid var(--line);background:var(--inset);color:var(--txt);
  font-size:1rem;font-family:inherit;resize:vertical;line-height:1.45}
 textarea:focus{outline:none;border-color:var(--orange)}
 .cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));
  gap:16px;padding:18px}
 .cfg-field label{margin-top:0}
 .cfg-field .help{color:var(--muted);font-size:.78rem;margin-top:5px;line-height:1.45}
-.ro{background:#0B1220;border:1px solid var(--line);border-radius:10px;
+.ro{background:var(--inset);border:1px solid var(--line);border-radius:10px;
  padding:11px 13px;color:#CBD5E1;word-break:break-word;font-size:.9rem;
  min-height:44px}
 .cfg-save{padding:0 18px 18px;display:flex;gap:8px;align-items:center}
@@ -238,7 +248,7 @@ textarea:focus{outline:none;border-color:var(--orange)}
 .wdesc summary::-webkit-details-marker{display:none}
 .wdesc summary:hover{color:var(--yellow)}
 .wdesc[open] summary{color:var(--orange)}
-.wdesc div{padding:10px 12px;background:#0B1220;
+.wdesc div{padding:10px 12px;background:var(--inset);
  border:1px solid var(--line);border-left:2px solid var(--orange);
  border-radius:8px;line-height:1.55;color:#CBD5E1}
 /* ── Teléfonos / tabletas ──────────────────────────────────────────────

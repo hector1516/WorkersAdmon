@@ -107,15 +107,21 @@ Los botones de siempre, con el mismo markup en las 3 apps:
 ```html
 <div class="shell-actions">
   <button class="btn btn-sm btn-secondary act-btn" title="Usuarios en línea">👥<span class="act-badge">3</span></button>
-  <button class="btn btn-sm btn-secondary act-btn" title="Notificaciones">🔔<span class="act-badge alert">2</span></button>
+  <button class="btn btn-sm btn-secondary" title="Novedades">📋</button>
   <button class="btn btn-sm btn-secondary" title="Configuración">⚙️</button>
   <button class="btn btn-sm btn-secondary" title="Cerrar sesión">🚪 Salir</button>
 </div>
 ```
 
+- **🔔 Notificaciones se quitó del contrato (2026-09-27).** Ya no se usa: las
+  notificaciones viven donde corresponde a cada app, no en la barra global — el
+  panel las tenía además como pestaña, y quedaba duplicado. La prop `onnotif`,
+  el número `notificaciones` y el badge `.act-badge.alert` se conservan en el
+  código por compatibilidad, pero el shell ya no los emite. Si una app los
+  necesita, que use su propio markup.
 - **Un botón se pinta solo si su manejador está.** Cada app decide qué expone:
-  el panel ya tiene Configuración y Notificaciones como pestañas de su tab bar,
-  y ahí se pasan en `null` para no duplicarlas.
+  el panel ya tiene Configuración como pestaña de su tab bar, y ahí se pasa en
+  `null` para no duplicarla.
 - El contador (`.act-badge`) va absoluto en la esquina del botón; `.alert` lo
   pinta en `--color-danger` y el de usuarios en línea en `--color-info`.
 - Los botones reusan los `.btn` / `.btn-sm` / `.btn-secondary` del shell: la

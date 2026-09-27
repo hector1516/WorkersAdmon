@@ -1,24 +1,30 @@
 <script>
 	/* ECCSA-Shell · barra de acciones (referencia Svelte). ESTÁNDAR.
 	   ------------------------------------------------------------------
-	   Los botones de siempre: 👥 usuarios en línea · 🔔 notificaciones ·
+	   Los botones de siempre: 👥 usuarios en línea · 📋 novedades ·
 	   ⚙️ configuración · 🚪 salir. Nació del header de Field
 	   (src/routes/+page.svelte), que los tenía copiados en el <style> de esa
-	   sola página — por eso no había forma de salir desde /reportes, y Admon
-	   no tenía 🔔. Acá los cuatro son parte del shell.
+	   sola página — por eso no había forma de salir desde /reportes.
 
 	   Mismo reparto que el banner: el shell pone markup, clases y textos; la
 	   app pasa los números y los manejadores. No importa nada del proyecto.
 
+	   🔔 QUITADO del contrato (2026-09-27): ya no se usa. Las notificaciones
+	   viven donde corresponde a cada app, no en la barra global; el panel
+	   las tenía como pestaña y quedaba duplicado. La prop `onnotif` y el
+	   badge `.act-badge.alert` quedan en el CSS por compatibilidad, pero el
+	   shell ya no las emite. Si alguna app los necesita, que use su propio
+	   markup, no el del shell.
+
 	   Regla: un botón se pinta solo si su manejador está. Así cada app decide
-	   qué expone —el panel, por ejemplo, ya tiene Configuración y Notificaciones
-	   como pestañas, y ahí se pasan en null para no duplicarlas.
+	   qué expone —el panel, por ejemplo, ya tiene Configuración como pestaña, y
+	   ahí se pasa en null para no duplicarla.
 
 	   Props:
 	     enLinea        number   cuántos usuarios hay en línea
-	     notificaciones number   cuántos avisos/avisos sin leer
+	     notificaciones number   (deprecada: ya no se pinta)
 	     ononline       () => any   👥  (null = no se pinta)
-	     onnotif        () => any   🔔  (null = no se pinta)
+	     onnotif        () => any   🔔  (deprecada: ya no se pinta)
 	     onchangelog    () => any   📋  (por defecto abre el popup de novedades)
 	     onconfig       () => any   ⚙️  (null = no se pinta)
 	     onlogout       () => any   🚪  (null = no se pinta)
@@ -42,11 +48,6 @@
 	{#if ononline}
 		<button class="btn btn-sm btn-secondary act-btn" onclick={ononline} title="Usuarios en línea">
 			👥{#if enLinea > 0}<span class="act-badge">{enLinea}</span>{/if}
-		</button>
-	{/if}
-	{#if onnotif}
-		<button class="btn btn-sm btn-secondary act-btn" onclick={onnotif} title="Notificaciones">
-			🔔{#if notificaciones > 0}<span class="act-badge alert">{notificaciones}</span>{/if}
 		</button>
 	{/if}
 	{#if onchangelog}
