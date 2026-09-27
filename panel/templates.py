@@ -243,6 +243,7 @@ def changelog_modal():
 # Script del popup de novedades: misma regla que Changelog.svelte — salta solo
 # la primera vez que se ve cada versión, y el botón 📋 lo abre a mano.
 CHANGELOG_JS = """
+<script>
 (function () {
   var el = document.getElementById('shellChangelog');
   if (!el) return;
@@ -264,6 +265,7 @@ CHANGELOG_JS = """
   el.hidden = false;
   try { localStorage.setItem(clave, ver); } catch (e) {}
 })();
+</script>
 """
 
 
