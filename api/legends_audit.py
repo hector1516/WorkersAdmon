@@ -27,10 +27,14 @@ def _get_conn():
 
 
 def _week_start():
-    """Inicio de la semana actual (domingo 00:00), consistente con cron_legends/legends."""
-    now = datetime.now()
-    domingo = now - timedelta(days=(now.weekday() + 1) % 7)
-    return domingo.replace(hour=0, minute=0, second=0, microsecond=0)
+    """Inicio de la semana actual (domingo 00:00 HORA MÉXICO).
+
+    Importante: el contenedor corre en UTC, así que calcularlo con
+    datetime.now() naive corría el corte de semana 5-6 h antes (sábado 18:00)
+    y dejaba PuntuacionSemanal en 0. Ver legends_time.py.
+    """
+    from legends_time import inicio_semana_mx
+    return inicio_semana_mx()
 
 
 def _get_user_id_by_name(cur, nombre):

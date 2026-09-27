@@ -347,10 +347,11 @@ def get_score_log(user: dict = Depends(require_user)):
     Se resetea cada domingo 3 AM igual que los puntos."""
     conn = get_connection()
     with conn.cursor(as_dict=True) as cur:
-        # Obtener inicio de semana (domingo)
-        import datetime as _dt
-        today = _dt.date.today()
-        sunday = today - _dt.timedelta(days=(today.weekday() + 1) % 7)
+        # Inicio de semana (domingo 00:00) en HORA MÉXICO: el contenedor
+        # corre en UTC y con date.today() la semana "empezaba" el sábado 18:00
+        # (ver legends_time.py).
+        from legends_time import fecha_semana_mx
+        sunday = fecha_semana_mx()
 
         cur.execute("""
             SELECT Id, Metrica, Puntos, ReferenciaId, FechaRegistro
