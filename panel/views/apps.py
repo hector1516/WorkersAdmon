@@ -90,9 +90,9 @@ def _fila_catalogo(f):
   <td class="hide-sm"><input type="text" name="d{fid}"
      value="{esc(f["Descripcion"])}" maxlength="400" class="input"></td>
   <td class="actions-cell"><div class="actions">
-    <button class="btn btn-success" type="submit" name="edit" value="{fid}"
+    <button class="btn btn-sm btn-success" type="submit" name="edit" value="{fid}"
             title="Guardar esta fila">💾</button>
-    <button class="btn btn-warning" type="submit" name="del" value="{fid}"
+    <button class="btn btn-sm btn-warning" type="submit" name="del" value="{fid}"
             title="Quitar del catálogo"
             onclick="return confirm('¿Quitar la clave del catálogo? El valor en HUB_Config se conserva.')">🗑️</button>
   </div></td>
@@ -121,7 +121,7 @@ def _panel_app(app, filas):
         <tbody>{filas_html}</tbody>
       </table></div>
       <div class="cfg-save">
-        <button class="btn btn-success" type="submit" name="save_all" value="1">💾 Guardar valores</button>
+        <button class="btn btn-sm btn-success" type="submit" name="save_all" value="1">💾 Guardar valores</button>
         <span class="muted" style="font-size:.78rem">Varios de una vez · 🗑️ quita solo el catálogo</span>
       </div>
     </form>
@@ -145,7 +145,7 @@ def _panel_libres(libres, apps):
      maxlength="120" class="input"></td>
   <td>{_select_tipo(f"tipo{i}", "text")}</td>
   <td class="actions-cell"><div class="actions">
-    <button class="btn btn-secondary" type="submit" name="clasificar" value="{i}"
+    <button class="btn btn-sm btn-secondary" type="submit" name="clasificar" value="{i}"
             title="Pasar al catálogo de esa app">📁 Clasificar</button>
   </div></td>
 </tr>""")
@@ -202,7 +202,7 @@ def _panel_alta(apps):
           <input type="text" name="descripcion" maxlength="400" class="input"></div>
       </div>
       <div class="cfg-save">
-        <button class="btn btn-success" type="submit" name="add" value="1">➕ Agregar al catálogo</button>
+        <button class="btn btn-sm btn-success" type="submit" name="add" value="1">➕ Agregar al catálogo</button>
         <span class="muted" style="font-size:.78rem">Si la clave ya existe en
         HUB_Config solo se cataloga: su valor actual no se toca.</span>
       </div>
