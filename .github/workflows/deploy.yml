@@ -17,7 +17,7 @@ name: Deploy WorkersAdmon
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 # Nunca dos deploys a la vez: un push mientras corre el anterior se cancela.
