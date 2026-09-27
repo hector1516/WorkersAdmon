@@ -82,6 +82,23 @@ jobs:
 
       # El panel es Python de stdlib y se lee de disco: lo que se checkea es
       # que todo compile y que los tests de humo sigan en verde.
+      #
+      # Los tests importan panel/db.py → pymssql, así que el runner necesita las
+      # dependencias reales. Se instalan desde requirements.txt (y no un
+      # subconjunto a mano) por dos razones: los tests corren contra las
+      # versiones de verdad, y de paso este workflow valida que el
+      # requirements.txt se pueda instalar.
+      - name: Instalar dependencias
+        run: |
+          set -euo pipefail
+          # pymssql usa wheel de manylinux en x86_64, así que freetds-dev sale
+          # casi siempre; se instala igual para el caso de que no haya wheel.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends freetds-dev
+          python3 -m pip install --quiet --upgrade pip
+          python3 -m pip install --quiet -r requirements.txt
+          python3 -c "import pymssql, reportlab; print('deps OK')"
+
       - name: El panel compila y sus tests pasan
         run: |
           set -euo pipefail

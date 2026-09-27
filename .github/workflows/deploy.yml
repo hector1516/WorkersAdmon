@@ -26,7 +26,55 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Un runner self-hosted registrado en un repo NO sirve para otro: los folders
+  # de runner se registran de a uno. Si el repo no tiene uno propio, este
+  # workflow se quedaría en "pending" para siempre y sin decir por qué. Este
+  # job corre en ubuntu-latest (que siempre está) y convierte esa cola
+  # silenciosa en un rojo que dice exactamente qué hacer.
+  verificar-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      hay: ${{ steps.check.outputs.hay }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TOTAL=$(gh api "repos/${{ github.repository }}/actions/runners" \
+            --jq '.runners | length')
+          ONLINE=$(gh api "repos/${{ github.repository }}/actions/runners" \
+            --jq '[.runners[] | select(.status=="online")] | length')
+          echo "runners registrados: $TOTAL · online: $ONLINE"
+          if [ "$ONLINE" -eq 0 ]; then
+            echo "hay=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## ❌ No hay runner self-hosted en este repo"
+              echo
+              echo "Registrados: $TOTAL · online: $ONLINE"
+              echo
+              echo "El deploy **no puede correr**: se quedaría en cola para siempre."
+              echo
+              echo "Cada repo necesita su propio runner (un folder de runner solo"
+              echo "sirve para un repo). Para registrarlo en el ServerVM:"
+              echo
+              echo '```'
+              echo "powershell -ExecutionPolicy Bypass -File C:\\actions-runner\\config.cmd \\"
+              echo "  --url https://github.com/${{ github.repository }} \\"
+              echo "  --token ${{ secrets.RUNNER_REGISTRATION_TOKEN }} \\"
+              echo "  --name <NOMBRE-UNICO> --labels self-hosted"
+              echo '```'
+              echo
+              echo "El `--name` tiene que ser distinto por repo, y el folder también."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::No hay runner self-hosted online en ${{ github.repository }}."
+            exit 1
+          fi
+          echo "hay=true" >> "$GITHUB_OUTPUT"
+
   deploy:
+    needs: verificar-runner
     runs-on: self-hosted
     timeout-minutes: 20
 
