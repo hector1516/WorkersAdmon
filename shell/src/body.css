@@ -6,8 +6,10 @@
 */
 
 
-/* Base común a las 3 variantes (antes vivía en el :root de Field; aquí para
-   que Tailwind v4, Tailwind v3 y el panel sin build queden igual). */
+/* ═══════════════════════════════════════════════════════════════════════════
+   Base común a las 3 variantes (antes vivía en el :root de Field; aquí para
+   que Tailwind v4, Tailwind v3 y el panel sin build queden igual).
+   ═══════════════════════════════════════════════════════════════════════════ */
 * {
 	box-sizing: border-box;
 }
@@ -17,7 +19,7 @@ html {
 body {
 	margin: 0;
 	min-height: 100dvh;
-	font-family: 'Outfit', system-ui, sans-serif;
+	font-family: var(--font-family);
 	background: var(--color-bg);
 	color: var(--color-text);
 	-webkit-font-smoothing: antialiased;
@@ -52,13 +54,13 @@ input, select, textarea { font-size: 16px !important; }
 	justify-content: center;
 	gap: 0.5rem;
 	padding: 0.75rem 1.5rem;
-	border-radius: 12px;
+	border-radius: var(--radius-sm);
 	font-weight: 600;
 	font-size: 0.9rem;
 	cursor: pointer;
 	transition: all 0.15s ease;
 	border: none;
-	min-height: 44px;
+	min-height: var(--tap);
 	font-family: inherit;
 }
 .btn:active { transform: scale(0.97); }
@@ -74,13 +76,13 @@ input, select, textarea { font-size: 16px !important; }
 }
 .btn-danger { background: var(--color-danger); color: white; }
 .btn-success { background: var(--color-success); color: white; }
-.btn-sm { padding: 0.5rem 1rem; font-size: 0.8rem; min-height: 36px; }
+.btn-sm { padding: 0.5rem 1rem; font-size: 0.8rem; min-height: calc(var(--tap) - 8px); }
 .btn-block { width: 100%; }
 
 /* Card */
 .card {
 	background: var(--color-surface);
-	border-radius: 16px;
+	border-radius: var(--radius);
 	padding: 1.25rem;
 	border: 1px solid rgba(255,255,255,0.05);
 }
@@ -91,7 +93,7 @@ input, select, textarea { font-size: 16px !important; }
 	padding: 0.75rem 1rem;
 	background: var(--color-bg);
 	border: 1px solid var(--color-surface-2);
-	border-radius: 12px;
+	border-radius: var(--radius-sm);
 	color: var(--color-text);
 	font-size: 1rem;
 	outline: none;
@@ -123,7 +125,7 @@ textarea.input {
 /* Page */
 .page {
 	padding: 1rem;
-	padding-bottom: 5.5rem;
+	padding-bottom: calc(var(--nav-h) * 0.85);
 	min-height: 100dvh;
 }
 
@@ -137,13 +139,15 @@ textarea.input {
 }
 .header h1 { font-size: 1.2rem; font-weight: 700; margin: 0; }
 
-/* Status Bar — always visible at top */
+/* Status Bar — always visible at top.
+   Va POR DEBAJO del banner a propósito: si se compartieran la capa, el
+   banner dejar de verse limpio en cuanto los dos coincidieran. */
 .status-bar {
 	position: fixed;
 	top: 0;
 	left: 0;
 	right: 0;
-	z-index: 200;
+	z-index: var(--z-status);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -172,36 +176,13 @@ animation: pulse-offline 2s infinite;
 	50% { opacity: 0.7; }
 }
 
-/* Pending badge */
-.pending-badge {
-	position: fixed;
-	top: 36px;
-	right: 1rem;
-	z-index: 190;
-	background: var(--color-warning);
-	color: #000;
-	padding: 0.3rem 0.75rem;
-	border-radius: 999px;
-	font-size: 0.75rem;
-	font-weight: 700;
-	display: flex;
-	align-items: center;
-	gap: 0.4rem;
-	animation: badge-bounce 0.3s ease;
-}
-@keyframes badge-bounce {
-	0% { transform: scale(0.8); }
-	50% { transform: scale(1.1); }
-	100% { transform: scale(1); }
-}
-
 /* Toast */
 .toast-container {
 	position: fixed;
-	bottom: 5.5rem;
+	bottom: calc(var(--nav-h) * 0.85);
 	left: 1rem;
 	right: 1rem;
-	z-index: 300;
+	z-index: var(--z-toast);
 	display: flex;
 	flex-direction: column;
 	gap: 0.5rem;
@@ -209,7 +190,7 @@ animation: pulse-offline 2s infinite;
 }
 .toast {
 	padding: 0.75rem 1rem;
-	border-radius: 12px;
+	border-radius: var(--radius-sm);
 	font-size: 0.85rem;
 	font-weight: 600;
 	text-align: center;
@@ -225,7 +206,6 @@ animation: pulse-offline 2s infinite;
 .toast-error { background: var(--color-danger); color: white; }
 .toast-warning { background: var(--color-warning); color: #000; }
 .toast-info { background: var(--color-surface-2); color: var(--color-text); }
-.toast-sync { background: #3B82F6; color: white; }
 
 /* Bottom Nav */
 .bottom-nav {
@@ -233,7 +213,7 @@ animation: pulse-offline 2s infinite;
 	bottom: 0;
 	left: 0;
 	right: 0;
-	z-index: 100;
+	z-index: var(--z-nav);
 	background: var(--color-surface);
 	border-top: 1px solid rgba(255,255,255,0.08);
 	display: flex;
@@ -247,7 +227,7 @@ animation: pulse-offline 2s infinite;
 	align-items: center;
 	gap: 0.15rem;
 	padding: 0.4rem 0.75rem;
-	border-radius: 10px;
+	border-radius: var(--radius-xs);
 	cursor: pointer;
 	transition: all 0.15s;
 	font-size: 0.65rem;
@@ -330,7 +310,7 @@ animation: pulse-offline 2s infinite;
 	font-size: 1.25rem;
 	width: 40px;
 	height: 40px;
-	border-radius: 10px;
+	border-radius: var(--radius-xs);
 	cursor: pointer;
 	display: flex;
 	align-items: center;
@@ -347,7 +327,7 @@ animation: pulse-offline 2s infinite;
 	padding: 1rem 1.25rem;
 	background: var(--color-surface);
 	border: 1px solid rgba(255,255,255,0.05);
-	border-radius: 14px;
+	border-radius: var(--radius);
 	cursor: pointer;
 	text-align: left;
 	width: 100%;
@@ -372,7 +352,7 @@ animation: pulse-offline 2s infinite;
 	top: 0;
 	left: 0;
 	right: 0;
-	z-index: 250;
+	z-index: var(--z-banner);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -385,7 +365,7 @@ animation: pulse-offline 2s infinite;
 	backdrop-filter: blur(12px) saturate(1.2);
 	color: var(--color-text);
 	border: none;
-	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+	border-bottom: 1px solid var(--color-line);
 	font-size: 0.8rem;
 	font-weight: 600;
 	font-family: inherit;
@@ -504,7 +484,7 @@ animation: pulse-offline 2s infinite;
 .shell-modal {
 	position: fixed;
 	inset: 0;
-	z-index: 400;                 /* por encima del banner (250) y los toasts (300) */
+	z-index: calc(var(--z-toast) + 100);   /* por encima del banner y los toasts */
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -520,8 +500,8 @@ animation: pulse-offline 2s infinite;
 	overflow-y: auto;
 	-webkit-overflow-scrolling: touch;
 	background: var(--color-surface);
-	border: 1px solid rgba(255, 255, 255, 0.08);
-	border-radius: 16px;
+	border: 1px solid var(--color-line);
+	border-radius: var(--radius);
 	padding: 1.25rem;
 	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }

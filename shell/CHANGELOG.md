@@ -1,5 +1,66 @@
 # Historial de cambios — ECCSA-Shell
 
+## [1.1.1] - 2026-09-27
+
+Cambio interno, **sin efecto visual**: los valores que el CSS tenía escritos a
+mano ahora salen de los tokens, y se corrigió un bug que hacía que Field
+perdiera tres de ellos.
+
+### Corregido
+- **Field perdía los tokens estructurales.** La variante `t4` solo emitía el
+  bloque `@theme` de Tailwind v4, y los tokens que no son colores ni medidas
+  (`--color-line`, `--z-*`, `--radius-*`, `--nav-h`, `--tap`) viven en el
+  bloque `:root` — que no se emitía. Como el CSS pasó a usar `var(--color-line)`
+  y `var(--z-status)`, en Field el banner se quedaba **sin borde inferior** y
+  el status bar **sin capa de z-index**. `build_shell.py` ahora emite el
+  `:root` en t4, antes del `@theme` para no pisar lo que Tailwind genera.
+
+### Cambiado
+- **Los tokens son de verdad la fuente única.** `tokens.css` declaraba 10
+  tokens que nadie usaba, mientras el CSS escribía a mano `z-index: 250`,
+  `border-radius: 12px`, `min-height: 44px` y `bottom: 5.5rem`. Ahora todo eso
+  sale del token. Se borró `--color-inset`, que no lo usaba nadie.
+- **`.status-bar` vuelve a su propia capa** (`--z-status: 200`), por debajo
+  del banner. Al mapearlo a `--z-banner` (250) quedaba al mismo nivel.
+- **`.pending-badge` y `.toast-sync` borrados**: cero usos en las 3 apps.
+- El `font-family` del body sale de `--font-family` en vez de la cadena
+  `'Outfit', system-ui, sans-serif` repetida.
+
+### Nuevo
+- **CI que impide la desincronización** (`.github/workflows/check.yml`): en
+  push, PR y una vez por día verifica que `dist/` esté generado, que el popup de
+  novedades diga la misma versión que el banner, y que las 3 apps tengan
+  **exactamente** la copia del shell. Este último es el que caza a alguien
+  editando `src/app.css` a mano: sin él la copia se iba desfasando en silencio.
+- `tools/check_changelog.py` y `propagate.py --check` (verifica sin escribir).
+- **`.github/workflows/check.yml` en cada app**: falla el build si su CSS fue
+  editado a mano (compara `ECCSA_SHELL_SHA`), si el popup de novedades está
+  desfasado, y si el front no compila. Todo sin necesitar secretos.
+- **`AGENTS.md` en Field y Admon**, y sección del shell en el de WorkersAdmon.
+  Faltaba por completo y es donde se explican las reglas (qué es generado, qué
+  es cableado, de dónde sale la versión).
+- **`README.md` en Admon**, que no tenía.
+
+### Corregido (herramientas)
+- `sync_shell.py --target`: la variante se deducía comparando subcadenas del
+  path, y `"admon" in "/ruta/WorkersAdmon"` era verdadero → el panel recibía la
+  variante de Admon y, sin `--check`, escribía `src/styles/app.css` en el repo
+  equivocado. Ahora se deduce por el archivo que el repo ya tiene.
+- Las rutas de los clones se pueden fijar con `SHELL_APP_FIELD`,
+  `SHELL_APP_ADMON` y `SHELL_APP_WORKERSADMON`; antes estaban fijas en el
+  código y había dos clones de Admon que se contradecían en silencio. Si hay
+  más de uno, el script dice cuál eligió.
+  OJO: **no** usar prefijo `ECCA_*` para esto — en sandboxes de agentes las
+  variables `ECC*` se descartan al lanzar los procesos hijos.
+- `check_versiones.py` reventaba con traceback si no había `docker`. Ahora
+  avisa que solo corre en el ServerVM y suma `--solo-listado` para consultar el
+  mandato desde cualquier lado.
+- `DESIGN.md` de WorkersAdmon decía que Admon usa `src/app.css` (usa
+  `src/styles/app.css`) y que el panel replicaba los tokens a mano (ya no: se
+  propagan solos).
+- `check_changelog.py` daba "OK" sin revisar nada cuando no encontraba un repo.
+  Un check que pasa sin mirar es peor que no tener check.
+
 ## [1.1.0] - 2026-09-27
 
 ### Nuevo

@@ -156,6 +156,51 @@ Reglas del panel:
   `.dockerignore`); lo genera el entrypoint con `HUB_DB_*` / `HUB_SMTP_PASSWORD`.
 - Pasar las credenciales como env vars en `docker run` (mismas que usa HUB).
 
+## El shell (ECCSA-Shell)
+
+El panel es una de las **3 apps del ecosistema ECCSA-Shell** (Field, Admon y
+este panel). El diseño, el banner, la barra de acciones, el popup de novedades
+y la regla de ubicación viven en el repo `hector1516/ECCSA-Shell` y aquí hay
+**copias generadas**.
+
+| Archivo | Estado |
+|---|---|
+| `panel/shell.css` | **GENERADO** por `sync_shell.py`. No se edita a mano |
+| `panel/lugar.py` | Copia canónica de la regla "IP privada = oficina" |
+| `panel/banner.py.html`, `panel/actions.py.html`, `panel/changelog.py.html` | Referencias del markup del shell |
+| `ECCSA_SHELL_VERSION`, `ECCSA_SHELL_SHA` | Los estampa `sync_shell.py` |
+| `shell/` | Copia vendorizada del repo del shell, para el chequeo diario |
+| `panel/panel.css` | Esto **sí** es propio del panel (wcard, chklist, cfg-*, pk-*) |
+
+`check.yml` falla el build si se edita `panel/shell.css` a mano (compara
+`ECCSA_SHELL_SHA`). Para cambiar el diseño se edita `tokens.css` o
+`src/body.css` en el repo del shell y se propaga.
+
+`panel/templates.py` **lee los CSS de disco** (`_read_css()`) justamente para
+que actualizar el shell no requiera tocar Python.
+
+**El panel sí tiene sus propias piezas del shell**, porque no hay build:
+
+- `shell_banner()` pinta el mismo markup que `banner/SyncHeader.svelte`, con los
+  5 estados. Es un `<div>`, no un `<button>`: el banner es de solo lectura acá
+  (no hay cola offline que empujar).
+- `shell_actions()` solo expone 🚪 Salir y 📋 Novedades: Configuración y
+  Notificaciones ya son pestañas de la tab bar, y un botón se pinta solo si su
+  manejador existe.
+- `changelog_modal()` + el script chico: el popup "salta la primera vez de cada
+  versión" con la misma clave de localStorage que las apps Svelte
+  (`eccsa:changelog:workersadmon`).
+- La **versión sale de `panel/config.py: APP_VERSION`**, no de un literal.
+- `.wrap` lleva `shell-below-banner`: sin ese padding el header queda tapado
+  por el banner fijo.
+
+**Ojo con la IP**: para el lugar se usa `lugar_de_handler()` de `panel/lugar.py`,
+**nunca** `auth.client_ip()`. Esta última mira `X-Real-IP` primero, que el nginx
+del ServerVM sobreescribe con el `$remote_addr` del proxy inmediato (la IP del
+puente de Docker, privada) → el banner decía "Oficina" para todo el mundo. La
+precedencia correcta es `X-Forwarded-For` (primera entrada) → `X-Real-IP` →
+socket.
+
 ## Convenciones
 
 - Español en UI y comentarios; comentarios explicativos en el código.

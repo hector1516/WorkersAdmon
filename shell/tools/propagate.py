@@ -99,7 +99,7 @@ def _sube(token, repo, ruta, rama, texto, sha, mensaje):
     _api(token, f"/repos/{repo}/contents/{ruta}", method="PUT", body=cuerpo)
 
 
-def propaga(app, mod, token, dry_run, mensaje):
+def propaga(app, mod, token, dry_run, mensaje, solo_check=False):
     repo, rama = REPOS[app]
     print(f"▸ {app} → {repo} ({rama})")
     cambios = 0
@@ -111,10 +111,22 @@ def propaga(app, mod, token, dry_run, mensaje):
         texto = open(ruta_shell, encoding="utf-8").read()
 
         sha, actual = _contenido_en_github(token, repo, destino, rama)
-        if actual == texto:
-            print(f"    = {destino:42} sin cambios")
+        if actual is None:
+            print(f"    · {destino:42} NO EXISTE en la app")
+            cambios += 1
             continue
-        if dry_run:
+        if actual == texto:
+            print(f"    = {destino:42} al día")
+            continue
+
+        # acá estamos: la copia de la app difiere de la fuente
+        if solo_check:
+            verb = "EDITADO A MANO" if sha else "falta"
+            print(f"    ✗ {destino:42} {verb} en la app")
+            if destino.endswith(".css"):
+                print(f"        el CSS del shell NO se edita a mano: se regenera con")
+                print(f"        build_shell.py + sync_shell.py, o `propagate.py` lo arregla")
+        elif dry_run:
             verb = "actualizar" if sha else "crear"
             print(f"    ~ {destino:42} {verb} ({len(texto)} bytes)")
         else:
@@ -123,18 +135,28 @@ def propaga(app, mod, token, dry_run, mensaje):
             print(f"    ↑ {destino:42} {verb} ({len(texto)} bytes)")
         cambios += 1
     if not cambios:
-        print("    (nada que propagar)")
+        print("    (todo al día)")
     return cambios
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--check", action="store_true",
+                    help="NO escribir: sale 1 si alguna app divergió. Es el "
+                         "guard contra editar a mano la copia del shell.")
     ap.add_argument("--only", choices=sorted(REPOS))
     args = ap.parse_args()
 
+    if args.check and args.dry_run:
+        ap.error("--check y --dry-run no van juntos: --check ya no escribe nada")
+
     token = os.environ.get("SHELL_DEPLOY_TOKEN", "").strip()
     if not token:
+        if args.check:
+            print("::error::SHELL_DEPLOY_TOKEN no está configurado: no se puede "
+                  "verificar contra las apps.")
+            return 1
         print("::warning::SHELL_DEPLOY_TOKEN no está configurado: no se propaga.")
         print("::warning::hay que correr 'python tools/sync_shell.py --all' a mano.")
         return 0
@@ -156,21 +178,36 @@ def main():
             print(rc.stdout + rc.stderr)
             return 1
 
-    print(f"ECCSA-Shell {version} → propagando"
-          f"{' (dry-run)' if args.dry_run else ''}")
+    apps = (args.only,) if args.only else REPOS
+    if args.check:
+        print(f"ECCSA-Shell {version} · verificando {len(apps)} app(s) "
+              f"(no se escribe nada)")
+    else:
+        print(f"ECCSA-Shell {version} → propagando"
+              f"{' (dry-run)' if args.dry_run else ''}")
     total = 0
-    for app in (args.only,) if args.only else REPOS:
+    for app in apps:
         try:
-            total += propaga(app, mod, token, args.dry_run, mensaje)
+            total += propaga(app, mod, token, args.dry_run, mensaje,
+                             solo_check=args.check)
         except urllib.error.HTTPError as e:
             print(f"    ERROR {app}: la API devolvió {e.code} {e.reason}")
             return 1
         except urllib.error.URLError as e:
             print(f"    ERROR {app}: no se pudo hablar con la API ({e.reason})")
             return 1
+
+    if args.check:
+        if total:
+            print(f"\n::error::{total} archivo(s) divergen. Alguien editó a mano "
+                  f"una copia del shell, o el shell tiene cambios sin propagar.")
+            print("::error::se arregla con: python tools/propagate.py")
+            return 1
+        print("\nOK · las 3 apps tienen exactamente la copia del shell.")
+        return 0
+
     verb = "se propagarían" if args.dry_run else "se propagaron"
-    print(f"Listo: {total} archivos {verb} en "
-          f"{1 if args.only else len(REPOS)} app(s).")
+    print(f"Listo: {total} archivos {verb} en {len(apps)} app(s).")
     return 0
 
 

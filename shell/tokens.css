@@ -42,13 +42,13 @@
 
 	/* Tokens de estructura del shell (los usa shell.css) */
 	--color-line: rgba(255, 255, 255, 0.08);
-	--color-inset: #0B1220;
 	--radius: 16px;      /* tarjetas */
 	--radius-sm: 12px;   /* botones y campos */
 	--radius-xs: 10px;
 	--nav-h: 64px;       /* alto de la tab bar inferior */
 	--tap: 44px;         /* objetivo táctil mínimo */
-	--z-banner: 250;     /* banner superior */
 	--z-nav: 100;        /* tab bar inferior */
-	--z-toast: 300;      /* toasts */
+	--z-status: 200;     /* status bar: bajo el banner, no lo tapa */
+	--z-banner: 250;     /* banner superior */
+	--z-toast: 300;      /* toasts; el modal va 400 (--z-toast + 100) */
 }

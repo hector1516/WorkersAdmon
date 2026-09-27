@@ -569,6 +569,19 @@ class Client:
         return code, html
 
 
+def shell_version():
+    """Versión del shell que este repo declara.
+
+    Se LEE del archivo y no se escribe en el test a propósito: si el shell sube
+    de versión, estos tests tienen que seguir pasando. Con el número fijo
+    fallaban en cada bump y alguien iba a terminar "arreglándolos" poniendo el
+    número nuevo, que es volver a atar el test a un valor que cambia solo.
+    """
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(base, "ECCSA_SHELL_VERSION"), encoding="utf-8") as fh:
+        return fh.read().strip()
+
+
 class PanelTest(unittest.TestCase):
     maxDiff = None
 
@@ -1545,7 +1558,7 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn('class="sync-header', html)       # banner fijo arriba
         self.assertIn("👤 Admin", html)                 # usuario
-        self.assertIn("shell 1.1.0", html)              # versión del shell
+        self.assertIn(f"shell {shell_version()}", html)   # versión del shell
         self.assertIn("v1.1.0", html)                   # versión de la app
         self.assertIn("Todo sincronizado", html)        # estado idle
 
@@ -1557,7 +1570,7 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         body = _json.loads(raw)
         self.assertEqual(body["app"]["id"], "workersadmon")
-        self.assertEqual(body["shell"]["version"], "1.1.0")
+        self.assertEqual(body["shell"]["version"], shell_version())
         self.assertIn(body["lugar"]["modo"], ("oficina", "remoto", "desconocido"))
         self.assertIn(body["sync"]["estado"],
                       ("idle", "syncing", "pending", "offline", "error"))

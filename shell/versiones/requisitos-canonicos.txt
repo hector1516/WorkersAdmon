@@ -1,0 +1,58 @@
+# ============================================================================
+# Requisitos canónicos del ecosistema ECCSA
+# ============================================================================
+# MANDATO: las versiones de aquí son las de FIELD (field/api/requirements.txt y
+# su contenedor). Field es la referencia y NO se modifica; Admon y
+# WorkersAdmon deben coincidir con esta lista en todo lo compartido.
+#
+# Motivo: las 3 apps leen y escriben las MISMAS tablas de ECCSA_Admon y
+# comparten código (pdf, push, passkeys, legends, pymssql). Con versiones
+# distintas, un PDF hecho por una app no se ve igual que el de otra, un QR
+# puede salir con otro tamaño y un endpoint puede comportarse distinto según
+# dónde se lea.
+#
+# Python base: 3.11.15 (las 3 imágenes)
+#
+# Si Field sube una versión: se actualiza aquí PRIMERO, luego se propaga a
+# Admon y WorkersAdmon y se verifica con tools/check_versiones.py.
+# ============================================================================
+
+# --- API web (FastAPI) -------------------------------------------------------
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+pydantic==2.9.0
+python-multipart==0.0.9
+
+# --- Autenticación -----------------------------------------------------------
+pyjwt==2.9.0
+webauthn==3.0.0
+
+# --- Notificaciones push (PWA) ----------------------------------------------
+pywebpush==2.0.0
+py-vapid==1.9.1
+
+# --- Datos -------------------------------------------------------------------
+pymssql==2.2.11
+pytz
+
+# --- Documentos y imágenes ---------------------------------------------------
+reportlab==4.4.0
+Pillow==11.0.0
+
+# --- Navegador / SMB (las 3 lo necesitan) -----------------------------------
+pysmb
+
+# --- IA ----------------------------------------------------------------------
+google-generativeai
+google.ai.generativelanguage
+
+# ============================================================================
+# Fuera del mandato (cada app según su necesidad; Field no los usa)
+# ============================================================================
+#   playwright        → solo WorkersAdmon (Go Vale / OxxoGas), se instala con
+#                       --build-arg WITH_PLAYWRIGHT=1
+#   qrcode            → solo WorkersAdmon (imagen QR de vales)
+#   supervisor        → solo WorkersAdmon (el panel corre con supervisor)
+#   requests          → solo WorkersAdmon (módulo Telegram heredado del HUB)
+#   google-generativeai / google.ai.generativelanguage: los usa el panel (sonda
+#                       de IA) y los workers; se dejan sin pin en los 3.

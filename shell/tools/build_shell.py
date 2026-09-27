@@ -49,8 +49,14 @@ def build(tokens_path):
     head = ("/* ECCSA-Shell · NO EDITAR: generado por tools/build_shell.py desde\n"
             "   src/body.css + tokens.css. Para cambiar el diseño, edita esos y\n"
             "   corre: python tools/build_shell.py && python tools/sync_shell.py --all */\n\n")
+    # OJO con el orden en t4: Tailwind v4 convierte el @theme en su propio
+    # :root, y el bloque :root de aquí trae además los tokens ESTRUCTURALES
+    # (--color-line, --z-*, --radius-*, --nav-h, --tap), que no están en @theme
+    # porque no son colores ni medidas de Tailwind. Si el :root de aquí fuera
+    # DESPUÉS, pisaría lo que Tailwind genera. Va antes, a propósito.
     return {
-        "shell.t4.css": head + "@import 'tailwindcss';\n\n" + theme + "\n" + body + "\n" + utils,
+        "shell.t4.css": head + "@import 'tailwindcss';\n\n" + root + "\n"
+                         + theme + "\n" + body + "\n" + utils,
         "shell.t3.css": head + ("@tailwind base;\n@tailwind components;\n"
                                  "@tailwind utilities;\n\n") + root + "\n" + body + "\n" + utils,
         "shell.plain.css": head + root + "\n" + body,

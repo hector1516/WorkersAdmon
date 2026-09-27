@@ -73,7 +73,7 @@ def main():
     except OSError as e:
         print("no pude escribir el resultado:", e)
 
-    print("SHELL CHECK:", "OK ✓" if not problems else "DESINCRONIZADO ✗")
+    print("SHELL CHECK:", "OK [OK]" if not problems else "DESINCRONIZADO [MAL]")
     for p in problems:
         print("  -", p)
     print(f"  shell {shell_ver} | app {copia_ver} | sha {sha_copia}")

@@ -105,18 +105,44 @@ def version_bump_pendiente(repo, nuevo, sha_nuevo):
     return False, ""
 
 
+# Rutas locales donde puede estar el clon de cada app, en orden de preferencia.
+# La vía que manda es la variable de entorno (SHELL_APP_FIELD,
+# SHELL_APP_ADMON, SHELL_APP_WORKERSADMON): es lo que usa CI, donde los clones
+# están en un directorio temporal. Estas de acá son para trabajar en la máquina.
+#
+# OJO con el prefijo: NO usar ECCSA_* para esto. En algunos entornos (sandboxes
+# de agentes) las variables ECC*Unknown se descartan al lanzar los procesos
+# hijos, y la ruta se pierde en silencio.
+#
+# Si aparece más de un clon, se elige el primero y se DICE, para que nadie edite
+# en un clon y sincronice contra otro.
 CANDIDATES = {
-    "field":        ["/tmp/opencode/field", "/workspace/field", "D:/Antigravity/field"],
-    "admon":        ["/tmp/admon", "/workspace/admon", "D:/Antigravity/admon"],
-    "workersadmon": ["/tmp/opencode/WorkersAdmon", "/workspace/WorkersAdmon"],
+    "field":        ["field", "../field", "D:/Antigravity/field"],
+    "admon":        ["admon", "../admon", "D:/Antigravity/admon"],
+    "workersadmon": ["WorkersAdmon", "../WorkersAdmon"],
 }
 
 
-def find_repo(app):
-    for cand in CANDIDATES.get(app, []):
-        if os.path.isdir(cand):
-            return cand
-    return None
+def candidatos(app):
+    """Rutas candidatas: primero la variable de entorno, luego las locales."""
+    de_entorno = os.environ.get("SHELL_APP_" + app.upper(), "").strip()
+    return ([de_entorno] if de_entorno else []) + CANDIDATES.get(app, [])
+
+
+def find_repo(app, silencioso=False):
+    """Primer clon que exista, o None. Avisa si había más de uno."""
+    existentes = [c for c in candidatos(app)
+                  if os.path.isdir(os.path.join(c, ".git"))
+                  or os.path.isdir(c)]
+    if not existentes:
+        return None
+    elegido = existentes[0]
+    if len(existentes) > 1 and not silencioso:
+        print(f"    :ojo: {app} está en {len(existentes)} sitios; uso "
+              f"{elegido} (los otros: {', '.join(existentes[1:])}).")
+        print(f"    :oka: fijalo con SHELL_APP_{app.upper()}={elegido} "
+              f"para no adivinar.")
+    return elegido
 
 
 def leer(path):
@@ -179,15 +205,19 @@ def main():
     if args.target:
         variant = args.variant
         rel = None
-        if variant is None:                      # deducir por contenido del repo
+        if variant is None:
+            # Deducir por contenido del repo. OJO: el nombre de la carpeta NO
+            # sirve para esto — "admon" es subcadena de "WorkersAdmon" y esa
+            # comparación mandaba al panel a la variante de Admon (y a escribir
+            # src/styles/app.css en el repo equivocado). Se decide por el
+            # archivo que el repo ya tiene, que es lo único no ambiguo.
             for app, (var, css, _) in APPS.items():
-                if args.target.endswith(css.replace("/", os.sep)) or app in args.target.lower():
+                if os.path.isfile(os.path.join(args.target, *css.split("/"))):
                     variant, rel = var, css
                     break
         if not rel:
-            ap.error("no pude deducir la variante; usa --variant t4|t3|plain")
-        # El app_id sale de la VARIANTE, no del nombre de la carpeta: así un
-        # --target con un nombre ambiguo no estampa el APP_ID equivocado.
+            ap.error("no pude deducir la variante; usa --variant t4|t3|plain "
+                     "(o corré --list para ver qué archivo usa cada app)")
         jobs.append((args.target, variant, rel,
                       APP_ID_DE_VARIANTE.get(variant, "app")))
     elif args.all:
@@ -196,7 +226,9 @@ def main():
             if repo:
                 jobs.append((repo, var, css, app))
             else:
-                print(f"[--  ] {app:14} repo no encontrado (usa --target)")
+                print(f"[--  ] {app:14} repo no encontrado "
+                      f"(probé {', '.join(candidatos(app))}; "
+                      f"fijalo con ECCSA_{app.upper()}=...)")
     else:
         ap.error("usa --all, --target o --list")
 

@@ -1,6 +1,6 @@
 # ECCSA Shell — el patrón de diseño de las apps ECCSA
 
-> **Nombre del patrón: “ECCSA Shell”** (internamente `eccsa-shell`).
+> **Nombre del patrón: “ECCSA Shell”** (repo `hector1516/ECCSA-Shell`).
 > Es la APP SHELL de PWA + un design system propio, compartido por
 > **Field**, **Admon** y **WorkersAdmon**. La idea: *toda app nueva arranca
 > copiando el shell y los tokens, y no inventa su propia interfaz*.
@@ -17,7 +17,7 @@ identidad: tokens, textura, passkeys, push y las reglas de pulido de iPhone.
 
 | Estándar / patrón | Qué aporta | Dónde vive en nuestro caso |
 |---|---|---|
-| **PWA app shell** | Cascarón instalable: header + navegación + contenido, carga instantánea y funciona offline | `panel/templates.py: page()` (WorkersAdmon), `src/App.svelte` (Field/Admon) |
+| **PWA app shell** | Cascarón instalable: header + navegación + contenido, carga instantánea y funciona offline | `panel/templates.py: page()` (panel), `src/routes/+layout.svelte` (Field), `src/App.svelte` (Admon) |
 | **Bottom tab bar** | Navegación fija abajo, al alcance del pulgar, con safe-area del notch | `.bottom-nav` / `.nav-item` |
 | **Design tokens** | Una sola fuente de color, tipografía y radios | `@theme` de Tailwind (Field/Admon) ≡ `:root` del panel |
 | **Mobile-first + HIG-ish** | Objetivos ≥44px, inputs 16px, sin zoom iOS, sin tap-highlight | media queries del panel + `src/app.css` |
@@ -93,12 +93,36 @@ En escritorio (≥900px) la tab bar se centra y se redondea por arriba
 
 ## 6. Dónde vive el shell en cada app
 
-| App | Stack | Shell |
-|---|---|---|
-| Field | Svelte + Tailwind | `src/app.css` (`@theme` + `.page`, `.header`, `.status-bar`, `.bottom-nav`), `src/App.svelte` |
-| Admon (AdmonApp) | Svelte + Tailwind | igual que Field (`src/app.css`, `src/App.svelte`) |
-| WorkersAdmon | Python stdlib (sin framework) | `panel/templates.py` (`CSS` + `page()` + `_nav()`) |
+> **Esta sección estaba desactualizada y mentía.** Decía que Admon usaba
+> `src/app.css` (usa `src/styles/app.css`) y que el panel replicaba los tokens
+> a mano (ya no: se propagan solos). La tabla de abajo es la real.
 
-> El panel **no usa Tailwind** (es Python puro, sin build), pero replica los
-> mismos tokens y componentes a mano: cualquier cambio de token aquí debe
-> replicarse en `src/app.css` de Field/Admon y viceversa.
+El shell vive en su **propio repo**, `hector1516/ECCSA-Shell`, y cada app
+guarda una **copia** de lo que le toca. Las copias se generan; no se editan.
+
+| App | Stack | Variante | CSS (copia generada) | Artefactos del banner |
+|---|---|---|---|---|
+| Field | SvelteKit + Tailwind v4 | `t4` | `src/app.css` | `src/lib/components/{SyncHeader,ActionsBar,Changelog}.svelte`, `src/lib/changelog.js`, `api/lugar.py` |
+| Admon (AdmonApp) | Svelte + Tailwind v3 | `t3` | `src/styles/app.css` | `src/components/{SyncHeader,ActionsBar,Changelog}.svelte`, `src/lib/changelog.js`, `api/lugar.py` |
+| WorkersAdmon | Python stdlib (sin build) | `plain` | `panel/shell.css` | `panel/lugar.py`, `panel/{banner,actions,changelog}.py.html` |
+
+**Cómo se propaga:**
+
+```bash
+# en el repo ECCSA-Shell
+vim tokens.css src/body.css      # 1. se cambia el diseño AQUÍ
+python tools/build_shell.py       # 2. genera dist/ (3 variantes)
+python tools/sync_shell.py --all  # 3. copia a las 3 apps + estampa versiones
+```
+
+- Si cambiaste el diseño hay que **subir `VERSION`**: la guarda te lo reclama
+  comparando el SHA de `ECCSA_SHELL_SHA`.
+- Un `git push` al shell propaga solo (`.github/workflows/propagate.yml`), y
+  cada app se despliega con su propio workflow.
+- El `check.yml` de cada app verifica que su copia **no** fue editada a mano
+  (compara el SHA del CSS). El `check.yml` del shell verifica que las 3 copias
+  estén al día.
+
+**Lo que NO se replica a mano:** nada. El panel ya no mantiene sus propios
+tokens: lee `panel/shell.css` de disco, así que actualizar el shell no requiere
+tocar Python. Lo único propio del panel queda en `panel/panel.css`.

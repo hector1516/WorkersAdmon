@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# WorkersAdmon · verificación del shell
+#
+# Corre en cada push y en cada PR. Dos checks, sin secretos y sin clonar
+# ECCSA-Shell:
+#
+#   1. El panel/shell.css que tiene este repo es EXACTAMENTE el que el shell
+#      generó: sync_shell.py dejó su huella en ECCSA_SHELL_SHA. Si alguien edita
+#      panel/shell.css a mano, el hash deja de coincidir. El panel lo lee de
+#      disco, así que una edición ahí se ve en producción sin que nada avise.
+#
+#   2. El popup de novedades dice la misma versión que el banner.
+#
+# Que la copia NO esté atrasada respecto del shell lo comprueba el repo
+# ECCSA-Shell (propagate.py --check), que es el que tiene el token.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Check shell
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: check-shell-workersadmon
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: El CSS no fue editado a mano
+        run: |
+          set -euo pipefail
+          CSS=panel/shell.css
+          ESPERADO="$(cat ECCSA_SHELL_SHA)"
+          if [ ! -f "$CSS" ]; then
+            echo "::error::no existe $CSS"
+            exit 1
+          fi
+          REAL="$(sha256sum "$CSS" | cut -c1-12)"
+          if [ "$REAL" != "$ESPERADO" ]; then
+            echo "::error::$CSS fue editado a mano."
+            echo "::error::  esperado $ESPERADO (lo dejó sync_shell.py)"
+            echo "::error::  encontrado $REAL"
+            echo "::error::El CSS del shell NO se edita en la app. Se cambia en el"
+            echo "::error::repo ECCSA-Shell y se propaga con tools/sync_shell.py."
+            exit 1
+          fi
+          echo "OK · $CSS intacto (shell $(cat ECCSA_SHELL_VERSION))"
+
+      - name: El popup de novedades dice la versión del banner
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, re, sys
+          cfg = open("panel/config.py", encoding="utf-8").read()
+          banner = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', cfg)
+          popup = json.load(open("static/changelog.json", encoding="utf-8"))
+          if not banner:
+              sys.exit("::error::no se encontró APP_VERSION en panel/config.py")
+          if banner.group(1) != popup.get("version"):
+              sys.exit(f"::error::el banner muestra v{banner.group(1)} pero el "
+                       f"popup dice v{popup.get('version')}: el 📋 no va a saltar")
+          cambios = [c for c in popup.get("cambios") or [] if c]
+          if not cambios:
+              sys.exit("::error::static/changelog.json sin 'cambios'")
+          largos = [c for c in cambios if len(c) > 160]
+          if largos:
+              sys.exit(f"::error::{len(largos)} cambio(s) de más de 160 "
+                       f"caracteres: no entran en un iPhone")
+          print(f"OK · popup en v{popup['version']} con {len(cambios)} cambios")
+          PY
+
+      # El panel es Python de stdlib y se lee de disco: lo que se checkea es
+      # que todo compile y que los tests de humo sigan en verde.
+      - name: El panel compila y sus tests pasan
+        run: |
+          set -euo pipefail
+          python3 -m py_compile panel/*.py api/*.py
+          python3 -m unittest discover -s tests -q
