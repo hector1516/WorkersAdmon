@@ -219,6 +219,57 @@ jobs:
       # configuración de siempre (puertos, red, volumes y credenciales que saca
       # del contenedor actual). Y va por schtasks, no por SSH, porque Windows
       # mata los procesos hijos al cerrarse la sesión.
+      # El rebuild usa C:\WorkersAdmon como contexto de build (eso hace
+      # deploy/build.bat: `cd /d C:\WorkersAdmon` + `docker build .`). Ese
+      # directorio TIENE que tener el codigo del commit que se esta
+      # desplegando. Durante meses fue una copia del 26 de septiembre que
+      # nadie mantenia: `git pull` ahi fallaba con "not a git repository" y
+      # los rebuilds reconstruian la imagen con codigo viejo, devolviendo
+      # rc=0 igual. Este paso pone el clon canonico al dia y verifica que
+      # quedo en el commit correcto, ANTES de reconstruir nada.
+      - name: Sincronizar el clon canonico
+        if: steps.gate.outputs.modo == 'rebuild'
+        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $CANON = 'C:\WorkersAdmon'
+          $ESPERADO = '${{ github.sha }}'
+          $REPO = 'https://github.com/${{ github.repository }}.git'
+          $url = $REPO -replace '^https://', "https://x-access-token:$env:GH_TOKEN@"
+          $ErrorActionPreference = 'Stop'
+
+          if (-not (Test-Path $CANON)) {
+            Write-Output "DIAG canon: $CANON no existe; se crea"
+            New-Item -ItemType Directory -Path $CANON -Force | Out-Null
+          }
+
+          # No se borra el directorio: puede tener secretos o configuracion
+          # que no estan en el repo. Si no es repo, se inicializa encima y se deja
+          # que el checkout lo sobreescriba.
+          if (-not (Test-Path (Join-Path $CANON '.git'))) {
+            Write-Output "DIAG canon: no era un repo git; se inicializa"
+            git -C $CANON init 2>&1 | Out-Null
+            git -C $CANON remote add origin $url 2>&1 | Out-Null
+          } else {
+            git -C $CANON remote set-url origin $url 2>&1 | Out-Null
+          }
+
+          git -C $CANON fetch --depth 1 origin main 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::no se pudo traer main del remoto; el rebuild construiria con lo que hubiera"
+            exit 1
+          }
+          git -C $CANON reset --hard FETCH_HEAD 2>&1 | Out-Null
+          $head = (git -C $CANON rev-parse HEAD).Trim()
+          Write-Output "DIAG canon: HEAD=$head esperado=$ESPERADO"
+          if (-not $head.StartsWith($ESPERADO.Substring(0, 7))) {
+            Write-Output "::error::el clon canonico quedo en $head y se queria $ESPERADO. Aborto: no voy a construir una imagen con el codigo equivocado."
+            exit 1
+          }
+          Write-Output "OK - clon canonico sincronizado en $($head.Substring(0,7))"
+
       - name: Rebuild
         if: steps.gate.outputs.modo == 'rebuild'
         shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
@@ -258,6 +309,18 @@ jobs:
           }
 
           Write-Host "Lanzando WorkersBuild (schtasks)..."
+          # "Solo interactivo" significa que la tarea solo arranca si hay una
+          # sesion de escritorio abierta en el ServerVM. El runner de GitHub es
+          # un servicio: no la hay, y schtasks se responde CORRECTO sin hacer
+          # nada. Es el mismo modo de fallo que el FIN rc= viejo, asi que se
+          # avisa en vez de esperar 15 minutos en silencio.
+          $info = schtasks /query /tn WorkersBuild /fo LIST /v 2>&1 | Out-String
+          if ($info -match 'Solo interactivo') {
+            Write-Output ("::warning::La tarea WorkersBuild esta en modo 'Solo interactivo'.")
+            Write-Output ("::warning::Si no hay sesion de escritorio abierta en el ServerVM,")
+            Write-Output ("::warning::schtasks /run no va a arrancar nada. Re-registrala con")
+            Write-Output ("::warning::deploy/register_task.ps1 para que corra en modo batch.")
+          }
           schtasks /run /tn WorkersBuild
           if ($LASTEXITCODE -ne 0) { Show-Diag; throw "no se pudo lanzar WorkersBuild" }
 
