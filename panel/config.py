@@ -56,6 +56,9 @@ def _asset(name):
 
 ENGRANE_FILE = os.environ.get("PANEL_ENGRANE", _asset("engrane.png"))
 
+# Estado del chequeo automático del shell (lo escribe shell/tools/check_daily.py)
+SHELL_CHECK_FILE = os.environ.get("SHELL_CHECK_FILE", "/data/shell_check.json")
+
 # ─── Assets PWA (manifest + service worker + iconos) ────────────────────────
 # Viven en static/ (igual que Field y Admon): el servidor los sirve en la raíz
 # del sitio (/manifest.webmanifest, /sw.js, /icons/*.png) para que el navegador

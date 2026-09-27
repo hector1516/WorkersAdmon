@@ -1,0 +1,52 @@
+/* ECCSA-Shell · tokens.css — FUENTE ÚNICA de los valores de diseño
+   =====================================================================
+   NO edites a mano: cambia aquí y propaga con
+       python tools/sync_shell.py --all      (copia a las apps)
+       python tools/check_shell.py           (verifica que nadie divergió)
+
+   Bloque 1 → Tailwind v4 (@theme): Field y Admon lo tienen en
+             src/app.css / src/styles/app.css.
+   Bloque 2 → :root plano, los MISMOS valores: para apps sin build
+             (el panel de WorkersAdmon lo carga desde panel/shell.css).
+*/
+
+@theme {
+	--color-bg: #0F172A;
+	--color-surface: #1E293B;
+	--color-surface-2: #334155;
+	--color-primary: #FF6B00;
+	--color-primary-light: #FFAE00;
+	--color-text: #F8FAFC;
+	--color-text-muted: #94A3B8;
+	--color-success: #22C55E;
+	--color-warning: #F59E0B;
+	--color-danger: #EF4444;
+	--font-family: 'Outfit', system-ui, sans-serif;
+}
+
+:root {
+	/* Mismos valores en CSS plano (apps sin Tailwind) */
+	--color-bg: #0F172A;
+	--color-surface: #1E293B;
+	--color-surface-2: #334155;
+	--color-primary: #FF6B00;
+	--color-primary-light: #FFAE00;
+	--color-text: #F8FAFC;
+	--color-text-muted: #94A3B8;
+	--color-success: #22C55E;
+	--color-warning: #F59E0B;
+	--color-danger: #EF4444;
+	--font-family: 'Outfit', system-ui, sans-serif;
+
+	/* Tokens de estructura del shell (los usa shell.css) */
+	--color-line: rgba(255, 255, 255, 0.08);
+	--color-inset: #0B1220;
+	--radius: 16px;      /* tarjetas */
+	--radius-sm: 12px;   /* botones y campos */
+	--radius-xs: 10px;
+	--nav-h: 64px;       /* alto de la tab bar inferior */
+	--tap: 44px;         /* objetivo táctil mínimo */
+	--z-banner: 250;     /* banner superior */
+	--z-nav: 100;        /* tab bar inferior */
+	--z-toast: 300;      /* toasts */
+}

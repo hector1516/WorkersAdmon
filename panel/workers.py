@@ -191,6 +191,16 @@ CATALOGO = {
 PROTECTED = {"status_web"}   # programas que el panel no manipula
 
 
+def shell_check():
+    """Último resultado del chequeo automático de ECCSA-Shell (o None)."""
+    import json
+    try:
+        with open(config.SHELL_CHECK_FILE, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
 def now():
     return datetime.datetime.now()
 

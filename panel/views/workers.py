@@ -149,6 +149,35 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
     else:
         hint = ""
 
+    # Estado del shell (lo escribe el chequeo diario: shell/tools/check_daily.py)
+    chk = workers.shell_check()
+    if chk:
+        if chk.get("ok"):
+            shell_html = (
+                f'<div class="card-desc" style="display:flex;gap:10px;'
+                f'align-items:center;flex-wrap:wrap;padding:10px 12px;'
+                f'border:1px solid rgba(34,197,94,.35);border-radius:12px;'
+                f'background:rgba(34,197,94,.08)">'
+                f'<span class="tag t-run">● SHELL AL DÍA</span>'
+                f'<span class="muted" style="font-size:.8rem">'
+                f'shell {esc(chk.get("shell_version", "?"))} · app '
+                f'{esc(chk.get("app_version", "?"))} · revisado '
+                f'{esc(chk.get("revisado", "?"))}</span></div>')
+        else:
+            probs = "<br>".join(esc(p) for p in (chk.get("problemas") or []))
+            shell_html = (
+                f'<div class="card-desc" style="padding:10px 12px;'
+                f'border:1px solid rgba(239,68,68,.45);border-radius:12px;'
+                f'background:rgba(239,68,68,.08)">'
+                f'<span class="tag t-err">▲ SHELL DESINCRONIZADO</span>'
+                f'<div class="muted" style="font-size:.8rem;margin-top:6px">'
+                f'{probs}<br>Revisado: {esc(chk.get("revisado", "?"))} · '
+                f'corrige con: python tools/sync_shell.py --all</div></div>')
+    else:
+        shell_html = (
+            '<div class="card-desc" style="font-size:.8rem">ℹ️ Sin datos del '
+            'chequeo del shell todavía (se genera diario en ServerVM).</div>')
+
     t = status["totals"]
     cards = f"""
   <div class="cards">
@@ -162,7 +191,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
       <div class="l">Disponibles en el repo</div></div>
   </div>"""
 
-    body = f"{err}{cards}{''.join(secciones)}{hint}"
+    body = f"{err}{shell_html}{cards}{''.join(secciones)}{hint}"
     conn = "offline" if status.get("supervisor_error") else "online"
     # Estado del banner común: el panel no tiene cola offline, así que
     # "sincronizado" = todos los programas bien; si hay FATAL/BACKOFF, error.

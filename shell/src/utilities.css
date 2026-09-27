@@ -1,0 +1,23 @@
+/* ECCSA-Shell · src/utilities.css — utilidades de color.
+   Tailwind v3 (Admon) no tiene el palette del proyecto, así que ahí se usan
+   clases como `bg-surface` o `text-muted`. Tailwind v4 (Field) ya las genera
+   desde @theme, pero mantenerlas no estorba: son las mismas vars.
+   Este bloque se incluye solo en las variantes con Tailwind (t4/t3). */
+
+.surface { background-color: var(--color-surface); }
+.bg-dark { background-color: var(--color-bg) !important; }
+.bg-surface { background-color: var(--color-surface) !important; }
+.bg-primary { background-color: var(--color-primary) !important; }
+.text-text { color: var(--color-text) !important; }
+.text-muted { color: var(--color-text-muted) !important; }
+.text-primary { color: var(--color-primary) !important; }
+.text-accent { color: var(--color-primary-light) !important; }
+.border-surface { border-color: var(--color-surface-2) !important; }
+
+/* Splash con imagen (lo usa Admon) */
+.splash-logo-img {
+	display: block;
+	width: 128px;
+	height: auto;
+	margin: 0 auto 1rem;
+}

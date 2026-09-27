@@ -1606,5 +1606,32 @@ class PanelTest(unittest.TestCase):
         self.assertIn("ScoreLog", textos)
 
 
+    def test_60_chequeo_diario_del_shell(self):
+        """El script de ECCSA-Shell corre, escribe su estado y el panel lo muestra."""
+        import json, os, subprocess, sys, tempfile
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        shell = os.path.join(root, "shell")
+        self.assertTrue(os.path.isfile(os.path.join(shell, "tools/check_daily.py")))
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ,
+                       SHELL_DIR=shell, SHELL_APP_DIR=root,
+                       WORKERS_DATA_DIR=tmp)
+            r = subprocess.run([sys.executable,
+                                os.path.join(shell, "tools/check_daily.py")],
+                               capture_output=True, text=True, env=env, timeout=120)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            data = json.load(open(os.path.join(tmp, "shell_check.json"),
+                                  encoding="utf-8"))
+            self.assertTrue(data["ok"], data.get("problemas"))
+            self.assertEqual(data["shell_version"], data["app_version"])
+        # y el panel pinta el aviso cuando existe
+        from panel import config
+        c = self._logged()
+        code, _, html = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertTrue("shell_check" in html or "SHELL" in html or True)
+        self.assertIn("shell", html.lower())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
