@@ -378,6 +378,11 @@ animation: pulse-offline 2s infinite;
 	font-size: 0.8rem;
 	font-weight: 600;
 	font-family: inherit;
+	/* El banner puede partirse en dos lineas (estado arriba, usuario abajo,
+	   porque .who lleva flex-basis:100%). Sin un line-height propio cada app
+	   lo heredaba de su body y el panel, que no define ninguno, las montaba
+	   encima: letras encimadas. Se fija aca para que las 3 se vean igual. */
+	line-height: 1.35;
 	cursor: pointer;
 }
 /* Los fondos de estado quedan un punto más opaque que el de reposo: el banner
