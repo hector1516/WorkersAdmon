@@ -68,6 +68,10 @@ class ValeCreate(BaseModel):
     notas: Optional[str] = ""
     kilometros: Optional[int] = None
 
+class VincularTicket(BaseModel):
+    """Para reconciliar un vale generado con un ticket ya registrado sin él."""
+    folio: str
+
 @router.get("")
 def get_vales(user: dict = Depends(require_user)):
     conn = get_connection()
@@ -78,15 +82,84 @@ def get_vales(user: dict = Depends(require_user)):
                    s.Kilometros, s.MontoUnit, s.Cantidad,
                    (ISNULL(s.Cantidad, 1) * ISNULL(s.MontoUnit, 500)) AS MontoTotal,
                    s.Placa, s.Notas, s.CodigoQR, s.UrlQR,
-                   u.Nombre AS Solicitante
+                   u.Nombre AS Solicitante,
+                   s.IdTicketCierre, s.FechaCierre,
+                   t.FolioTicket AS TicketFolio, t.Estacion AS TicketEstacion,
+                   CASE WHEN s.IdTicketCierre IS NOT NULL THEN 1 ELSE 0 END AS Cerrado
             FROM HUB_SolicitudVales s
             LEFT JOIN HUB_Automoviles a ON s.IdAutomovil = a.Id
             LEFT JOIN clientes c ON s.IdCliente = c.IdCliente
             LEFT JOIN HUB_Users u ON s.IdSolicitante = u.Id
+            LEFT JOIN HUB_OxxoGasTickets t ON t.Id = s.IdTicketCierre
             WHERE s.IdSolicitante = %s
             ORDER BY s.FechaSolicitud DESC
         """, (user["id"],))
         return cur.fetchall()
+
+@router.get("/abiertos")
+def get_vales_abiertos(vehiculo: int, cliente: Optional[str] = None,
+                       user: dict = Depends(require_user)):
+    """Vales sin gastar de un vehículo, del más reciente al más viejo.
+
+    La pantalla de registrar ticket los pide para preseleccionar uno y
+    prellenar cliente y descripción. Se declara antes de /{id_vale} porque si
+    no, FastAPI trataría "abiertos" como un id.
+    """
+    from vales_tickets import vales_abiertos
+    conn = get_connection()
+    with conn.cursor(as_dict=True) as cur:
+        return vales_abiertos(cur, vehiculo, cliente)
+
+@router.post("/{id_vale}/vincular-ticket")
+def vincular_ticket(id_vale: int, req: VincularTicket, user: dict = Depends(require_user)):
+    """Vincular un vale ya generado a un ticket que se registró sin él.
+
+    Existe para el caso de que el vale llegue tarde: se registró el ticket
+    desde la página de OxxoGas sin vale y después se generó el vale. Con esto
+    se reconcilia sin borrar ni rehacer el ticket.
+    """
+    from vales_tickets import cerrar_vale
+    conn = get_connection()
+    with conn.cursor(as_dict=True) as cur:
+        cur.execute("SELECT Id, IdSolicitante FROM HUB_SolicitudVales WHERE Id = %s", (id_vale,))
+        vale = cur.fetchone()
+        if not vale:
+            raise HTTPException(status_code=404, detail="Vale no encontrado")
+        if vale["IdSolicitante"] not in (None, user["id"]):
+            raise HTTPException(status_code=403, detail="Ese vale no es tuyo")
+
+        cur.execute("SELECT Id, FolioTicket, IdVehiculo FROM HUB_OxxoGasTickets "
+                    "WHERE FolioTicket = %s", (req.folio.strip(),))
+        ticket = cur.fetchone()
+        if not ticket:
+            raise HTTPException(status_code=404,
+                                detail=f"No hay ningún ticket con el folio {req.folio.strip()}")
+        if ticket["IdVehiculo"] != vale["IdAutomovil"]:
+            raise HTTPException(status_code=400,
+                                detail="El ticket pertenece a otro vehículo")
+        if not cerrar_vale(cur, id_vale, ticket["Id"]):
+            raise HTTPException(status_code=409,
+                                detail="Ese vale ya tenía un ticket vinculado")
+    conn.commit()
+    return {"success": True, "id_vale": id_vale, "id_ticket": ticket["Id"],
+            "folio": ticket["FolioTicket"]}
+
+@router.post("/{id_vale}/desvincular-ticket")
+def desvincular_ticket(id_vale: int, user: dict = Depends(require_user)):
+    """Quita el vínculo del vale. Vuelve a quedar disponible."""
+    from vales_tickets import reabrir_vale
+    conn = get_connection()
+    with conn.cursor(as_dict=True) as cur:
+        cur.execute("SELECT IdSolicitante FROM HUB_SolicitudVales WHERE Id = %s", (id_vale,))
+        fila = cur.fetchone()
+        if not fila:
+            raise HTTPException(status_code=404, detail="Vale no encontrado")
+        if fila["IdSolicitante"] not in (None, user["id"]):
+            raise HTTPException(status_code=403, detail="Ese vale no es tuyo")
+        if not reabrir_vale(cur, id_vale):
+            raise HTTPException(status_code=409, detail="Ese vale no tenía ticket vinculado")
+    conn.commit()
+    return {"success": True, "id_vale": id_vale}
 
 @router.get("/{id_vale}")
 def get_vale(id_vale: int, user: dict = Depends(require_user)):

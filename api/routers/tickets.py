@@ -73,6 +73,7 @@ async def crear_ticket(
     folio_ticket: str = Form(""),
     estacion: str = Form(""),
     descripcion: str = Form(""),
+    id_solicitud_vale: str = Form(""),
     foto: Optional[UploadFile] = File(None),
     user: dict = Depends(require_user)
 ):
@@ -80,6 +81,7 @@ async def crear_ticket(
     folio_val = folio_ticket.strip() if folio_ticket else ""
     estacion_val = estacion.strip() if estacion else ""
     desc_val = descripcion.strip() if descripcion else ""
+    vale_val = int(id_solicitud_vale) if (id_solicitud_vale or "").strip().isdigit() else None
 
     # Validaciones: todos obligatorios excepto descripcion (notas)
     if not folio_val:
@@ -95,28 +97,45 @@ async def crear_ticket(
     image_bytes = await foto.read()
     image_name = foto.filename or "ticket.jpg"
 
-    with conn.cursor() as cur:
+    with conn.cursor(as_dict=True) as cur:
+        # El folio identifica la carga. Si ya existe se rechaza en vez de
+        # duplicar: el mismo vale llegue a Produce un ticket repetido.
+        from vales_tickets import folio_ya_registrado
+        previo = folio_ya_registrado(cur, folio_val)
+        if previo:
+            raise HTTPException(
+                status_code=409,
+                detail=(f"El folio {folio_val} ya está registrado "
+                        f"(ticket #{previo['Id']}, {previo['Estacion'] or 'sin estación'}, "
+                        f"{str(previo['FechaRegistro'])[:16]}). No se puede registrar dos veces."))
+
         cur.execute("""
             INSERT INTO HUB_OxxoGasTickets
-            (FolioTicket, Estacion, ImagenTicket, ImagenNombre, IdVehiculo, Descripcion, IdCliente, IdUsuario, FechaRegistro)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE());
-            SELECT SCOPE_IDENTITY();
+            (FolioTicket, Estacion, ImagenTicket, ImagenNombre, IdVehiculo, Descripcion,
+             IdCliente, IdUsuario, FechaRegistro, IdSolicitudVale)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), %s);
+            SELECT CAST(SCOPE_IDENTITY() AS INT) AS new_id;
         """, (folio_val, estacion_val, image_bytes, image_name,
-              id_vehiculo, desc_val, id_cliente, user["id"]))
-        new_id = int(cur.fetchone()[0])
-        conn.commit()
-        try:
-            from routers.legends import _registrar_metrica
-            _registrar_metrica(user["id"], "ticket_oxxogas", referencia_id=new_id)
-        except Exception:
-            pass
-        folio_display = folio_val if folio_val else f"TK-{new_id:05d}"
-        try:
-            from routers.push import send_push_notification
-            send_push_notification(user["id"], "⛽ Ticket OxxoGas registrado", f"Ticket {folio_display} registrado — +3 pts", "/tickets")
-        except Exception:
-            pass
-        return {"success": True, "folio": folio_display, "id_server": new_id}
+              id_vehiculo, desc_val, id_cliente, user["id"], vale_val))
+        new_id = int(cur.fetchone()["new_id"])
+
+        # El vale nunca es obligatorio, pero si se eligió uno se cierra con él.
+        from vales_tickets import cerrar_vale
+        cerrar_vale(cur, vale_val, new_id)
+    conn.commit()
+
+    try:
+        from routers.legends import _registrar_metrica
+        _registrar_metrica(user["id"], "ticket_oxxogas", referencia_id=new_id)
+    except Exception:
+        pass
+    folio_display = folio_val if folio_val else f"TK-{new_id:05d}"
+    try:
+        from routers.push import send_push_notification
+        send_push_notification(user["id"], "⛽ Ticket OxxoGas registrado", f"Ticket {folio_display} registrado — +3 pts", "/tickets")
+    except Exception:
+        pass
+    return {"success": True, "folio": folio_display, "id_server": new_id}
 
 @router.post("/ai-extraer-folio")
 async def ai_extraer_folio(

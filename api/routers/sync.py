@@ -154,11 +154,20 @@ def sync_push(items: list[SyncItem], user: dict = Depends(require_user)):
 
                 elif item.entity == "ticket":
                     p = item.payload
+                    # Vale elegido en la app. Opcional a propósito: a veces el
+                    # vale no llega y la carga se hace manual en la página de
+                    # OxxoGas, y ese ticket tiene que poder guardarse sin vale.
+                    vale_solicitado = None
+                    if p.get("id_solicitud_vale") not in (None, "", "0"):
+                        try:
+                            vale_solicitado = int(p["id_solicitud_vale"])
+                        except (TypeError, ValueError):
+                            vale_solicitado = None
                     cur.execute("SELECT ISNULL(MAX(Id), 0) + 1 FROM HUB_OxxoGasTickets")
-                    new_id = cur.fetchone()[0]
+                    id_estimado = cur.fetchone()[0]
                     # Usar el folio real del ticket (manual o IA); solo fallback TK-##### si vacío
                     folio_real = (p.get("folio_ticket") or "").strip()
-                    folio = folio_real if folio_real else f"TK-{new_id:05d}"
+                    folio = folio_real if folio_real else f"TK-{id_estimado:05d}"
                     # Estación (obligatoria en nuevo flujo)
                     estacion_val = (p.get("estacion") or "").strip()
                     # Decodificar foto si viene en base64
@@ -171,12 +180,30 @@ def sync_push(items: list[SyncItem], user: dict = Depends(require_user)):
                             foto_nombre = p.get("foto_nombre", "ticket.jpg")
                         except Exception:
                             pass
+                    # Misma regla que en POST /tickets: el folio identifica la
+                    # carga y no puede repetirse. Sin esto, un reintento del
+                    # sync offline metía el mismo ticket dos veces.
+                    from vales_tickets import folio_ya_registrado, cerrar_vale
+                    previo = folio_ya_registrado(cur, folio)
+                    if previo:
+                        conn.rollback()
+                        results.append({"id_local": item.id_local, "id_server": previo["Id"],
+                                        "folio": folio, "status": "duplicado",
+                                        "detalle": f"El folio ya está registrado (ticket #{previo['Id']})"})
+                        continue
                     cur.execute("""
                         INSERT INTO HUB_OxxoGasTickets
-                        (FolioTicket, Estacion, IdVehiculo, IdCliente, Descripcion, IdUsuario, ImagenTicket, ImagenNombre)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        (FolioTicket, Estacion, IdVehiculo, IdCliente, Descripcion, IdUsuario,
+                         ImagenTicket, ImagenNombre, IdSolicitudVale)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (folio, estacion_val, p.get("id_vehiculo"), p.get("id_cliente"),
-                          p.get("descripcion", ""), user["id"], foto_bytes, foto_nombre))
+                          p.get("descripcion", ""), user["id"], foto_bytes, foto_nombre,
+                          vale_solicitado))
+                    cur.execute("SELECT CAST(SCOPE_IDENTITY() AS INT)")
+                    new_id = int(cur.fetchone()[0])
+                    # Vale opcional: si el payload no trae ninguno, el ticket se
+                    # guarda igual (caso del vale que no llega y se carga manual).
+                    cerrar_vale(cur, vale_solicitado, new_id)
                     conn.commit()
                     results.append({"id_local": item.id_local, "id_server": new_id, "folio": folio, "status": "ok"})
                     _notify_hub("ticket", user["nombre"], folio,
