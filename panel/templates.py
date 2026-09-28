@@ -61,43 +61,6 @@ def esc(value):
     return html.escape(str(value if value is not None else ""))
 
 
-def _nav(active, user=None):
-    """Barra de pestañas INFERIOR fija (patrón Field/Admon): icono + etiqueta.
-    Sin habilitar = "próxima fase"; sin permiso = gris."""
-    from . import auth as _auth
-    # En la HOME la barra no se pinta: la grilla de modulos ES el menu, y
-    # repetirla abajo en la misma pantalla es duplicarla. Field tampoco tiene
-    # barra inferior (su .bottom-nav esta en el CSS pero ningun markup lo usa):
-    # se navega con la grilla y el logo vuelve al inicio. Adentro de un modulo
-    # si sirve para saltar a otro sin volver a la home, y ahi se queda.
-    if active == config.MODULO_INICIO["id"]:
-        return ""
-    items = []
-    for tab in config.TABS:
-        # La home no va en la barra: es la grilla de módulos, y un botón
-        # "Inicio" al lado de los módulos sería redundante. Se entra con el
-        # logo del header.
-        if tab["id"] == config.MODULO_INICIO["id"]:
-            continue
-        icon, _, text = tab["label"].partition(" ")
-        text = text or tab["label"]
-        perm = tab.get("perm")
-        if perm and user is not None and not _auth.has_perm(user, perm):
-            items.append(f'<span class="nav-item off" title="Requiere el permiso {perm}">'
-                         f'<span class="nav-icon">{icon}</span>'
-                         f'<span>{esc(text)}</span></span>')
-        elif tab["enabled"]:
-            cls = " active" if tab["id"] == active else ""
-            items.append(f'<a class="nav-item{cls}" href="{tab["href"]}">'
-                         f'<span class="nav-icon">{icon}</span>'
-                         f'<span>{esc(text)}</span></a>')
-        else:
-            items.append(f'<span class="nav-item off" title="Próxima fase">'
-                         f'<span class="nav-icon">{icon}</span>'
-                         f'<span>{esc(text)}</span></span>')
-    return '<nav class="bottom-nav" aria-label="Secciones del panel">' + "".join(items) + "</nav>"
-
-
 def flash(message, kind="ok"):
     if not message:
         return ""
@@ -438,7 +401,6 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
   <div class="version-badge">WorkersAdmon v{esc(config.APP_VERSION)}</div>
 </div>
 </div>
-{_nav(active, user)}
 {changelog_modal()}
 {refresh_js}
 {CHANGELOG_JS}

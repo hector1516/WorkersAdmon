@@ -5,7 +5,7 @@
    con el mismo valor.
 
    El shell ya pone :root, body, .btn y toda su familia, .card, .input, .field,
-   .badge, .header, .bottom-nav, .nav-item, .module-grid, .sync-header, .back-btn
+   .badge, .header, .module-grid, .sync-header, .back-btn
    y los tokens. Lo que queda aquí es lo que el shell NO tiene: el módulo de
    estado, las tablas, las listas de verificación, las tarjetas de worker y las
    piezas del login. Nada más.
@@ -20,7 +20,7 @@
   --line:var(--color-line);--txt:var(--color-text);--muted:var(--color-text-muted);
   --orange:var(--color-primary);--yellow:var(--color-primary-light);
   --green:var(--color-success);--red:var(--color-danger);--blue:var(--color-info);
-  /* --radius, --radius-sm y --nav-h NO se declaran aquí: ya vienen del shell y
+  /* --radius y --radius-sm NO se declaran aquí: ya vienen del shell y
      volver a declararlos (ni siquiera como alias de sí mismos) es lo que
      creates dos verdades. Si el shell los mueve, el panel los sigue solo.
      --inset es la única excepción: no existe en el shell y es deliberadamente
@@ -36,7 +36,7 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
    se queda en 1rem como el shell, para que el header no necesite hacks de
    margen negativo para llegar al borde. */
 .wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;
-  padding:0 1rem calc(var(--nav-h) + 22px + env(safe-area-inset-bottom))}
+  padding:0 1rem 2rem}
 /* El header va pegado al banner, no en top:0: el banner es position:fixed y
    está por encima (z-index 250), así que un sticky en top:0 se metía debajo al
    hacer scroll. --banner-h es el mismo valor que usa .shell-below-banner. */

@@ -1059,7 +1059,7 @@ class PanelTest(unittest.TestCase):
                       "field_avisos_rep_1", "asistencia_calcular_auto",
                       'name="save_all"', 'name="add"', 'name="clasificar"',
                       "Claves catalogadas", "Secretos protegidos", "(guardado)",
-                      "HUB_ConfigCatalogo", "banxico_token", 'href="/apps"',
+                      "HUB_ConfigCatalogo", "banxico_token",
                       "config central por app"):
             self.assertIn(trozo, html, f"falta {trozo!r}")
         self.assertNotIn(_CONFIG["telegram_bot_token"], html,
@@ -1451,22 +1451,33 @@ class PanelTest(unittest.TestCase):
                       "los objetivos táctiles deben usar var(--tap), no 44px a mano")
 
     def test_52_shell_estilo_field_admon(self):
-        """El shell sigue el patrón de Field/Admon: tab bar inferior + textura."""
+        """El shell sigue el patrón de Field/Admon: sin barra inferior + textura.
+
+        Antes este test exigía una tab bar fija, pero el estándar se changed:
+        Field y Admon NO tienen barra inferior — se navega con la grilla de
+        módulos de la home y con el logo del header. El panelKeeping una era
+        lo que más lo diferenciaba, así que se quitó junto con su CSS y el
+        espacio que reservaba abajo.
+        """
         c = self._logged()
         code, _, html = c.get("/")
         self.assertEqual(code, 200)
-        # La barra inferior NO va en la home: la grilla de modulos es el menu
-        # y repetirla abajo en la misma pantalla es duplicarla. Field tampoco
-        # la tiene. Adentro de un modulo si esta, para saltar sin volver.
-        self.assertNotIn('<nav class="bottom-nav"', html)
-        code2, _, html2 = c.get("/configuracion")
-        self.assertEqual(code2, 200)
-        self.assertIn('<nav class="bottom-nav"', html2)  # tab bar inferior fija
-        self.assertIn('class="nav-icon"', html2)        # icono + etiqueta
-        self.assertNotIn('<div class="nav">', html)     # ya no hay pills arriba
-        self.assertIn("url('/engrane.png')", html)      # misma textura de fondo
-        self.assertIn("position:sticky", html)          # header fijo al hacer scroll
-        self.assertIn("badge-live", html)               # piloto de conexión
+        # La grilla de módulos ES el menú, en todas las páginas y todos los módulos.
+        for ruta in ("/", "/configuracion", "/apps", "/notificaciones", "/estado"):
+            code_r, _, html_r = c.get(ruta)
+            self.assertEqual(code_r, 200, f"{ruta} → {code_r}")
+            self.assertNotIn('<nav class="bottom-nav"', html_r,
+                             f"la barra inferior no debe existir en {ruta}")
+            self.assertNotIn('class="nav-item', html_r,
+                             f"no debe quedar ningun item de barra en {ruta}")
+        self.assertIn('<div class="module-grid"', html)   # el menú es la grilla
+        self.assertNotIn('<div class="nav">', html)      # ya no hay pills arriba
+        self.assertIn("url('/engrane.png')", html)       # misma textura de fondo
+        self.assertIn("position:sticky", html)           # header fijo al hacer scroll
+        self.assertIn("badge-live", html)                # piloto de conexión
+        # El header conserva la marca y la barra de acciones del shell.
+        self.assertIn('class="brand-logo"', html)
+        self.assertIn('class="shell-actions"', html)
 
     def test_53_workers_en_tarjetas_por_app(self):
         """La lista de programas son tarjetas agrupadas por app (no una tabla)."""
