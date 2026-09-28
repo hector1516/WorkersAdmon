@@ -641,7 +641,7 @@ animation: pulse-offline 2s infinite;
 .module-grid {
 	display: grid;
 	/* 1rem, el mismo gap que usa Admon en su .menu-grid. Con 0.5rem las
-	   tarjetas quedaban pegadas y el menu se leia como un bloque}; el aire de
+	   tarjetas quedaban pegadas y el menu se leia como un bloque; el aire de
 	   mas es justo lo que lo hace ver comodo. */
 	gap: 1rem;
 	/* 1fr, no ancho fijo: la tarjeta se ESTIRA al ancho disponible, como
