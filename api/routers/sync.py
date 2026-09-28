@@ -57,7 +57,8 @@ def _notify_hub(entity: str, user_name: str, folio: str = None, tg: dict = None)
             elif kind == "ticket":
                 telegram_hub.alertar_ticket_oxxogas(
                     user_name, folio, tg.get("folio_cli"), tg.get("id_auto"), tg.get("id_cliente"), tg.get("desc", ""),
-                    foto_bytes=tg.get("foto_bytes"), foto_nombre=tg.get("foto_nombre"))
+                    foto_bytes=tg.get("foto_bytes"), foto_nombre=tg.get("foto_nombre"),
+                    cantidad=tg.get("cantidad", ""))
             elif kind == "firma":
                 telegram_hub.alertar_reporte_por_id(tg.get("id_reporte"))
     except Exception:
@@ -183,6 +184,7 @@ def sync_push(items: list[SyncItem], user: dict = Depends(require_user)):
                                     "id_auto": p.get("id_vehiculo"), "id_cliente": p.get("id_cliente"),
                                     "estacion": estacion_val,
                                     "desc": p.get("descripcion", ""),
+                                    "cantidad": p.get("cantidad") or p.get("litros") or "",
                                     "foto_bytes": foto_bytes, "foto_nombre": foto_nombre})
 
                 elif item.entity == "vale":

@@ -40,12 +40,61 @@ def _resolve_chat_ids(id_evento):
 
 
 def _apply_template(plantilla, datos):
+    """Sustituye {placeholder} de la plantilla con los datos del payload.
+
+    Esta es la copia que usa _queue, o sea la que realmente arma el texto que
+    se guarda YA RENDERIZADO en HUB_TelegramQueue. Por eso resuelve alias:
+    los productores mandan los nombres internos de cada campo
+    (NombreRegistro, Empresa, ProyectoServicio, FolioTicket, Monto) y la
+    plantilla de HUB_TelegramEventos usa los nombres planos (Nombre,
+    Cliente, Descripcion, Folio, Cantidad). Sin el alias, el placeholder no
+    coincide y la alerta sale a Telegram con las llaves puestas, y desde el
+    worker ya no se puede corregir.
+    """
     import re
     texto = plantilla
-    for key, val in datos.items():
-        texto = texto.replace("{" + key + "}", str(val if val is not None else ""))
-    lineas = [l for l in texto.split("\n") if l.strip() and not re.match(r"^[\*\s]+$", l.strip())]
-    return "\n".join(lineas)
+
+    alias = {
+        "Nombre": ("Usuario", "NombreRegistro"),
+        "Cantidad": ("Monto", "Litros"),
+        "Folio": ("FolioTicket",),
+        "Auto": ("Automovil", "Vehiculo"),
+        "Cliente": ("Empresa", "RazonSocial", "NombreCliente"),
+        "Descripcion": ("ProyectoServicio",),
+    }
+    datos = dict(datos or {})
+    for destino, origenes in alias.items():
+        if destino in datos:
+            continue
+        for origen in origenes:
+            if datos.get(origen) not in (None, ""):
+                datos[destino] = datos[origen]
+                break
+
+    # Se recorre la plantilla ORIGINAL linea por linea: si una linea tiene
+    # placeholders y todos salen vacios, se descarta entera. Si se mirara
+    # despues de sustituir ya no habria llaves que reconocer y la linea
+    # "Cantidad:" se quedaria colgando sola.
+    lineas = []
+    for original in plantilla.split("\n"):
+        if not original.strip():
+            continue
+        claves = re.findall(r"\{(\w+)\}", original)
+        if claves and all(not str(datos.get(k, "")).strip() for k in claves):
+            continue
+        linea = original
+        for key, val in datos.items():
+            linea = linea.replace("{" + key + "}", str(val if val is not None else ""))
+        if not linea.strip() or re.match(r"^[\*\s]+$", linea.strip()):
+            continue
+        lineas.append(linea)
+
+    texto = "\n".join(lineas)
+    sin_resolver = sorted(set(re.findall(r"\{(\w+)\}", texto)))
+    if sin_resolver:
+        print(f"[telegram] WARN plantilla con placeholders sin resolver: {sin_resolver}",
+              flush=True)
+    return texto
 
 
 def _queue(id_evento, datos, adjunto=None, adjunto_nombre=None):
@@ -120,17 +169,24 @@ def alertar_vale(solicitante, id_auto, id_cliente, descripcion, monto="500.00"):
 
 
 def alertar_ticket_oxxogas(usuario, folio_server, folio_cliente, id_auto, id_cliente, descripcion,
-                           foto_bytes=None, foto_nombre=None):
+                           foto_bytes=None, foto_nombre=None, cantidad=None):
     fecha, _ = _now_mx()
     # Incluir folio del ticket del cliente en la descripción
     desc_con_folio = descripcion or ""
     if folio_cliente:
         desc_con_folio += f"\n🎫 Ticket: {folio_cliente}"
+    cliente = _cliente_name(id_cliente)
+    # Se mandan los dos nombres: los de la plantilla (Nombre, Cliente,
+    # Descripcion, Cantidad) y los internos, por si otra version del codigo
+    # los sigue esperando. Antes solo iban los internos, y la plantilla pedia
+    # los otros: por eso llegaban con las llaves puestas.
     return _queue("OXXOGAS_TICKET", {
-        "Fecha": fecha, "NombreRegistro": usuario, "Folio": folio_server,
-        "FolioTicket": folio_cliente or folio_server,
-        "Auto": _auto_name(id_auto), "Empresa": _cliente_name(id_cliente),
-        "ProyectoServicio": desc_con_folio,
+        "Fecha": fecha,
+        "Nombre": usuario, "Cantidad": cantidad or "",
+        "Folio": folio_server, "Auto": _auto_name(id_auto),
+        "Cliente": cliente, "Descripcion": desc_con_folio,
+        "NombreRegistro": usuario, "FolioTicket": folio_cliente or folio_server,
+        "Empresa": cliente, "ProyectoServicio": desc_con_folio,
     }, adjunto=foto_bytes, adjunto_nombre=foto_nombre)
 
 
