@@ -46,3 +46,14 @@
 ## [1.0.0]
 
 Versión inicial del panel de control de workers.
+
+## Sin publicar
+
+- **docs/TROUBLESHOOTING.md**: seis problemas reales con su causa y cómo
+  verificarlos. El más importante es que **hay dos copias del backend y solo
+  una corre** (`Field/api/`), lo que hizo que dos arreglos "desplegados" nunca
+  llegaran a producción. Incluye el flujo de vales/Go Vale, la plantilla de
+  Telegram, las trampas de cascada de CSS y cómo correr consultas sin
+  credenciales desde el host.
+- **README.md**: la fila de `vales_worker` aclara que atrapa el folio y no el
+  QR, y qué pasa si el folio no se puede leer.
