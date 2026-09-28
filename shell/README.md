@@ -4,7 +4,8 @@
 Fuente única de: tokens, CSS del shell, banner común, contrato del endpoint de
 estado y la receta para crear apps nuevas.
 
-Apps que lo consumen: **Field**, **Admon** (`AdmonApp`) y **WorkersAdmon**.
+Apps que lo consumen: **Field**, **Dashboard** (el kiosco de la oficina),
+**Admon** (`AdmonApp`) y **WorkersAdmon**.
 
 ## Estructura
 
@@ -18,7 +19,7 @@ Apps que lo consumen: **Field**, **Admon** (`AdmonApp`) y **WorkersAdmon**.
 | `banner/ActionsBar.svelte` | **La barra de acciones estándar**: 👥 en línea · 🔔 notificaciones · ⚙️ config · 🚪 salir · 📋 novedades. Un botón se pinta solo si su manejador está. |
 | `banner/Changelog.svelte` | **El popup de novedades**: salta solo la primera vez de cada versión. Monta el modal y la lógica de "solo una vez". |
 | `banner/changelog.js` | Estado compartido del popup (lo usan `Changelog` y `ActionsBar`) + la clave de localStorage. |
-| `banner/lugar.py` | **La regla de ubicación** (IP privada = oficina). Python stdlib, lo copian las 3 apps. |
+| `banner/lugar.py` | **La regla de ubicación** (IP privada = oficina). Python stdlib, lo copian las apps con backend. |
 | `banner/banner.py.html` | El mismo banner para apps sin build (el panel). Es un `<div>`: ahí no hay sincronización que disparar. |
 | `banner/actions.py.html` | La misma barra para apps sin build, con enlaces en vez de manejadores. |
 | `banner/changelog.py.html` | El mismo modal para apps sin build, con la lógica en un script chico. |
@@ -67,5 +68,6 @@ se vea de inmediato si una app quedó atrás.
 | App | Stack | Variante |
 |---|---|---|
 | Field | SvelteKit + Tailwind v4 | `t4` (`src/app.css`) |
+| Dashboard | SvelteKit + Tailwind v4 (kiosco Full HD, sin sesión) | `t4` (`src/app.css`) |
 | Admon | Svelte + Tailwind v3 | `t3` (`src/styles/app.css`) |
 | WorkersAdmon (panel) | Python stdlib, sin build | `plain` (`panel/shell.css`, se lee de disco) |

@@ -4,9 +4,9 @@ ECCSA-Shell · propagate.py — empuja el shell a los repos de las apps.
 
 Por qué existe: `sync_shell.py` copia a clones LOCALES, que es lo correcto para
 trabajar en la máquina. Pero en GitHub Actions no hay clones: el job solo tiene
-este repo. Así que este script hace lo mismo speaking la API de GitHub — crea o
+este repo. Así que este script hace lo mismo hablando la API de GitHub — crea o
 actualiza cada archivo de cada app — para que un push al shell termine en las
-3 apps sin que nadie tenga que correr nada a mano.
+apps sin que nadie tenga que correr nada a mano.
 
 Cada app tiene su propio workflow de deploy, así que a partir de acá el cambio
 se publica solo: este workflow solo deja los archivos en el repo.
@@ -19,7 +19,7 @@ Uso (lo que corre el workflow):
     SHELL_DEPLOY_TOKEN=<pat>  python tools/propagate.py
     SHELL_DEPLOY_TOKEN=<pat>  python tools/propagate.py --dry-run
 
-    --only field|admon|workersadmon   propaga a una sola app
+    --only <app_id>                   propaga a una sola app
     --app-version 1.2.3               estampa la versión de la app (lo normal es
                                       que la suba el commit de la app, no esto)
 """
@@ -37,6 +37,7 @@ API = "https://api.github.com"
 # app_id → (repo "dueño/nombre", rama principal). El orden es el de APPS.
 REPOS = {
     "field":        ("hector1516/field",        "main"),
+    "dashboard":    ("hector1516/Dashboard",    "main"),
     "admon":        ("hector1516/AdmonApp",     "master"),
     "workersadmon": ("hector1516/WorkersAdmon", "master"),
 }
@@ -203,7 +204,7 @@ def main():
                   f"una copia del shell, o el shell tiene cambios sin propagar.")
             print("::error::se arregla con: python tools/propagate.py")
             return 1
-        print("\nOK · las 3 apps tienen exactamente la copia del shell.")
+        print(f"\nOK · las {len(apps)} app(s) tienen exactamente la copia del shell.")
         return 0
 
     verb = "se propagarían" if args.dry_run else "se propagaron"

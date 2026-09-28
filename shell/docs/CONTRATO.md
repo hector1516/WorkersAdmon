@@ -24,7 +24,7 @@ propósito.
 
 ## 2. Endpoint: `GET /api/shell/state`
 
-Las 3 apps **deben** exponerlo. El componente lo usa para `lugar`/`ip` (y
+Las apps **deben** exponerlo. El componente lo usa para `lugar`/`ip` (y
 como respaldo de `usuario`/versión del shell); el panel lo pinta directo en el
 servidor.
 
@@ -54,6 +54,7 @@ apps autentican igual:
 | App | Cómo autentica | Qué pasa |
 |---|---|---|
 | Field | `Authorization: Bearer <token>` | el componente necesita un `fetcher` propio |
+| Dashboard | **no hay sesión** (es una pantalla) | el kiosco expone el endpoint **sin** `require_user`: `user: null` y el resto igual |
 | Admon | `Authorization: Bearer <token>` | ídem |
 | Panel | cookie de sesión | el `fetch` same-origin del componente sirve |
 
@@ -61,6 +62,23 @@ Por eso el componente acepta `fetcher`: la app le pasa `(url) => fetch(url, {hea
 con su cabecera, y si no se pasa usa el `fetch` same-origin peludo. Sin esto el
 endpoint devolvería 401 y el lugar se quedaría siempre en `📍 —` sin que se
 notara.
+
+### 2b. La app sin sesión (Dashboard)
+
+El kiosco de la oficina es una **pantalla**: no hay quien inicie sesión ni
+botones que abrir. El contrato se cumple igual, pero con tres diferencias:
+
+1. `GET /api/shell/state` **responde sin `require_user`**. Devuelve `app`,
+   `shell`, `lugar` y `sync`; `user` va en `null` y el banner omite el bloque
+   `.who` (eso ya lo hace el componente: sin `usuario` no se pinta).
+2. `sync.estado` no es una cola del cliente sino **la salud real del último
+   refresco de datos** del backend: `idle` si el snapshot está al día,
+   `error` si el último refresco falló y quedó desactualizado. Es el único dato
+   que puede leer el banner en una pantalla sin usuario, y es el que evita que
+   el kiosco muestre ceros falsos sin avisar.
+3. `ActionsBar` se monta solo con los botones que la app exponga. En el kiosco
+   eso es únicamente el 📋 de novedades (el de "toca para sincronizar" no
+   aplica: la sincronización es del servidor).
 
 ## 3. Markup
 
@@ -82,7 +100,7 @@ control muerto.
 
 ## 4. Textos y colores
 
-Idénticos en las 3 apps, y salen de los tokens (no de literales):
+Idénticos en todas las apps, y salen de los tokens (no de literales):
 
 | Estado | Texto | Fondo del banner | Punto |
 |---|---|---|---|
@@ -102,7 +120,7 @@ Lugar: `oficina` → 🏢 Oficina (`--color-success`) · `remoto` → 🏠 Remot
 
 ## 4b. Barra de acciones (`.shell-actions`)
 
-Los botones de siempre, con el mismo markup en las 3 apps:
+Los botones de siempre, con el mismo markup en todas las apps:
 
 ```html
 <div class="shell-actions">

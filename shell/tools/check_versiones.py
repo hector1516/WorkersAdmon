@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-ECCSA-Shell · check_versiones.py — ¿las 3 apps corren con las versiones del mandato?
+ECCSA-Shell · check_versiones.py — ¿las apps corren con las versiones del mandato?
 
-Compara las versiones REALMENTE instaladas en los 3 contenedores del ServerVM
+Compara las versiones REALMENTE instaladas en los contenedores del ServerVM
 contra `versiones/requisitos-canonicos.txt` (que es la lista de Field, el
 mandato). Corre en el ServerVM (docker exec a cada contenedor) y escribe el
 resultado en el volumen de workersadmon para que el panel lo muestre.
@@ -10,7 +10,7 @@ resultado en el volumen de workersadmon para que el panel lo muestre.
     python tools/check_versiones.py            # en el ServerVM
     python tools/check_versiones.py --json     # solo imprime JSON
 
-Salida: 0 si las 3 apps cumplen el mandato en lo que tienen en común, 1 si no.
+Salida: 0 si las apps cumplen el mandato en lo que tienen en común, 1 si no.
 """
 import json
 import os
@@ -27,6 +27,12 @@ OUT = os.environ.get("VERSIONES_OUT", "/data/versiones.json")
 # la app NO tiene y por lo tanto no se comparan)
 APPS = {
     "field":        ("field",        None, set()),
+    # El kiosco NO tiene nginx (lo sirve el contenedor) ni push/passkeys: solo
+    # se le compara lo que comparte con el mandato.
+    "dashboard":    ("dashboard",    "/app/api/requirements.txt",
+                     {"uvicorn", "python-multipart", "pyjwt", "webauthn",
+                      "pywebpush", "py-vapid", "reportlab", "google-generativeai",
+                      "pytz", "pysmb"}),
     "admon":        ("admon",        "/app/requirements.txt", set()),
     "workersadmon": ("workersadmon", "/app/requirements.txt",
                      {"uvicorn", "python-multipart"}),   # el panel usa HTTP stdlib
@@ -81,6 +87,17 @@ def dist_info(container, mod):
     return p.stdout.strip() or None
 
 
+def contenedor_existe(container):
+    """True si el contenedor está corriendo. Una app sin contenedor no se
+    marca como desincronizada: sencillamente no hay nada que comparar."""
+    try:
+        p = subprocess.run(["docker", "inspect", "-f", "{{.State.Running}}", container],
+                           capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return p.returncode == 0 and p.stdout.strip() == "true"
+
+
 def main():
     # Modo lista: qué se espera en cada app, sin tocar contenedores. Sirve para
     # CI y para consultar el mandato desde cualquier máquina.
@@ -98,6 +115,9 @@ def main():
     resultado = {"revisado": time.strftime("%Y-%m-%d %H:%M:%S"),
                  "mandato": canon, "apps": {}, "problemas": []}
     for app, (cont, _req, no_tiene) in APPS.items():
+        if not contenedor_existe(cont):
+            resultado["sin_contenedor"].append(app)
+            continue
         mods = sorted(set(canon) - {m.lower() for m in no_tiene})
         filas = {}
         for m in mods:
@@ -130,6 +150,8 @@ def main():
         print(json.dumps(resultado, indent=2, ensure_ascii=False))
     else:
         print("VERSIIONES:", "AL DIA [OK]" if resultado["ok"] else "DESINCRONIZADAS [MAL]")
+        for app in resultado.get("sin_contenedor", []):
+            print(f"  {app:14} — sin contenedor corriendo (no se compara)")
         for app, filas in resultado["apps"].items():
             malos = [f"{m}={f['instalada']}" for m, f in filas.items() if not f["ok"]]
             print(f"  {app:14} {len(filas)-len(malos)}/{len(filas)} ok"

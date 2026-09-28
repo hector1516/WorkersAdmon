@@ -1,7 +1,7 @@
 # ECCSA-Shell · despliegue
 
-Este repo es la **fuente** del shell. Las 3 apps (Field, Admon y el panel de
-WorkersAdmon) guardan una copia de lo que les toca y se despliegan por su
+Este repo es la **fuente** del shell. Las apps (Field, Dashboard, Admon y el panel
+de WorkersAdmon) guardan una copia de lo que les toca y se despliegan por su
 propio lado. Ver `README.md` para qué hay en cada carpeta y `docs/CONTRATO.md`
 para el contrato del banner.
 
@@ -11,7 +11,7 @@ para el contrato del banner.
 vim tokens.css            # o src/body.css, o banner/
 
 python tools/build_shell.py             # regenera dist/ (3 variantes)
-python tools/sync_shell.py --all        # copia a las 3 apps + estampa versiones
+python tools/sync_shell.py --all        # copia a las apps + estampa versiones
 python tools/build_shell.py --check && python tools/sync_shell.py --all --check
 ```
 
@@ -38,7 +38,7 @@ falla), y hay que correr `sync_shell.py --all` a mano.
 
 ## 3. Cómo se despliega cada app (gate de rebuild)
 
-Las 3 apps tienen un workflow `deploy.yml` con `on: push` que decide entre dos
+Las apps tienen un workflow `deploy.yml` con `on: push` que decide entre dos
 caminos mirando **qué archivos** cambió:
 
 | Modo | Cuándo | Qué hace |
@@ -51,6 +51,7 @@ Los archivos que **obligan** a reconstruir:
 | App | Insumos de la imagen |
 |---|---|
 | Field | `Dockerfile`, `api/requirements.txt`, `docker/` |
+| Dashboard | `Dockerfile`, `api/requirements.txt`, `docker/` |
 | Admon | `Dockerfile`, `requirements.txt`, `api/requirements.txt` |
 | WorkersAdmon | `Dockerfile`, `requirements.txt`, `docker/` |
 
@@ -79,6 +80,6 @@ sea idéntica a `dist/shell.plain.css` con la `VERSION` al día.
 
 ## 5. Requisitos
 
-Las 3 apps comparten BD (`ECCSA_Admon`), passkeys, push, PDFs y el módulo de
+Las apps comparten BD (`ECCSA_Admon`), passkeys, push, PDFs y el módulo de
 Legends, así que sus versiones están mandadas por las de Field. Ver
 `docs/VERSIONES.md`.

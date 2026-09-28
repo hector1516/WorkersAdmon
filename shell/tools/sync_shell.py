@@ -23,6 +23,7 @@ Uso:
 
 Variante por app (la elige el stack, no el gusto):
     field          → t4    (Tailwind v4, SvelteKit)
+    Dashboard      → t4    (Tailwind v4, SvelteKit; pantalla de kiosco sin sesión)
     Admon          → t3    (Tailwind v3, Svelte)
     WorkersAdmon   → plain (Python, sin build)
 """
@@ -40,6 +41,7 @@ VERSION_FILE = os.path.join(HERE, "VERSION")
 # app → (variante, destino del CSS relativo al repo, banner de referencia)
 APPS = {
     "field":        ("t4",    "src/app.css",        "banner/SyncHeader.svelte"),
+    "dashboard":    ("t4",    "src/app.css",        "banner/SyncHeader.svelte"),
     "admon":        ("t3",    "src/styles/app.css", "banner/SyncHeader.svelte"),
     "workersadmon": ("plain", "panel/shell.css",    "banner/banner.py.html"),
 }
@@ -80,7 +82,24 @@ export const APP_VERSION = '%(appver)s';
 """
 
 # app_id de cada variante, para estamparlo en src/lib/shell.js.
+# OJO: la variante NO identifica a la app. `t4` la usan Field y Dashboard, así
+# que el id sale del NOMBRE de la carpeta destino (única señal no ambigua que
+# hay en el modo --target) y esta tabla es solo el respaldo cuando el nombre no
+# coincide con ninguna app conocida.
 APP_ID_DE_VARIANTE = {"t4": "field", "t3": "admon"}
+
+
+def _app_id_de_target(target, variant):
+    """app_id a estampar en src/lib/shell.js para un `--target` puntual.
+
+    Con más de una app por variante no se puede deducir de la variante: se usa
+    el nombre de la carpeta si coincide con una app conocida, y si no, el
+    respaldo de la variante.
+    """
+    nombre = os.path.basename(os.path.normpath(target)).lower()
+    if nombre in APPS:
+        return nombre
+    return APP_ID_DE_VARIANTE.get(variant, "app")
 
 
 # Regla de versionado: si el DISEÑO cambió (la huella de dist/ es distinta a la
@@ -118,6 +137,7 @@ def version_bump_pendiente(repo, nuevo, sha_nuevo):
 # en un clon y sincronice contra otro.
 CANDIDATES = {
     "field":        ["field", "../field", "D:/Antigravity/field"],
+    "dashboard":    ["dashboard", "../dashboard", "D:/Antigravity/dashboard"],
     "admon":        ["admon", "../admon", "D:/Antigravity/admon"],
     "workersadmon": ["WorkersAdmon", "../WorkersAdmon"],
 }
@@ -215,11 +235,21 @@ def main():
                 if os.path.isfile(os.path.join(args.target, *css.split("/"))):
                     variant, rel = var, css
                     break
-        if not rel:
+        else:
+            # Variante dada: la ruta del CSS sale de APPS. Con varias apps por
+            # variante se elige la de nombre de carpeta conocido, y si el repo
+            # es nuevo se toma la primera app de esa variante.
+            nombre = os.path.basename(os.path.normpath(args.target)).lower()
+            candidatos = [(a, c) for a, (v, c, _) in APPS.items() if v == variant]
+            if nombre in APPS and APPS[nombre][0] == variant:
+                rel = APPS[nombre][1]
+            elif candidatos:
+                rel = candidatos[0][1]
+        if not rel or not variant:
             ap.error("no pude deducir la variante; usa --variant t4|t3|plain "
                      "(o corré --list para ver qué archivo usa cada app)")
         jobs.append((args.target, variant, rel,
-                      APP_ID_DE_VARIANTE.get(variant, "app")))
+                      _app_id_de_target(args.target, variant)))
     elif args.all:
         for app, (var, css, _) in APPS.items():
             repo = find_repo(app)

@@ -7,13 +7,13 @@
 
 ## Por qué importa
 
-Las 3 apps apuntan a la **misma base** (`ECCSA_Admon`) y comparten código:
+Las apps apuntan a la **misma base** (`ECCSA_Admon`) y comparten código:
 
 | Compartido | Dónde |
 |---|---|
-| `pymssql` | las 3 leen/escriben las mismas tablas |
+| `pymssql` | todas leen/escriben las mismas tablas |
 | `reportlab` + `Pillow` | PDFs y PNG de QR que se ven igual en Field, Admon y el panel |
-| `pywebpush` + `py-vapid` | las claves VAPID viven en `HUB_Config` y las suscripciones en `HUB_PushSubscriptions`: las 3 envían push a los mismos celulares |
+| `pywebpush` + `py-vapid` | las claves VAPID viven en `HUB_Config` y las suscripciones en `HUB_PushSubscriptions`: todas envían push a los mismos celulares |
 | `webauthn` + `pyjwt` | passkeys con RP raíz `ecc-sa.com.mx` compartidas entre Field y Admon |
 | `fastapi` + `pydantic` | Admon y el worker de Field (`avisos`) usan el mismo `routers/push.py` |
 
@@ -21,7 +21,7 @@ Con versiones distintas/passaba esto: Field generaba PDFs con reportlab 4.4.0 y
 el panel con 5.0.1 → el mismo documento se veía distinto según dónde se abriera,
 y un QR podía cambiar de tamaño o formato.
 
-## La lista canónica (lo que las 3 deben tener igual)
+## La lista canónica (lo que las apps deben tener igual)
 
 | Librería | Versión (mandato Field) |
 |---|---|
@@ -61,7 +61,7 @@ paquete y en qué app.
 
 ## Versiones de aplicación (el número del banner)
 
-Política común para las 3:
+Política común para todas:
 
 1. **SemVer**: `MAJOR.MINOR.PATCH`.
    - `PATCH` = correcciones/fixes.
@@ -75,8 +75,8 @@ Política común para las 3:
 4. Se sube la versión en el mismo commit del cambio y se anota en el `CHANGELOG.md`
    del repo.
 
-Estado actual: Field `0.0.1` (no se toca, es el mandato), Admon `1.0.0`,
-WorkersAdmon `1.0.0`, shell `1.0.0`.
+Estado actual: Field `1.9.16` (no se toca, es el mandato), Admon `1.0.0`,
+Dashboard `1.0.0`, WorkersAdmon `1.0.0`, shell `1.9.0`.
 
 ## Cómo se cambia una versión compartida
 
@@ -87,4 +87,4 @@ WorkersAdmon `1.0.0`, shell `1.0.0`.
    WorkersAdmon con el mismo pin.
 4. Desplegar cada app (Admon: `AdmonBuild`; WorkersAdmon: `WorkersBuild` +
    `run_container.ps1`).
-5. `python tools/check_versiones.py` → debe salir OK en las 3.
+5. `python tools/check_versiones.py` → debe salir OK en todas.

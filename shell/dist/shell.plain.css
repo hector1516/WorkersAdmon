@@ -623,7 +623,10 @@ animation: pulse-offline 2s infinite;
    ═══════════════════════════════════════════════════════════════════════════ */
 .module-grid {
 	display: grid;
-	gap: 0.5rem;
+	/* 1rem, el mismo gap que usa Admon en su .menu-grid. Con 0.5rem las
+	   tarjetas quedaban pegadas y el menu se leia como un bloque}; el aire de
+	   mas es justo lo que lo hace ver comodo. */
+	gap: 1rem;
 	/* 1fr, no ancho fijo: la tarjeta se ESTIRA al ancho disponible, como
 	   siempre estuvo en Field (que usaba 1fr 1fr). Es el look que se pide:
 	   dos columnas que ocupan todo el ancho de la pantalla, no dos bloques
@@ -658,13 +661,16 @@ animation: pulse-offline 2s infinite;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 0.25rem;
+	gap: 0.45rem;
 	/* Cuadradas: la altura sigue al ancho de la columna (que es 1fr), con un
 	   tope para que en un monitor grande no queden de 250px. */
 	aspect-ratio: 1;
-	max-height: 190px;
-	min-height: 88px;
-	padding: 0.5rem 0.35rem;
+	max-height: 200px;
+	/* 130px, no 88: con la letra de Admon el contenido (padding + icono +
+	   titulo + 2 lineas de descripcion) mide 123px, asi que con 88 se cortaba
+	   a la mitad. Es el piso real del contenido. */
+	min-height: 130px;
+	padding: 0.8rem 0.6rem;
 	overflow: hidden;
 	background: var(--color-surface);
 	border: 1px solid rgba(255, 255, 255, 0.05);
@@ -681,27 +687,30 @@ animation: pulse-offline 2s infinite;
 	background: var(--color-surface-2);
 }
 .module-icon {
-	font-size: 1.7rem;
+	/* Admon usa 2.5rem. Aqui va 2.1rem porque su tarjeta es de alto minimo
+	   176px y esta es cuadrada: con 2.5rem la letra de abajo se sale. */
+	font-size: 2.1rem;
 	line-height: 1;
-	height: 1.7rem;
+	height: 2.1rem;
 	display: flex;
 	align-items: center;
 }
 .module-title {
 	font-weight: 700;
-	font-size: 0.82rem;
+	font-size: 0.95rem;
 	line-height: 1.2;
 	display: flex;
 	align-items: center;
 }
 .module-desc {
-	font-size: 0.68rem;
+	font-size: 0.75rem;
 	color: var(--color-text-muted);
-	line-height: 1.25;
+	line-height: 1.3;
 	/* En una tarjeta cuadrada y chica la descripcion es lo primero que no
-	   entra. Se recorta con puntos suspensivos en vez de desbordar. */
+	   entra. Se recorta con puntos suspensivos en vez de desbordar. Con la
+	   letra de Admon caben 2 lineas, no 3. */
 	display: -webkit-box;
-	-webkit-line-clamp: 3;
+	-webkit-line-clamp: 2;
 	-webkit-box-orient: vertical;
 	overflow: hidden;
 }
