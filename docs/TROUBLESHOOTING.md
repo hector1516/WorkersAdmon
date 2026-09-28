@@ -221,3 +221,70 @@ Tres cosas que se pierden el tiempo:
   thread-local). Un `rollback()` explícito sí deshace, y si el script muere
   antes, la conexión se descarta al cerrar. Se puede probar contra producción
   sin riesgo.
+
+---
+
+## 7. pymssql + `as_dict=True`: toda columna necesita nombre
+
+**Síntoma:** un registro no aparece en ninguna parte. Ni en el servidor ni en
+la lista del cliente. Y el `POST` al que lo mandaba responde **200 OK**.
+
+**Causa:** el error se come dentro del item, la respuesta del lote sigue siendo
+200, y del lado del cliente no hay nada que mostrar.
+
+```python
+with conn.cursor(as_dict=True) as cur:      # <-- as_dict
+    cur.execute("SELECT CAST(SCOPE_IDENTITY() AS INT)")   # <-- sin alias
+    cur.fetchone()
+# pymssql._pymsql.ColumnsWithoutNamesError:
+#   Specified as_dict=True and there are columns with no names: [0]
+```
+
+Con `as_dict=True`, pymssql **rechaza** la consulta si alguna columna no tiene
+nombre. No es un `KeyError` después: falla al devolver las filas. Always:
+
+```python
+cur.execute("SELECT CAST(SCOPE_IDENTITY() AS INT) AS new_id")
+new_id = int(cur.fetchone()["new_id"])
+```
+
+Con `conn.cursor()` a secas (tupla) el mismo `SELECT` sí funciona, así que el
+mismo texto es correcto en un archivo y falla en otro. **Revisar siempre con qué
+cursor se está.**
+
+**Cómo se nota que un item del sync falla sin que se entere:**
+
+```bash
+docker logs field 2>&1 | findstr /c:"sync/push"
+# 200 OK NO significa que el item se guardo: el 200 es del LOTE.
+# Cada item lleva su propio status en la respuesta.
+```
+
+Y ojo con los `status` que el cliente acepta, en
+`src/lib/stores/sync.ts`:
+
+```js
+if (r.status === 'ok' || r.status === 'duplicate') { /* marcar sincronizado */ }
+```
+
+Cualquier otro valor cuenta como **fallo**, se reintenta, y **a los 5 intentos
+el item se borra de la cola** (`db.syncQueue.delete`). Eso convierte un detalle
+en pérdida de datos silenciosa. El servidor tiene que devolver exactamente
+`ok` o `duplicate`.
+
+---
+
+## 8. Con internet, la lista solo enseña lo del servidor
+
+En la pantalla de tickets, la rama `if ($online)` hacía `tickets = data` con lo
+que devuelve `GET /tickets`. Los registros locales encolados se usaban solo
+para limpiar duplicados, **nunca se mostraban**. La rama offline sí los
+enseñaba.
+
+Resultado: cualquier ticket que no hubiera sincronizado era **invisible**, sin
+aviso. La plantilla ya tenía el estilo `.ticket-card.pending` (borde de
+advertencia) y `{@const isSynced = t.synced !== false}`; solo faltaba que
+llegaran los datos.
+
+Regla: **un registro pendiente se ve, siempre**, con su marca. Si puede haber
+uno en cola, la lista tiene que incluirlo.
