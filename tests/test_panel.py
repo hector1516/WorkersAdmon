@@ -1434,7 +1434,6 @@ class PanelTest(unittest.TestCase):
             "@media(max-width:820px)",       # tabletas y celulares
             "@media(max-width:430px)",       # celulares angostos
             ".tscroll{overflow-x:auto",      # tablas con scroll propio
-            "min-height:44px",               # objetivos táctiles (patrón Field)
             "font-size:16px",                # evita el zoom de iOS al enfocar
             "env(safe-area-inset-bottom)",   # notch / barra inferior
             "min-height:100dvh",             # alto real de la barra de direcciones
@@ -1443,6 +1442,13 @@ class PanelTest(unittest.TestCase):
             "-webkit-text-size-adjust:100%",
         ):
             self.assertIn(trozo.replace(": ", ":"), plano, f"falta {trozo}")
+        # Objetivos táctiles: se comprueba el token del shell, no el 44px
+        # escrito a mano. --tap vale 44px, pero escribir el número en cada
+        # selector es justamente lo que hace que el panel se desincronice del
+        # shell cuando este ajusta el objetivo táctil.
+        self.assertIn("--tap:44px", plano, "el shell debe definir --tap:44px")
+        self.assertIn("min-height:var(--tap)", plano,
+                      "los objetivos táctiles deben usar var(--tap), no 44px a mano")
 
     def test_52_shell_estilo_field_admon(self):
         """El shell sigue el patrón de Field/Admon: tab bar inferior + textura."""

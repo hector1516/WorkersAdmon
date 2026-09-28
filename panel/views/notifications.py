@@ -107,7 +107,7 @@ def _card(titulo, perm_label, permitido, cuerpo, accion, prueba=""):
   </div>"""
     head = f"<h2>{titulo}"
     if prueba:
-        head += f'<span style="float:right">{prueba}</span>'
+        head += f'<span class="panel-actions">{prueba}</span>'
     head += "</h2>"
     forms = cuerpo
     return f"""
@@ -139,11 +139,20 @@ VISTAS_TG = [
 
 
 def _tnav(vista):
-    """Barra de sub-pestañas del bloque Telegram (equivale a st.tabs del HUB)."""
+    """Barra de sub-pestañas del bloque Telegram (equivale a st.tabs del HUB).
+
+    Usa las clases de botón del shell (.btn .btn-sm .btn-secondary) en vez de
+    un CSS propio: antes esta fila se veía distinta de todos los demás botones
+    del panel porque .tnav a reescribía a mano lo que esas tres clases ya dan.
+    La activa se marca con aria-current y con .btn-primary, no con un color
+    suelto. """
     items = []
     for v, label in VISTAS_TG:
-        cls = ' class="on"' if v == vista else ""
-        items.append(f'<a{cls} href="/notificaciones?tg={v}">{esc(label)}</a>')
+        activa = (v == vista)
+        cls = "btn btn-sm btn-primary" if activa else "btn btn-sm btn-secondary"
+        aria = ' aria-current="page"' if activa else ""
+        items.append(f'<a class="{cls}"{aria} href="/notificaciones?tg={v}">'
+                     f'{esc(label)}</a>')
     return '<div class="tnav">' + "".join(items) + "</div>"
 
 

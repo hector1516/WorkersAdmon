@@ -159,7 +159,7 @@ def shell_banner(user=None, sync="idle", pendientes=0, lugar="desconocido", ip="
     return (
         f'<div class="sync-header {clase}">'
         f'<span class="dot {BANNER_DOT.get(estado, "ok")}"></span>'
-        f'<span>{esc(texto)}</span>'
+        f'<span class="txt">{esc(texto)}</span>'
         f'<span class="who">👤 {esc(user.get("nombre") or user.get("email") or "")}'
         f'<span class="lugar {lugar}" title="{esc(ip)}">'
         f'{icono} {lugar_texto}</span></span>'
@@ -373,10 +373,13 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     # conn: "online" (verde) / "offline" (rojo) — lo pasa la vista de Workers
     live_cls = "" if conn is None else ("" if conn == "online" else " off")
     live_txt = "● CONECTADO" if conn != "offline" else "● SIN CONEXIÓN"
-    # El banner es fijo (position: fixed), así que el contenido necesita el
-    # padding de .shell-below-banner o el header queda tapado. Sin banner
-    # (login, o sin sesión) no se aplica.
-    wrap_cls = "wrap shell-below-banner" if banner else "wrap"
+    # El banner es fijo (position: fixed), así que el contenido necesita apartarse.
+    # Va en un contenedor PROPIO, no en el mismo elemento que .wrap: las dos
+    # clases son de la misma especificidad y .wrap carga después en panel.css, así
+    # que su atajo de padding borraba el padding-top de .shell-below-banner y la
+    # página empezaba debajo del banner. Field y Admon lo resuelven con dos
+    # elementos anidados, y ahora el panel también.
+    banner_cls = "shell-below-banner" if banner else ""
 
     # Encabezado del MÓDULO. El header de arriba es la marca (identidad de la
     # app, igual que en Field y Admon) y acá va de qué módulo se trata y qué
@@ -411,7 +414,8 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
 </head>
 <body>
 {banner}
-<div class="{wrap_cls}">
+<div class="{banner_cls}">
+<div class="wrap">
   <header class="header">
     <div class="brand-col">
       <a class="logo-link" href="/"
@@ -422,7 +426,7 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     </div>
     {actions_html}
   </header>
-  {f'<div class="badge-live{live_cls}">{live_txt}</div>' if conn else ''}
+  {f'<div class="badge-live badge {live_cls}">{live_txt}</div>' if conn else ''}
   {modulo_html}
   {flash(flash_ok, "ok")}
   {flash(flash_err, "err")}
@@ -432,6 +436,7 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     <span>API JSON en <a href="/api/status">/api/status</a></span>
   </footer>
   <div class="version-badge">WorkersAdmon v{esc(config.APP_VERSION)}</div>
+</div>
 </div>
 {_nav(active, user)}
 {changelog_modal()}

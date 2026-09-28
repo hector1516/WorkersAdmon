@@ -155,7 +155,7 @@ def _card(name, estado, fields, env_vals, cfg_vals):
   <div class="panel" id="cfg-{esc(name)}">
     <h2><code>{esc(name)}</code>
       <span class="badge {cls}">{esc(label)}</span>
-      <span style="float:right">{logs}</span></h2>
+      <span class="panel-actions">{logs}</span></h2>
     {desc_html}
     {inner}
     {test_form}

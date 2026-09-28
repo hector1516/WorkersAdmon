@@ -163,10 +163,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
     if chk:
         if chk.get("ok"):
             shell_html = (
-                f'<div class="card-desc" style="display:flex;gap:10px;'
-                f'align-items:center;flex-wrap:wrap;padding:10px 12px;'
-                f'border:1px solid rgba(34,197,94,.35);border-radius:12px;'
-                f'background:rgba(34,197,94,.08)">'
+                f'<div class="callout callout-row ok">'
                 f'<span class="badge badge-success">● SHELL AL DÍA</span>'
                 f'<span class="muted" style="font-size:.8rem">'
                 f'shell {esc(chk.get("shell_version", "?"))} · app '
@@ -175,9 +172,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
         else:
             probs = "<br>".join(esc(p) for p in (chk.get("problemas") or []))
             shell_html = (
-                f'<div class="card-desc" style="padding:10px 12px;'
-                f'border:1px solid rgba(239,68,68,.45);border-radius:12px;'
-                f'background:rgba(239,68,68,.08)">'
+                f'<div class="callout bad">'
                 f'<span class="badge badge-danger">▲ SHELL DESINCRONIZADO</span>'
                 f'<div class="muted" style="font-size:.8rem;margin-top:6px">'
                 f'{probs}<br>Revisado: {esc(chk.get("revisado", "?"))} · '
@@ -201,10 +196,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
         detalle = " · ".join(resumen)
         if vchk.get("ok"):
             versiones_html = (
-                f'<div class="card-desc" style="display:flex;gap:10px;'
-                f'align-items:center;flex-wrap:wrap;padding:10px 12px;'
-                f'border:1px solid rgba(34,197,94,.35);border-radius:12px;'
-                f'background:rgba(34,197,94,.08)">'
+                f'<div class="callout callout-row ok">'
                 f'<span class="badge badge-success">● VERSIONES AL DÍA</span>'
                 f'<span class="muted" style="font-size:.8rem">'
                 f'{esc(detalle)} · revisado '
@@ -212,9 +204,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
         else:
             probs_v = "<br>".join(esc(p) for p in (vchk.get("problemas") or []))
             versiones_html = (
-                f'<div class="card-desc" style="padding:10px 12px;'
-                f'border:1px solid rgba(239,68,68,.45);border-radius:12px;'
-                f'background:rgba(239,68,68,.08)">'
+                f'<div class="callout bad">'
                 f'<span class="badge badge-danger">▲ VERSIONES DESINCRONIZADAS</span>'
                 f'<div class="muted" style="font-size:.8rem;margin-top:6px">'
                 f'{probs_v}<br>Mandato: ECCSA-Shell/versiones/'
@@ -264,8 +254,9 @@ def logs_page(name, text, error, user):
         content = (f'<pre class="log">{html.escape(text) or "(log vacío)"}</pre>')
     body = f"""
   <div class="panel">
-    <h2>📄 Logs · {esc(name)}
-      <a class="btn btn-sm btn-secondary" style="float:right" href="/">← Volver</a></h2>
+    <h2><span class="panel-titulo">📄 Logs · {esc(name)}</span>
+      <span class="panel-actions">
+        <a class="back-btn" href="/" title="Volver al inicio">←</a></span></h2>
     {content}
   </div>"""
     return page("estado", body, user=user,
