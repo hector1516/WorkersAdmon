@@ -429,13 +429,36 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         qr_code = ''
         qr_url = ''
 
-        # Intentar extraer folio del texto o URL
+        # Extraer el folio. La pagina de resultado es el LISTADO de vales, no
+        # una confirmacion: cada fila trae el folio en grande y debajo la
+        # fecha, y arriba hay un menu con "Vales", "Facturas", "Filtros"...
+        #
+        # El patron anterior era r'(Vale|Folio|#)[\s:]*([A-Z0-9\-]{6,})' sobre
+        # TODO el texto, asi que cogia la primera palabra de 6+ letras que
+        # siguiera a "Vale" en el menu. Por eso se guardaba "Filtros" como si
+        # fuera el folio: el vale si se creaba, pero el dato quedaba basura.
+        #
+        # Ahora se ancla a la estructura real de la fila: un numero de 6-15
+        # digitos seguido de una fecha dd/mm/aaaa. Si eso no aparece, se
+        # descarta antes que devolver cualquier cosa.
         import re
-        folio_match = re.search(r'(Vale|Folio|#)[\s:]*([A-Z0-9\-]{6,})', body_text, re.IGNORECASE)
-        if folio_match:
-            folio_oxxogas = folio_match.group(2)
-        
-        # Buscar QR en la página (imagen base64 o link)
+        FOLIO_POR_FECHA = re.compile(r'(\d{6,15})\s*\n\s*\d{1,2}/\d{1,2}/\d{2,4}')
+        m = FOLIO_POR_FECHA.search(body_text)
+        if m:
+            folio_oxxogas = m.group(1)
+        else:
+            # Respaldo: numero suelto de 6-15 digitos en las primeras filas.
+            for cand in re.findall(r'(?<![\d.])\d{6,15}(?![\d.])', body_text[:2000]):
+                if not cand.startswith(('19', '20')):   # no es un año
+                    folio_oxxogas = cand
+                    break
+        if not folio_oxxogas:
+            print('[govale] NO se pudo extraer el folio del listado; '
+                  'el vale puede haberse creado pero no se puede referenciar')
+
+        # Buscar QR en la página. OJO: el listado NO muestra el QR (sale al
+        # reenviar o en el detalle), asi que aqui casi nunca habra uno. Por eso
+        # abajo ya no se marca GENERADO solo por esto.
         qr_img = page.query_selector('img[src*="data:image"], img[alt*="QR"], img[src*="qr"]')
         if qr_img:
             qr_src = qr_img.get_attribute('src')
@@ -452,26 +475,46 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             success = True
 
         if success:
-            # Guardar en BD con todos los datos
+            # Guardar en BD con todos los datos.
+            #
+            # El folio es lo que hace falta: identifica el vale en Go Vale. Sin
+            # el, la app no puede referenciarlo y el worker no puede distinguir
+            # este vale de uno nuevo. El QR, en cambio, NO sale de esta pagina
+            # (el listado no lo muestra), asi que suele quedar vacio.
+            #
+            # Antes se ponia GENERADO igual y se imprimia "generado
+            # exitosamente" con qr=no. Como el worker solo reintenta los
+            # APROBADO sin QR, el vale se quedaba GENERADO para siempre y nadie
+            # se enteraba: era un fallo silencioso.
+            #
+            # Ahora: si hay folio, el vale existe y queda GENERADO. Si NO hay
+            # folio, se deja en APROBADO para que el worker lo reintente, y se
+            # avisa en el log, porque sin folio no se sabe si se duplico.
+            est = 'GENERADO' if folio_oxxogas else 'APROBADO'
             conn = db.get_connection()
             try:
                 with conn.cursor() as cur:
                     cur.execute("""
                         UPDATE HUB_SolicitudVales
-                        SET Estatus = 'GENERADO',
+                        SET Estatus = %s,
                             IdValeGoVale = %s,
                             CodigoQR = %s,
                             UrlQR = %s,
                             FechaAprobado = GETDATE()
                         WHERE Id = %s
-                    """, (folio_oxxogas, qr_code[:2000] if qr_code else '', qr_url[:500] if qr_url else '', solicitud_id))
+                    """, (est, folio_oxxogas,
+                          qr_code[:2000] if qr_code else '', qr_url[:500] if qr_url else '',
+                          solicitud_id))
                     conn.commit()
-                    print(f"[govale] BD actualizada: folio={folio_oxxogas}, qr={'sí' if qr_code else 'no'}")
+                    print(f"[govale] BD actualizada: {est} folio={folio_oxxogas or '(sin folio)'}, "
+                          f"qr={'sí' if qr_code else 'no (el listado de Go Vale no lo muestra)'}")
             finally:
                 conn.close()
 
             return {'success': True, 'data': {
-                'message': 'Vale generado exitosamente',
+                'message': ('Vale generado exitosamente' if folio_oxxogas
+                            else 'Vale creado en Go Vale pero NO se pudo leer el folio; '
+                                 'queda APROBADO para reintentar'),
                 'folio_oxxogas': folio_oxxogas,
                 'qr_code': qr_code,
                 'qr_url': qr_url,
