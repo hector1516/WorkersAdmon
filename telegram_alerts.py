@@ -86,11 +86,48 @@ def _resolve_chat_ids(id_evento):
 
 def _apply_template(plantilla, datos):
     """Reemplaza {placeholder} en la plantilla con los datos del payload.
-    Elimina líneas donde todos los placeholders quedan vacíos."""
+    Elimina líneas donde todos los placeholders quedan vacíos.
+
+    Además resuelve los nombres alternativos de cada campo. El texto se
+    arma y se guarda YA RENDERIZADO en la cola, asi que si un productor
+    (un snapshot viejo de este archivo) manda el payload con los nombres
+    internos en vez de los de la plantilla, la alerta sale con los
+    {Nombre} y {Descripcion} literales y no hay forma de arreglarlo despues
+    desde el worker. Con los alias, cualquier version del productor
+    renderiza las 6 variables de la plantilla OXXOGAS_TICKET.
+    """
     import re
     texto = plantilla
+
+    # Alias: nombre de la plantilla -> nombres internos equivalentes.
+    # Se recorren en cascada para que "Cliente" se resuelva desde "Empresa".
+    alias = {
+        'Nombre': ('Usuario', 'NombreRegistro'),
+        'Cantidad': ('Monto', 'Litros'),
+        'Folio': ('FolioTicket',),
+        'Auto': ('Automovil', 'Vehiculo'),
+        'Cliente': ('Empresa', 'RazonSocial', 'NombreCliente'),
+        'Descripcion': ('ProyectoServicio',),
+    }
+    datos = dict(datos or {})
+    for destino, origenes in alias.items():
+        if destino in datos:
+            continue
+        for origen in origenes:
+            if datos.get(origen) not in (None, ''):
+                datos[destino] = datos[origen]
+                break
+
     for key, val in datos.items():
         texto = texto.replace('{' + key + '}', str(val if val is not None else ''))
+
+    # Si quedo algun placeholder sin sustituir, avisar: antes salia en
+    # silencio y el usuario lo descubria en Telegram, ya con el texto roto.
+    sin_resolver = sorted(set(re.findall(r'\{(\w+)\}', texto)))
+    if sin_resolver:
+        print(f'[telegram] WARN plantilla con placeholders sin resolver: '
+              f'{sin_resolver}', flush=True)
+
     # Limpiar líneas que solo tienen espacios/bolding vacío
     lineas = texto.split('\n')
     lineas_limpias = []
