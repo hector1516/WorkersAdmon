@@ -280,6 +280,48 @@ class DatosTicket(unittest.TestCase):
 
 # ── Las cinco plantillas que se siembran para WhatsApp ───────────────────────
 
+class RecuperarJpeg(unittest.TestCase):
+    """
+    Las fotos del flujo de Vale QR traen 16 bytes de basura antes del JPEG. PIL
+    no las abre, y con eso el aviso se quedaba sin foto.
+    """
+
+    BASURA = bytes.fromhex('75ab5a8a66a07bf8e97a06dab1eeb8ff')
+
+    def _jpeg(self):
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new('RGB', (30, 20), (200, 30, 30)).save(buf, format='JPEG')
+        return buf.getvalue()
+
+    def test_una_foto_con_basura_adelante_se_recupera(self):
+        datos = self.BASURA + self._jpeg()
+        out = nm.normalizar_foto(datos)
+        self.assertIsNotNone(out)
+        self.assertTrue(out.startswith(b'\xff\xd8\xff'))
+        from PIL import Image
+        import io
+        self.assertEqual(Image.open(io.BytesIO(out)).size, (30, 20))
+
+    def test_una_foto_limpia_se_deja_como_esta(self):
+        out = nm.normalizar_foto(self._jpeg())
+        self.assertTrue(out.startswith(b'\xff\xd8\xff'))
+
+    def test_basura_sin_jpeg_dentro_no_inventa_una_foto(self):
+        self.assertIsNone(nm.normalizar_foto(b'no soy nada'))
+        self.assertIsNone(nm.normalizar_foto(self.BASURA + b'tampoco soy un jpeg'))
+
+    def test_el_registro_real_de_produccion_si_se_recupera(self):
+        # Los bytes tal cual como estan en HUB_OxxoGasTickets.Id=19
+        from PIL import Image
+        import io
+        real = bytes.fromhex('75ab5a8a66a07bf8e97a06dab1eeb8ffd8ffe000104a4649460001010048')
+        real += b'\x00' * 20 + b'\xff\xd9'
+        out = nm._recuperar_jpeg(real)
+        self.assertTrue(out.startswith(b'\xff\xd8\xff'))
+
+
 class Plantillas(unittest.TestCase):
     def test_hay_una_plantilla_para_cada_aviso_pedido(self):
         for evento in ('GOVALE_SALDO', 'GOVALE_SALDO_BAJO', 'KILOMETROS',

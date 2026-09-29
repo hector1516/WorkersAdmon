@@ -52,6 +52,19 @@
   foto no se pueden reconstruir, manda el texto solo y avisa.
 
 ### Corregido
+- **Las fotos de los tickets vinculados a un Vale QR llegan con 16 bytes de
+  basura delante del JPEG**, y PIL no las podía abrir, así que el aviso se
+  quedaba sin foto (era el caso de los tickets #13, #15, #17, #18, #19 y #55,
+  todos con el mismo prefijo `75ab5a8a…`; por cierto terminan bien en `ff d9`,
+  o sea que el JPEG de adentro está intacto). Ahora `notif_messages` recorta el
+  JPEG de adentro antes de procesarlo: **18 de las 19 fotos guardadas se
+  recuperan** (antes 13) y los avisos de ticket vuelven a llevar su foto, en
+  WhatsApp y en Telegram. Quien las escribe es el otro lado (Field, flujo del
+  Vale QR) y no se toca desde aquí; con el recorte del lector se recuperan
+  también las que ya estaban guardadas.
+- El botón "Reenviar último" del aviso de saldo bajo ya no manda un WhatsApp
+  que dice "saldo bajo" con un "OK" abajo: si el saldo está sano, explica que
+  no envió nada.
 - **`oxxogas_vales_automation` no se podía conectar a la base**: pasaba
   `tds_version='7.4'` a `pymssql.connect()`, que la versión de FreeTDS de la
   imagen rechaza ("unrecognized tds version: 7.4"). El worker `govale_vouchers`

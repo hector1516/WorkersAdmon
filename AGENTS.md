@@ -75,7 +75,12 @@ Telegram**) · migracion `0043_openwa_whatsapp.sql` (`HUB_WhatsappEventos`,
    (`HUB_RegistroKilometros`, `HUB_OxxoGasTickets` con su foto,
    `ReportesServicio` firmado) en vez de reenviar la fila de la cola. El saldo
    no es un evento: es una revisión periódica, y ahí manda el estado de ahora.
-6. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
+6. Las fotos de los tickets con `IdSolicitudVale` llegan con **16 bytes de
+   basura antes del JPEG** (quien las escribe es el flujo de Vale QR de Field).
+   PIL no las abre, así que `notif_messages._recuperar_jpeg` recorta el JPEG de
+   adentro (`ff d8 ff`). Si se vuelve a topar con basura, es que cambió el
+   sobre y hay que ajustar ahí, no en el JPEG.
+7. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
    adjuntos pesan, asi que se limpia lo cerrado a mas de 30 dias
    (`limpiar_openwa_historial`), nunca lo pendiente.
 

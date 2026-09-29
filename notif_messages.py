@@ -355,6 +355,35 @@ def datos_ticket(folio_ticket, id_vehiculo, id_cliente, id_usuario, descripcion,
 
 # ── Fotos ────────────────────────────────────────────────────────────────────
 
+MAGIC_JPEG = b'\xff\xd8\xff'
+
+
+def _recuperar_jpeg(datos):
+    """
+    Las fotos de los tickets vinculados a un Vale QR llegan con 16 bytes de
+    basura delante de un JPEG valido (y terminan bien en ff d9). No es teoria:
+    en produccion los tickets #13, #15, #17, #18, #19 y #55 tienen exactamente
+    el mismo prefijo `75 ab 5a 8a 66 a0 7b f8 e9 7a 06 da b1 ee b8 ff` y a
+    partir de ahi un JPEG intacto. PIL no las abre ("cannot identify image
+    file"), asi que el aviso se quedaba sin foto.
+
+    Quien las escribe es el otro lado (Field, el flujo del Vale QR), y no se
+    toca desde aqui. En vez de|reportar| por cada foto, se recorta el JPEG de
+    adentro: el mensaje sale con su foto y, de paso, se recuperan las que ya
+    estaban guardadas.
+
+    Si no hay JPEG adentro, se devuelve None y el aviso sale solo con el texto.
+    """
+    if not datos:
+        return None
+    if datos[:3] == MAGIC_JPEG:
+        return datos
+    pos = datos.find(MAGIC_JPEG, 0, 65536)   # solo en el arranque, no a lo loco
+    if pos < 0:
+        return None
+    return datos[pos:]
+
+
 def normalizar_foto(foto_bytes, max_dim=1600, quality=85):
     """
     Recodifica una foto a JPEG baseline antes de mandarla.
@@ -371,7 +400,7 @@ def normalizar_foto(foto_bytes, max_dim=1600, quality=85):
     try:
         from PIL import Image as PILImage
         import io
-        img = PILImage.open(io.BytesIO(foto_bytes))
+        img = PILImage.open(io.BytesIO(_recuperar_jpeg(foto_bytes) or foto_bytes))
         if img.mode in ('RGBA', 'LA', 'P'):
             background = PILImage.new('RGB', img.size, (255, 255, 255))
             if img.mode == 'P':

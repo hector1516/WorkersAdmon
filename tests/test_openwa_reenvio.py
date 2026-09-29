@@ -251,6 +251,19 @@ class Saldo(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn('BAJO', db.encolados[0]['texto'])
 
+    def test_pulsar_saldo_bajo_con_saldo_sano_no_manda_una_contradiccion(self):
+        # Mandar "saldo bajo" con un "OK" en la misma pantalla se ve peor que
+        # no mandar nada, asi que el boton lo explica y no envia.
+        db = DbFalso(saldo='9709.00')
+        previo = _con(db)
+        try:
+            ok, msg = oa.reenviar_ultimo('GOVALE_SALDO_BAJO')
+        finally:
+            oa.db = previo
+        self.assertFalse(ok)
+        self.assertIn('NO está bajo', msg)
+        self.assertEqual(db.encolados, [])
+
 
 class Desconocido(unittest.TestCase):
     def test_un_aviso_que_no_sabe_reproducir_lo_dice_en_vez_de_fallar(self):

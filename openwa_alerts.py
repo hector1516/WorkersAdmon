@@ -260,6 +260,14 @@ def reenviar_ultimo(id_evento):
             # Se manda el que se pidio, no los dos: si pides el diario y estas
             # en $9,709 no tiene sentido que salga tambien el de "saldo bajo".
             datos = nm.datos_saldo(saldo, fecha)
+            if id_evento == 'GOVALE_SALDO_BAJO' and 'BAJO' not in datos['Estado']:
+                # En produccion este aviso solo se dispara cuando el saldo cae
+                # del umbral, asi que aqui solo se puede llegar pulsando el
+                # boton a proposito. Mandarlo seria un WhatsApp que dice
+                # "saldo bajo" con un "OK" en la misma pantalla.
+                return False, (f"El saldo NO está bajo: ${saldo:,.2f} contra un "
+                               f"umbral de ${datos['Umbral']}. No se envió nada "
+                               f"(este aviso solo sale cuando baja del umbral).")
             n = _encolar(id_evento, datos)
             return _resultado(n, f"saldo actual: ${saldo:,.2f} (revisado {fecha})")
 
