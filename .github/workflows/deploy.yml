@@ -238,7 +238,6 @@ jobs:
           $ESPERADO = '${{ github.sha }}'
           $REPO = 'https://github.com/${{ github.repository }}.git'
           $url = $REPO -replace '^https://', "https://x-access-token:$env:GH_TOKEN@"
-          $ErrorActionPreference = 'Stop'
 
           if (-not (Test-Path $CANON)) {
             Write-Output "DIAG canon: $CANON no existe; se crea"
@@ -248,22 +247,40 @@ jobs:
           # No se borra el directorio: puede tener secretos o configuracion
           # que no estan en el repo. Si no es repo, se inicializa encima y se deja
           # que el checkout lo sobreescriba.
+          #
+          # OJO con git y PowerShell 5.1: git imprime su progreso ("From
+          # https://...", "main -> main") en STDERR, y `2>&1 | Out-Null` convierte
+          # cada linea de STDERR en un ErrorRecord; con EAP=Stop eso levanta
+          # NativeCommandError y mata el paso aunque git haya salido 0. Es
+          # exactamente lo que le paso a este paso en d590754 (el primer push con
+          # camino rebuild, con el .git del canonico recien creado): murio en el
+          # fetch y el rebuild quedo skipeado. Por eso los git de este bloque
+          # corren con EAP=Continue y sin `2>&1` (el progreso queda en el log,
+          # que es donde uno lo quiere ver) y el codigo se captura a mano.
+          $ErrorActionPreference = 'Continue'
+
           if (-not (Test-Path (Join-Path $CANON '.git'))) {
             Write-Output "DIAG canon: no era un repo git; se inicializa"
-            git -C $CANON init 2>&1 | Out-Null
-            git -C $CANON remote add origin $url 2>&1 | Out-Null
+            git -C $CANON init
+            git -C $CANON remote add origin $url
           } else {
-            git -C $CANON remote set-url origin $url 2>&1 | Out-Null
+            git -C $CANON remote set-url origin $url
           }
 
-          git -C $CANON fetch --depth 1 origin main 2>&1 | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Output "::error::no se pudo traer main del remoto; el rebuild construiria con lo que hubiera"
+          git -C $CANON fetch --depth 1 origin main
+          $fetchRc = $LASTEXITCODE
+          if ($fetchRc -ne 0) {
+            Write-Output "::error::no se pudo traer main del remoto (rc=$fetchRc); el rebuild construiria con lo que hubiera"
             exit 1
           }
-          git -C $CANON reset --hard FETCH_HEAD 2>&1 | Out-Null
-          $head = (git -C $CANON rev-parse HEAD).Trim()
+          git -C $CANON reset --hard FETCH_HEAD
+          $resetRc = $LASTEXITCODE
+          $head = ("$(git -C $CANON rev-parse HEAD)").Trim()
           Write-Output "DIAG canon: HEAD=$head esperado=$ESPERADO"
+          if ($resetRc -ne 0 -or $head -eq '') {
+            Write-Output "::error::no se pudo poner el clon canonico en FETCH_HEAD (reset rc=$resetRc, HEAD='$head')"
+            exit 1
+          }
           if (-not $head.StartsWith($ESPERADO.Substring(0, 7))) {
             Write-Output "::error::el clon canonico quedo en $head y se queria $ESPERADO. Aborto: no voy a construir una imagen con el codigo equivocado."
             exit 1

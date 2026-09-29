@@ -45,6 +45,13 @@ que no había tenido entrada en este archivo).
   parecer que el panel era una 1.10.x → ahora dice `copia`.
 - `static/changelog.json` estaba en 1.1.0 con `APP_VERSION` en 1.2.0 (el
   popup 📋 nunca iba a saltar; lo valida `check.yml`).
+- **El camino rebuild del deploy moría en "Sincronizar el clon canonico"**
+  (`.github/workflows/deploy.yml`): git imprime su progreso en STDERR y
+  `2>&1 | Out-Null` con `$ErrorActionPreference='Stop'` lo convierte en
+  `NativeCommandError`, así que el paso se caía aunque git saliera 0 y el
+  rebuild quedaba skipeado. Los `git` de ese paso corren ahora con
+  `EAP=Continue` y sin `2>&1` (el progreso queda en el log) y el código se
+  captura a mano.
 
 ### Agregado
 - `panel/views/apps.py`: helpers con `class="input"` y `sel-tipo` en el
