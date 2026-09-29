@@ -24,13 +24,26 @@ INVOICES_SUBSCRIPTION_KEY = "2475c773d11a469e951f47edaad3a1ee"
 
 
 def get_db_connection():
+    """
+    Conexion propia (el resto de la app usa eccsa_db.get_connection).
+
+    OJO: aquí NO se pasa `tds_version`. Estaba fijado a '7.4' y con la version de
+    FreeTDS de la imagen eso revienta: `pymssql.connect(...)` responde
+    "unrecognized tds version: 7.4" y este modulo no se ha podido conectar NUNCA
+    (el worker govale_vouchers llevaba 237 errores seguidos, uno cada 5 minutos,
+    desde su ultimo reinicio). Sin el parametro la negociacion normal conecta
+    bien, que es lo que hacen todos los demas workers de la misma imagen.
+
+    Verificado dentro del contenedor, contra la base de produccion:
+        con tds_version='7.4' -> FALLA  (unrecognized tds version: 7.4)
+        sin tds_version       -> OK     (ECCSA_Admon)
+    """
     return pymssql.connect(
         server=DB_CONFIG['server'],
         user=DB_CONFIG['user'],
         password=DB_CONFIG['password'],
         database=DB_CONFIG['database'],
-        port=int(DB_CONFIG.get('port', 1433)),
-        tds_version='7.4'
+        port=int(DB_CONFIG.get('port', 1433))
     )
 
 
