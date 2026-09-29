@@ -395,11 +395,29 @@ jobs:
           # El build.ps1 escribe FIN rc=0 solo despues de recrear el contenedor
           # y ver la salud. Se vuelve a comprobar desde afuera, porque un
           # 'FIN rc=0' sin contenedor nuevo seria otro deploy que miente.
-          $salud = (docker inspect -f '{{.State.Health.Status}}' workersadmon 2>$null)
+          #
+          # OJO: el Dockerfile no define HEALTHCHECK (build.ps1 valida con
+          # Invoke-WebRequest a /healthz), asi que .State.Health no existe y el
+          # template de docker inspect -f '{{.State.Health.Status}}' sale con
+          # "map has no entry for key Health" por STDERR. Con EAP=Stop y aun
+          # redirigiendo con 2>$null eso se vuelve NativeCommandError y tumbaba
+          # el paso aunque el build hubiera salido bien. Con {{if .State.Health}}
+          # el template no revienta y, ademas, el bloque corre con EAP=Continue
+          # (mismo truco que los git del paso de sincronizacion).
+          $ErrorActionPreference = 'Continue'
+          $salud = (docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}sin-healthcheck{{end}}' workersadmon 2>$null)
           $img = (docker inspect -f '{{.Image}}' workersadmon 2>$null)
           $esperada = (docker images --format '{{.ID}}' workersadmon:latest 2>$null | Select-Object -First 1)
-          Write-Host "contenedor: health=$salud imagen=$($img.Substring(0,12))"
-          if ($img -and $esperada -and $img.StartsWith($esperada.Substring(0, 12))) {
+          $ErrorActionPreference = 'Stop'
+          $salud = "$salud".Trim()
+          $img = "$img".Trim()
+          $esperada = "$esperada".Trim()
+          Write-Host "contenedor: health=$salud imagen=$(if ($img.Length -ge 12) { $img.Substring(0,12) } else { $img })"
+          if (-not $img -or -not $esperada) {
+            Write-Host "::error::no pude leer la imagen del contenedor o la recien construida"
+            throw "docker inspect no devolvio la imagen (salud=$salud img=$img esperada=$esperada)"
+          }
+          if ($img.StartsWith($esperada.Substring(0, 12))) {
             Write-Host "OK - contenedor recreado con la imagen recien construida"
           } else {
             Write-Host "::error::el contenedor corre con una imagen que no es la recien construida"

@@ -60,6 +60,14 @@ que no había tenido entrada en este archivo).
   parsea limpio (verificado con el PowerShell del ServerVM). El paso del
   workflow además espera hasta 60s por `build.log` y vuelca stdout/stderr del
   proceso hijo si no aparece.
+- **El paso "Rebuild" seguía tirándose DESPUÉS de que el build salía bien**
+  (`.github/workflows/deploy.yml`): `docker inspect -f '{{.State.Health.Status}}'`
+  revienta con *"map has no entry for key Health"* porque el Dockerfile no define
+  `HEALTHCHECK` (build.ps1 valida la salud con `Invoke-WebRequest` a `/healthz`),
+  y en PowerShell 5.1 ese STDERR se volvía `NativeCommandError` aunque estuviera
+  redirigido con `2>$null`. El template ahora usa `{{if .State.Health}}`, el
+  bloque corre con `EAP=Continue` (mismo truco que los `git` del paso de
+  sincronización) y se limpian/validan los strings antes de comparar imágenes.
 
 ### Agregado
 - `panel/views/apps.py`: helpers con `class="input"` y `sel-tipo` en el
