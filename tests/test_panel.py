@@ -394,6 +394,59 @@ def fake_set_dest(eid, ids):
 db.update_telegram_evento = fake_update_evento
 db.set_telegram_destinatarios = fake_set_dest
 
+
+# ── OpenWA / WhatsApp (HUB_WhatsappEventos, HUB_WhatsappQueue) ──────────────
+_WA = {
+    "config": {"api_key": "", "base_url": "http://openwa:2785",
+               "session_id": "20a37407-8928-4d64-afea-15dd0b874207"},
+    "eventos": [
+        {"IdEvento": "KILOMETROS", "Nombre": "Registro de kilometros",
+         "Descripcion": "Aviso cada vez que se registra un odometro.",
+         "PlantillaMensaje": "🚗 {Auto}\n📊 {Kilometros} km", "AdjuntarArchivo": 0,
+         "Telefonos": "5218123211516", "Activo": 1},
+        {"IdEvento": "REPORTE_SERVICIO", "Nombre": "Reporte de servicio firmado",
+         "Descripcion": "Se adjunta el PDF.", "PlantillaMensaje": "*{Folio}*",
+         "AdjuntarArchivo": 1, "Telefonos": "", "Activo": 1},
+    ],
+    "historial": [{"Id": 1, "IdEvento": "KILOMETROS", "ChatId": "5218123211516@c.us",
+                   "Estado": "ENVIADO", "Intentos": 1, "Error": None,
+                   "Creado": "2026-09-29 10:00:00", "Enviado": "2026-09-29 10:00:05"},
+                  {"Id": 2, "IdEvento": "OXXOGAS_TICKET", "ChatId": "5218123211517@c.us",
+                   "Estado": "FALLADO", "Intentos": 3, "Error": "HTTP 503: gateway caido",
+                   "Creado": "2026-09-29 09:00:00", "Enviado": None}],
+}
+
+db.get_openwa_config = lambda: dict(_WA["config"])
+db.get_openwa_eventos = lambda: [dict(e) for e in _WA["eventos"]]
+db.get_openwa_historial = lambda limite=100, estado=None: [dict(h) for h in _WA["historial"]]
+
+
+def fake_openwa_resueltos(id_evento):
+    import sys
+    sys.path.insert(0, ROOT)
+    from openwa_client import normalizar_chat_ids
+    for e in _WA["eventos"]:
+        if e["IdEvento"] == id_evento:
+            return normalizar_chat_ids(e.get("Telefonos") or "")
+    return [], []
+
+
+db.get_openwa_destinatarios_resueltos = fake_openwa_resueltos
+
+
+def fake_update_openwa(eid, plantilla, telefonos, adjunto, activo):
+    for e in _WA["eventos"]:
+        if e["IdEvento"] == eid:
+            e["PlantillaMensaje"] = plantilla
+            e["Telefonos"] = telefonos
+            e["AdjuntarArchivo"] = int(bool(adjunto))
+            e["Activo"] = int(bool(activo))
+            return True, ""
+    return False, f"evento '{eid}' no existe"
+
+
+db.update_openwa_evento = fake_update_openwa
+
 _TG["vinculados"] = [
     {"IdUsuario": 1, "ChatId": 5551234, "NombreTelegram": "admin_tg",
      "TelefonoMAC": "MAC-1", "Activo": 1, "FechaVinculado": "2026-09-01 10:00",
@@ -1025,6 +1078,94 @@ class PanelTest(unittest.TestCase):
         loc = urllib.parse.unquote_plus(headers.get("Location", ""))
         self.assertIn("ok=", loc, loc)
         self.assertIn("responde", loc)
+
+    def test_30_bloque_de_whatsapp_en_la_pestana(self):
+        c = self._logged()
+        # Conexion: la casilla de la key, la direccion y la sesion
+        code, _, html = c.get("/notificaciones")
+        self.assertEqual(code, 200)
+        for trozo in ("OpenWA", "openwa_api_key", "openwa_base_url",
+                      "openwa_session_id", "Mandar prueba"):
+            self.assertIn(trozo, html)
+        # la key es campo password y su valor no aparece en el HTML
+        self.assertIn('name="openwa_api_key" value=""', html)
+        self.assertIn('type="password"', html)
+        # Avisos: la casilla de telefonos por evento
+        code, _, html = c.get("/notificaciones?wa=eventos")
+        self.assertEqual(code, 200)
+        for trozo in ("Avisos de WhatsApp", 'name="Telefonos"', "KILOMETROS",
+                      "REPORTE_SERVICIO", "separados por comas"):
+            self.assertIn(trozo, html)
+        # y el resumen de a quien le llega
+        self.assertIn("5218123211516@c.us", html)
+        # un evento sin telefonos lo dice, para que no se crea que avisara
+        self.assertIn("sin tel", html)
+        # Historial: los enviados y los fallidos con su motivo
+        code, _, html = c.get("/notificaciones?wa=historial")
+        self.assertEqual(code, 200)
+        for trozo in ("Historial de WhatsApp", "ENVIADO", "FALLADO",
+                      "HTTP 503"):
+            self.assertIn(trozo, html)
+        # sub-pestaña desconocida cae en Conexion
+        code, _, html = c.get("/notificaciones?wa=zzz")
+        self.assertEqual(code, 200)
+        self.assertIn("Mandar prueba", html)
+
+    def test_31_guardar_conexion_de_whatsapp(self):
+        c = self._logged()
+        code, headers, _ = c.post("/notificaciones/openwa", csrf=c.csrf(),
+                                  openwa_api_key="sk-nueva-1234",
+                                  openwa_base_url="http://openwa:2785",
+                                  openwa_session_id="sid-123")
+        self.assertEqual(code, 303)
+        self.assertIn("ok=", urllib.parse.unquote_plus(headers.get("Location", "")))
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
+        self.assertIn("wa=conexion", loc)      # se queda donde estaba
+        _CONFIG["openwa_api_key"] = "sk-nueva-1234"
+        _CONFIG["openwa_session_id"] = "sid-123"
+        # la key en blanco NO borra la guardada
+        c.post("/notificaciones/openwa", csrf=c.csrf(), openwa_api_key="",
+               openwa_base_url="", openwa_session_id="")
+        self.assertEqual(_CONFIG["openwa_api_key"], "sk-nueva-1234")
+        # "BORRAR" sí la quita
+        c.post("/notificaciones/openwa", csrf=c.csrf(), openwa_api_key="BORRAR")
+        self.assertEqual(_CONFIG["openwa_api_key"], "")
+
+    def test_32_telefonos_invalidos_no_se_guardan(self):
+        c = self._logged()
+        antes = dict(_WA["eventos"][0])
+        code, headers, _ = c.post("/notificaciones/openwa/evento", csrf=c.csrf(),
+                                  IdEvento="KILOMETROS", Telefonos="5218123211516, hector",
+                                  PlantillaMensaje="x", Activo="1")
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
+        self.assertIn("err=", loc)
+        # y dice cuál entrada fue la mala, para poder corregirla
+        self.assertIn("hector", loc)
+        self.assertEqual(_WA["eventos"][0], antes, "no debe guardar a medias")
+
+    def test_33_guardar_telefonos_validos(self):
+        c = self._logged()
+        code, headers, _ = c.post("/notificaciones/openwa/evento", csrf=c.csrf(),
+                                  IdEvento="KILOMETROS",
+                                  Telefonos="5218123211516, 5512345678",
+                                  PlantillaMensaje="Hola {Auto}", Activo="1",
+                                  AdjuntarArchivo="0")
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
+        self.assertIn("2 n", loc)               # dice a cuántos números llegó
+        ev = _WA["eventos"][0]
+        self.assertEqual(ev["Telefonos"], "5218123211516, 5512345678")
+        self.assertEqual(ev["PlantillaMensaje"], "Hola {Auto}")
+
+    def test_34_prueba_de_whatsapp_sin_key(self):
+        c = self._logged()
+        _WA["config"]["api_key"] = ""
+        code, headers, _ = c.post("/notificaciones/openwa/probar", csrf=c.csrf())
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
+        self.assertIn("err=", loc)
+        self.assertIn("API key", loc)
 
     def test_29_evento_y_destinatarios(self):
         c = self._logged()

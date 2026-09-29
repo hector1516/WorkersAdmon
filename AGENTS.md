@@ -35,6 +35,45 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
   workers (sync de vales) vive ahí; si algún día se quiere limpiar, mover
   `fetch_and_sync_oxxogas_emails` a un módulo sin `views/`.
 
+## Avisos por WhatsApp (OpenWA)
+
+OpenWA es un gateway de WhatsApp (`whatsapp-web.js`) que corre como `openwa-api`
+en la red docker `openwa_default`. La app le pide por HTTP que mande mensajes:
+**no** se habla con WhatsApp directamente.
+
+| | |
+|---|---|
+| Base (dentro de docker) | `http://openwa:2785` — **por hostname**, nunca por IP: OpenWA tiene un guard anti-SSRF que rechaza callbacks a IPs internas |
+| Auth | header `X-API-Key` |
+| Sesión | `openwa_session_id` en `HUB_Config` (la `principal`, ya conectada) |
+| API key | **se pega en la pantalla** (`Notificaciones > Conexion > OpenWA`), en `HUB_Config` como `openwa_api_key`. `OPENWA_API_KEY` del entorno es solo el respaldo para CI/tests |
+| Endpoints | `GET /api/health` (publico) · `POST /api/sessions/{id}/messages/send-text` · `.../send-document` · `.../send-image` |
+
+Archivos: `openwa_client.py` (HTTP + normalizacion de numeros) ·
+`openwa_alerts.py` (dispatcher) · `cron_sync_openwa.py` (worker, corre como
+`openwa_worker`) · `notif_messages.py` (**lo que se dice, compartido con
+Telegram**) · migracion `0043_openwa_whatsapp.sql` (`HUB_WhatsappEventos`,
+`HUB_WhatsappQueue`).
+
+**Reglas que ya se aprendieron:**
+
+1. El multimedia va **en base64 dentro del JSON** (campo `base64`), no multipart,
+   y `mimetype` es obligatorio cuando se manda base64.
+2. `workersadmon` tiene que estar en la red `openwa_default`
+   (`docker network connect openwa_default workersadmon`). `build.ps1` ya
+   recrea el contenedor en **todas** sus redes, asi que no se pierde al
+   redesplegar.
+3. Los destinatarios son **telefonos escritos a mano, separados por comas**
+   (`Telefonos` del evento). Un numero de 11 digitos que empieza con 1 se
+   **rechaza**: es ambiguo entre el formato antiguo de Mexico y uno de EUA, y
+   adivinar produce un numero valido que no es de nadie.
+4. La API key nunca se loguea: `openwa_client._limpiar_detalle` la tapa antes de
+   devolver cualquier error (al log del worker va justo lo que se devuelve).
+5. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
+   adjuntos pesan, asi que se limpia lo cerrado a mas de 30 dias
+   (`limpiar_openwa_historial`), nunca lo pendiente.
+
+
 ## Regla de oro: un worker = 3 cosas
 
 1. **Código**: `<worker>.py` en la raíz (loop infinito con `try/except` + `time.sleep`).
@@ -56,7 +95,7 @@ config de apps de HUB/admon/Field/futuras). Fases:
 |---|---|---|
 | **A** | `panel/` + login HUB + módulos Estado y Logs (acciones y logs) | ✅ |
 | **B** | pestaña **Configuración por worker**: `panel/spec.py` (catálogo), `panel/envconf.py` (overrides de entorno persistidos en `/data/worker_env.json` y reaplicados por el entrypoint), edición de `HUB_Config`, constantes solo lectura, bitácora sin valores secretos | ✅ |
-| **C** | pestaña Notificaciones (Telegram `HUB_Telegram*` con **5 sub-pestañas** Conexión/Eventos/Destinatarios/Vinculados/Historial iguales a `views/telegram.py` del HUB, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón de prueba | ✅ |
+| **C** | pestaña Notificaciones (Telegram `HUB_Telegram*` con **5 sub-pestañas** Conexión/Eventos/Destinatarios/Vinculados/Historial iguales a `views/telegram.py` del HUB, **WhatsApp/OpenWA `HUB_Whatsapp*` con 3 sub-pestañas** Conexión/Avisos/Historial, Push `HUB_PushConfig`, SMTP `HUB_EmailConfig`, IA `HUB_AiConfig`) con botón de prueba | ✅ |
 | **D** | pestaña Apps: catálogo `HUB_ConfigCatalogo` (metadatos) + valores en `HUB_Config`, agrupados por app; permiso `AccesoAppConfig` | ✅ |
 | **E** | subdominio `worker.ecc-sa.com.mx` vía Cloudflare (dashboard Zero Trust → Add public hostname → `http://10.188.141.31:8200`) | ✅ |
 

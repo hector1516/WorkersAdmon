@@ -336,7 +336,8 @@ class Handler(BaseHTTPRequestHandler):
                 user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
                 **self._shell_ctx(),
                 correo_prueba=query.get("para", [""])[0] or user.get("email", ""),
-                vista_tg=query.get("tg", [""])[0] or "conexion"))
+                vista_tg=query.get("tg", [""])[0] or "conexion",
+                vista_wa=query.get("wa", [""])[0] or "conexion"))
 
         if path == "/asistencia":
             user, done = self._require()
@@ -577,6 +578,9 @@ class Handler(BaseHTTPRequestHandler):
             ("telegram", "vincular"): self._notif_telegram_vincular,
             ("telegram", "desvincular"): self._notif_telegram_desvincular,
             ("telegram", "limpiar"): self._notif_telegram_limpiar,
+            ("openwa", "guardar"): self._notif_openwa,
+            ("openwa", "probar"): self._notif_openwa_probar,
+            ("openwa", "evento"): self._notif_openwa_evento,
             ("push", "guardar"): self._notif_push,
             ("push", "probar"): self._notif_push_probar,
             ("correo", "guardar"): self._notif_correo,
@@ -763,6 +767,76 @@ class Handler(BaseHTTPRequestHandler):
         self._notif_log(user, "Token de Telegram actualizado")
         return self._notif_flash("Token de Telegram guardado.")
 
+    def _notif_openwa(self, user, form):
+        """
+        Guarda la conexion a OpenWA. Solo se escribe lo que venga en el
+        formulario: la casilla de la API key se deja en blanco a proposito (es
+        un campo password) y vacio significa "no la toques", no "borrala". Para
+        borrarla de verdad se manda el texto `BORRAR`.
+        """
+        api_key = (form.get("openwa_api_key", [""])[0] or "").strip()
+        base_url = (form.get("openwa_base_url", [""])[0] or "").strip()
+        session_id = (form.get("openwa_session_id", [""])[0] or "").strip()
+
+        valores = {}
+        if api_key:
+            if api_key.strip().upper() == "BORRAR":
+                valores["openwa_api_key"] = ""
+            else:
+                valores["openwa_api_key"] = api_key
+        if base_url:
+            valores["openwa_base_url"] = base_url
+        if session_id:
+            valores["openwa_session_id"] = session_id
+
+        if not valores:
+            return self._notif_flash("Sin cambios: no se envió ningún valor.",
+                                     vista_wa="conexion")
+        ok, err = db.set_config_values(valores)
+        if not ok:
+            return self._notif_flash(f"No se pudo guardar la conexión: {err}", err=True,
+                                     vista_wa="conexion")
+        self._notif_log(user, "Conexión de OpenWA (WhatsApp) actualizada")
+        return self._notif_flash("Conexión de OpenWA guardada.", vista_wa="conexion")
+
+    def _notif_openwa_probar(self, user, form):
+        destino = (form.get("openwa_prueba_numero", [""])[0] or "").strip()
+        ok, msg = workers.test_openwa(destino)
+        self._notif_log(user, f"Prueba de OpenWA: {'OK' if ok else 'ERROR'}")
+        return self._notif_flash(f"OpenWA: {msg}", err=not ok, vista_wa="conexion")
+
+    def _notif_openwa_evento(self, user, form):
+        eid = (form.get("IdEvento", [""])[0] or "").strip()
+        plantilla = (form.get("PlantillaMensaje", [""])[0] or "")
+        telefonos = (form.get("Telefonos", [""])[0] or "")
+        adjunto = (form.get("AdjuntarArchivo", ["0"])[0] or "0") == "1"
+        activo = (form.get("Activo", ["0"])[0] or "0") == "1"
+        if not eid:
+            return self._notif_flash("Falta el evento.", err=True, vista_wa="eventos")
+
+        # Avisa antes de guardar si hay numeros que no son validos: es mas util
+        # saberlo al pegar que descubrir que a medias llego el aviso.
+        import importlib
+        try:
+            validos, rechazados = importlib.import_module(
+                "openwa_client").normalizar_chat_ids(telefonos)
+        except Exception:
+            validos, rechazados = [], []
+        if rechazados:
+            return self._notif_flash(
+                f"No se guardó: no son números → {', '.join(rechazados)}. "
+                f"Escríbelos con clave de país (ej. 5218123211516).", err=True,
+                vista_wa="eventos")
+
+        ok, err = db.update_openwa_evento(eid, plantilla, telefonos, adjunto, activo)
+        if not ok:
+            return self._notif_flash(f"No se pudo guardar el evento: {err}", err=True,
+                                     vista_wa="eventos")
+        a_donde = (f" a {len(validos)} número(s)" if validos
+                   else " (sin números: no se enviará nada)")
+        self._notif_log(user, f"Aviso de WhatsApp {eid} actualizado")
+        return self._notif_flash(f"Aviso {eid} guardado{a_donde}.", vista_wa="eventos")
+
     def _notif_telegram_probar(self, user, form):
         ok, msg = workers.test_telegram_bot()
         self._notif_log(user, f"Prueba de token de Telegram: {'OK' if ok else 'ERROR'}")
@@ -774,7 +848,7 @@ class Handler(BaseHTTPRequestHandler):
         adjunto = (form.get("AdjuntarArchivo", ["0"])[0] or "0") == "1"
         activo = (form.get("Activo", ["0"])[0] or "0") == "1"
         if not eid:
-            return self._notif_flash("Falta el evento.", err=True)
+            return self._notif_flash("Falta el evento.", err=True, vista_wa="eventos")
         ok, err = db.update_telegram_evento(eid, plantilla, adjunto, activo)
         if not ok:
             return self._notif_flash(f"No se pudo guardar el evento: {err}", err=True)
@@ -785,7 +859,7 @@ class Handler(BaseHTTPRequestHandler):
         eid = (form.get("IdEvento", [""])[0] or "").strip()
         ids = [i for i in form.get("ids", []) if str(i).isdigit()]
         if not eid:
-            return self._notif_flash("Falta el evento.", err=True)
+            return self._notif_flash("Falta el evento.", err=True, vista_wa="eventos")
         ok, err = db.set_telegram_destinatarios(eid, ids)
         if not ok:
             return self._notif_flash(f"No se pudieron guardar los destinatarios: {err}", err=True)
@@ -912,11 +986,16 @@ class Handler(BaseHTTPRequestHandler):
         return self._notif_flash(msg, err=not ok)
 
     # ── utilidades comunes ─────────────────────────────────────────────────
-    def _notif_flash(self, message, err=False, vista=""):
-        """PRG: conserva la sub-pestaña Telegram (?tg=...) al volver."""
+    def _notif_flash(self, message, err=False, vista="", vista_wa=""):
+        """
+        PRG: vuelve a la pagina de Notificaciones con el mensaje, conservando la
+        sub-pestaña en la que se estaba (?tg= de Telegram, ?wa= de WhatsApp).
+        """
         params = {("err" if err else "ok"): message}
         if vista:
             params["tg"] = vista
+        if vista_wa:
+            params["wa"] = vista_wa
         url = "/notificaciones?" + urllib.parse.urlencode(params)
         return self._redirect(url)
 

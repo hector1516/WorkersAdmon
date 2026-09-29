@@ -483,6 +483,57 @@ def tail_log(name, lines=300):
     return "\n".join(rows[-int(lines):]), ""
 
 
+def test_openwa(destino=""):
+    """
+    Prueba la conexion a OpenWA: primero que el gateway responda y despues manda
+    un WhatsApp de verdad al numero que se indique (por defecto el primero que
+    tenga configurado).
+
+    Son dos pasos a proposito: `health` es publico y dice si el gateway esta
+    vivo, y el envio real es el que de verdad prueba la key. Si solo se probara
+    el health, una key mal pegada se veria como "todo bien" hasta el primer
+    aviso de la noche.
+
+    Devuelve (ok, mensaje). La API key no aparece jamas en el mensaje ni en la
+    bitacora: el cliente la tapa antes de devolver el error.
+    """
+    import importlib
+    ow = importlib.import_module("openwa_client")
+    from . import db
+
+    cfg = db.get_openwa_config()
+    if not cfg.get("api_key"):
+        return False, "No hay API key guardada (pégala en el bloque de arriba)."
+    if not cfg.get("session_id"):
+        return False, "No hay id de sesión configurado."
+
+    ok, detalle = ow.health(base=cfg.get("base_url") or None, clave=cfg.get("api_key"))
+    if not ok:
+        return False, f"El gateway no responde: {detalle}"
+
+    chat = (destino or "").strip()
+    if not chat:
+        # Sin destino escrito, se usa el primer número válido de los avisos.
+        for ev in db.get_openwa_eventos():
+            validos, _ = db.get_openwa_destinatarios_resueltos(ev.get("IdEvento"))
+            if validos:
+                chat = validos[0]
+                break
+    chat = ow.normalizar_chat_id(chat) or ""
+    if not chat:
+        return False, ("No hay a quién mandarlo: escribe un número en la casilla "
+                       "de prueba o pega los teléfonos en algún aviso.")
+
+    texto = ("✅ *Prueba de OpenWA*\nSi lees esto, las alertas por WhatsApp "
+             "están funcionanando.")
+    ok, detalle = ow.enviar_texto(chat, texto, base=cfg.get("base_url") or None,
+                                  clave=cfg.get("api_key"),
+                                  session_id=cfg.get("session_id"))
+    if not ok:
+        return False, f"El gateway responde pero el envío falló: {detalle}"
+    return True, f"Mensaje de prueba entregado a {chat}."
+
+
 def test_telegram_bot():
     """
     Comprueba el token guardado contra la API de Telegram (getMe).

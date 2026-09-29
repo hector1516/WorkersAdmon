@@ -63,6 +63,27 @@ def _notify_hub(entity: str, user_name: str, folio: str = None, tg: dict = None)
                 telegram_hub.alertar_reporte_por_id(tg.get("id_reporte"))
     except Exception:
         pass
+    # WhatsApp: los mismos eventos que llegan de Field (el movil) tambien avisan
+    # por WhatsApp. Aqui `user_name` SI viene en el payload, que es justo lo que
+    # en el panel no se puede resolver.
+    try:
+        if tg:
+            from openwa_alerts import (alertar_kilometros, alerting_reporte_firmado,
+                                       alerting_ticket_oxxogas)
+            kind = tg.get("kind")
+            if kind == "km":
+                alertar_kilometros(tg.get("id_auto"), tg.get("km"),
+                                   tg.get("id_usuario"), usuario_actual=user_name)
+            elif kind == "ticket":
+                alertar_ticket_oxxogas(
+                    folio or tg.get("folio_cli"), id_vehiculo=tg.get("id_auto"),
+                    id_cliente=tg.get("id_cliente"), id_usuario=tg.get("id_usuario"),
+                    descripcion=tg.get("desc", ""), foto_bytes=tg.get("foto_bytes"),
+                    usuario_actual=user_name)
+            elif kind == "firma":
+                alertar_reporte_firmado(tg.get("id_reporte"), usuario_firma=user_name)
+    except Exception:
+        pass
 
 class SyncItem(BaseModel):
     entity: str

@@ -1,11 +1,10 @@
 {
   "app": "workersadmon",
-  "version": "1.2.5",
+  "version": "1.3.0",
   "cambios": [
-    "🗄️ El historial de migraciones de la base ya vive en este repo (antes estaba en el HUB, que se retiró).",
-    "🕒 Nueva pestaña Asistencia: entradas y salidas por día, con la ventana en la que ocurrieron.",
-    "📏 La hora real se ve como ventana (08:57–09:00 ±3 min), no como un minuto inventado.",
-    "🔍 Cuando la ventana cruza la tolerancia sale Indeterminado, en vez de acusar o exonerar sin poder.",
-    "⚪ Un día sin escáner es Sin datos y no Ausente: una caída de red ya no marca faltas."
+    "📲 Avisos por WhatsApp: saldo Go Vale, saldo bajo, kilómetros, reporte firmado con su PDF y ticket con su foto.",
+    "📱 A quién le llega cada aviso lo eliges con los teléfonos, separados por comas.",
+    "🧪 Botón de prueba: te llega un WhatsApp de verdad y sabes que ya funciona.",
+    "🔐 La clave de OpenWA se pega en la pantalla, nunca se escribe en el código."
   ]
 }

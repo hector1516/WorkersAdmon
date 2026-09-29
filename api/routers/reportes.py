@@ -240,6 +240,14 @@ def guardar_firma(id_reporte: int, body: dict, user: dict = Depends(require_user
         except Exception:
             pass
         try:
+            # WhatsApp con el PDF del reporte. Aqui si sabemos quien firmo
+            # (`user["nombre"]`), asi que se lo pasamos para que el mensaje diga
+            # quien lo firmo en vez de omitir la linea.
+            from openwa_alerts import alertar_reporte_firmado
+            alertar_reporte_firmado(id_reporte, usuario_firma=user.get("nombre", ""))
+        except Exception:
+            pass
+        try:
             from routers.legends import _registrar_metrica
             _registrar_metrica(user["id"], "reporte_firmado", referencia_id=id_reporte)
         except Exception:

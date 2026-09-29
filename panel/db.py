@@ -338,6 +338,91 @@ def update_telegram_evento(id_evento, plantilla, adjuntar_archivo, activo):
         return False, str(exc)
 
 
+# ── OpenWA / WhatsApp ───────────────────────────────────────────────────────
+# Espejo de lo de arriba para los avisos por WhatsApp. La API key vive en
+# HUB_Config igual que el token del bot, pero NUNCA se devuelve a la pantalla:
+# las vistas preguntan solo si hay algo guardado y lo enmascaran con
+# openwa_client.enmascarar.
+
+def get_openwa_config():
+    """{api_key, base_url, session_id} de HUB_Config."""
+    valores = get_config_values(["openwa_api_key", "openwa_base_url",
+                                 "openwa_session_id"]) or {}
+    return {
+        "api_key": (valores.get("openwa_api_key") or "").strip(),
+        "base_url": (valores.get("openwa_base_url") or "").strip(),
+        "session_id": (valores.get("openwa_session_id") or "").strip(),
+    }
+
+
+def get_openwa_eventos():
+    """Avisos de WhatsApp con su plantilla, sus telefonos y su estado."""
+    try:
+        return _rows("SELECT IdEvento, Nombre, Descripcion, PlantillaMensaje, "
+                     "AdjuntarArchivo, Telefonos, Activo FROM HUB_WhatsappEventos "
+                     "ORDER BY Nombre ASC")
+    except Exception:
+        return []
+
+
+def update_openwa_evento(id_evento, plantilla, telefonos, adjuntar_archivo, activo):
+    """
+    Guarda un aviso. `telefonos` es el texto con los numeros separados por comas;
+    se guarda tal cual (sin normalizar) para que quien administra vea lo que
+    escribio y pueda corregirlo. La normalizacion a `<numero>@c.us` se hace al
+    encolar, en openwa_client.
+    """
+    try:
+        n = _execute(
+            "UPDATE HUB_WhatsappEventos SET PlantillaMensaje = %s, Telefonos = %s, "
+            "AdjuntarArchivo = %s, Activo = %s WHERE IdEvento = %s",
+            (str(plantilla or "").strip()[:2000], str(telefonos or "").strip()[:600],
+             int(bool(adjuntar_archivo)), int(bool(activo)),
+             str(id_evento or "").strip()))
+        if n == 0:
+            return False, f"evento '{id_evento}' no existe"
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def get_openwa_historial(limite=100, estado=None):
+    """Ultimos avisos entregados o fallidos, para la sub-pestana Historial."""
+    try:
+        if estado:
+            return _rows("SELECT TOP (%s) Id, IdEvento, ChatId, Estado, Intentos, "
+                         "Error, Creado, Enviado FROM HUB_WhatsappQueue "
+                         "WHERE Estado = %s ORDER BY Creado DESC",
+                         (int(limite), estado))
+        return _rows("SELECT TOP (%s) Id, IdEvento, ChatId, Estado, Intentos, "
+                     "Error, Creado, Enviado FROM HUB_WhatsappQueue "
+                     "ORDER BY Creado DESC", (int(limite),))
+    except Exception:
+        return []
+
+
+def get_openwa_destinatarios_resueltos(id_evento):
+    """
+    Que chatIds salen de un evento, y que entradas del texto NO son validas.
+
+    Devuelve (chats, rechazados) para poder mostrarlos: si alguien pego
+    "8123211516, hector" hay que decirle que la segunda entrada no es un numero,
+    en vez de mandar medio aviso y dejarle pensar que funciono.
+    """
+    import importlib
+    try:
+        # `openwa_client` vive en /app junto a los workers; se importa por
+        # nombre (como _hub() con eccsa_db) porque el panel corre desde otro
+        # directorio de trabajo.
+        normalizar = importlib.import_module("openwa_client").normalizar_chat_ids
+    except Exception:
+        return [], []
+    for ev in get_openwa_eventos():
+        if ev.get("IdEvento") == id_evento:
+            return normalizar(ev.get("Telefonos") or "")
+    return [], []
+
+
 def get_telegram_destinatarios(id_evento):
     """Ids de usuario que reciben un evento."""
     try:

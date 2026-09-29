@@ -135,6 +135,16 @@ async def crear_ticket(
         send_push_notification(user["id"], "⛽ Ticket OxxoGas registrado", f"Ticket {folio_display} registrado — +3 pts", "/tickets")
     except Exception:
         pass
+    # Aviso por WhatsApp con la foto del ticket. Este registro (el manual, desde
+    # el panel) antes no avisaba a nadie: el push es solo para quien lo registro.
+    try:
+        from openwa_alerts import alertar_ticket_oxxogas
+        alertar_ticket_oxxogas(
+            folio_val or folio_display, id_vehiculo=id_vehiculo, id_cliente=id_cliente,
+            id_usuario=user["id"], descripcion=desc_val, foto_bytes=image_bytes,
+            usuario_actual=user.get("nombre", ""))
+    except Exception:
+        pass
     return {"success": True, "folio": folio_display, "id_server": new_id}
 
 @router.post("/ai-extraer-folio")

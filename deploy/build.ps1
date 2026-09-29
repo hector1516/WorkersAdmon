@@ -123,7 +123,22 @@ Log "contenedor actual: $($c.Id.Substring(0,12)) running=$($c.State.Running)"
 
 $runArgs = @('run', '-d', '--name', $name)
 if ($c.HostConfig.RestartPolicy.Name) { $runArgs += @('--restart', $c.HostConfig.RestartPolicy.Name) }
-if ($c.HostConfig.NetworkMode)          { $runArgs += @('--network', $c.HostConfig.NetworkMode) }
+
+# ── Redes: TODAS, no solo la principal ───────────────────────────────────────
+# El contenedor puede estar conectado a mas de una red (hoy `openwa_default`,
+# para poder hablarle por hostname con OpenWA: el gateway de WhatsApp). Si solo
+# se pasa HostConfig.NetworkMode, cada recreacion del contenedor pierde las
+# adicionales y la app se queda sin poder resolver `openwa` -> las alertas de
+# WhatsApp dejan de funcionar solas, sin que nada avise. Por eso se listan todas
+# las claves de NetworkSettings.Networks (mas NetworkMode, que puede ser
+# 'default'/'host' y no aparecer ahi).
+$redes = New-Object System.Collections.Generic.List[string]
+if ($c.HostConfig.NetworkMode) { [void]$redes.Add($c.HostConfig.NetworkMode) }
+foreach ($n in @($c.NetworkSettings.Networks.PSObject.Properties.Name)) {
+    if ($n -and -not $redes.Contains($n)) { [void]$redes.Add($n) }
+}
+foreach ($n in $redes) { $runArgs += @('--network', $n) }
+Log "redes: $($redes -join ', ')"
 foreach ($b in @($c.HostConfig.Binds))    { if ($b) { $runArgs += @('-v', $b) } }
 foreach ($p in $c.HostConfig.PortBindings.PSObject.Properties) {
     foreach ($b in @($p.Value)) {

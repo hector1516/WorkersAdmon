@@ -14,33 +14,11 @@ import eccsa_db as db
 
 
 def _normalize_foto_para_cola(foto_bytes, max_dim=1600, quality=85):
-    """Recodifica una foto a JPEG baseline antes de encolarla a Telegram.
-
-    Evita IMAGE_PROCESS_FAILED por formatos corruptos/mal nombrados.
-    Si no es legible, devuelve None (se encola solo el texto).
-    """
-    if not foto_bytes:
-        return None
-    try:
-        from PIL import Image as PILImage
-        import io
-        img = PILImage.open(io.BytesIO(foto_bytes))
-        if img.mode in ('RGBA', 'LA', 'P'):
-            background = PILImage.new('RGB', img.size, (255, 255, 255))
-            if img.mode == 'P':
-                img = img.convert('RGBA')
-            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else None)
-            img = background
-        elif img.mode != 'RGB':
-            img = img.convert('RGB')
-        if max(img.size) > max_dim:
-            img.thumbnail((max_dim, max_dim), PILImage.LANCZOS)
-        out = io.BytesIO()
-        img.save(out, format='JPEG', quality=quality, progressive=False, optimize=True)
-        return out.getvalue()
-    except Exception as e:
-        print(f"telegram_alerts: foto no normalizable ({e}); se omite adjunto")
-        return None
+    """Recodifica la foto antes de encolarla. Ahora vive en notif_messages
+    porque Telegram y WhatsApp la mandan igual: WhatsApp tambien la recorta y
+    pesa menos en los datos del movil."""
+    from notif_messages import normalizar_foto
+    return normalizar_foto(foto_bytes, max_dim, quality)
 
 
 def _get_current_user():

@@ -1373,10 +1373,25 @@ def save_service_report_signature(id_reporte, signature_base64):
                 f_str = r[0] if r else str(id_reporte)
                 log_user_activity("Reportes de Servicio", f"Firmó reporte de servicio con folio {f_str}")
 
-                # Alerta Telegram (disparo silencioso)
+                # Alertas Telegram y WhatsApp con el PDF (disparo silencioso)
                 try:
                     from telegram_alerts import alertar_reporte_firmado
                     alertar_reporte_firmado(id_reporte)
+                except Exception:
+                    pass
+                try:
+                    from openwa_alerts import alertar_reporte_firmado as alerta_firma_wa
+                    # Aqui si sabemos quien firmo: se lo pasamos para que el
+                    # mensaje no salga con el nombre vacio.
+                    nombre_firma = ''
+                    try:
+                        nombre_firma = (cur.description and '') or ''
+                        cur.execute("SELECT TOP 1 Nombre FROM HUB_Users WHERE Id = %s", (int(usuario_id),))
+                        f = cur.fetchone()
+                        nombre_firma = (f.get('Nombre') if isinstance(f, dict) else (f[0] if f else '')) or ''
+                    except Exception:
+                        pass
+                    alerta_firma_wa(id_reporte, usuario_firma=nombre_firma)
                 except Exception:
                     pass
 
@@ -2361,10 +2376,16 @@ def register_kilometros(id_automovil, kilometros, fecha_hora, id_usuario):
                 car_info = f"{row[0]} ({row[1]})" if row else f"ID {id_automovil}"
                 log_user_activity("Registro Kilómetros", f"Registró {kilometros} Km para {car_info}")
 
-                # Alerta Telegram (disparo silencioso)
+                # Alertas Telegram y WhatsApp (disparo silencioso: que falle
+                # un aviso no puede hacer fallar el registro de kilometros)
                 try:
                     from telegram_alerts import alertar_kilometros
                     alertar_kilometros(id_automovil, kilometros, id_usuario)
+                except Exception:
+                    pass
+                try:
+                    from openwa_alerts import alertar_kilometros as alertar_km_whatsapp
+                    alertar_km_whatsapp(id_automovil, kilometros, id_usuario)
                 except Exception:
                     pass
 
@@ -5726,6 +5747,259 @@ def limpiar_telegram_historial(dias=30):
                 return True
     except Exception as e:
         print(f"Error cleaning telegram history: {e}")
+        return False
+
+
+# ── OpenWA / WhatsApp ───────────────────────────────────────────────────────
+# Espejo de lo de arriba, para los avisos que salen por WhatsApp en vez de por
+# Telegram. Conviven: cada canal tiene su catalogo de eventos y su cola, y lo
+# que se dice lo arma notif_messages.py (comun a los dos).
+
+def get_openwa_config():
+    """Devuelve la conexion a OpenWA: {api_key, base_url, session_id}.
+
+    La API key se pega desde la interfaz (Notificaciones > Conexion > OpenWA).
+    Se devuelve tal cual porque la necesita el cliente HTTP, pero ninguna
+    pantalla la muestra: ahi va enmascarada.
+    """
+    vacio = {'api_key': '', 'base_url': '', 'session_id': ''}
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute(
+                    "SELECT Clave, Valor FROM HUB_Config "
+                    "WHERE Clave IN ('openwa_api_key', 'openwa_base_url', 'openwa_session_id')")
+                cfg = {r['Clave']: (r['Valor'] or '').strip() for r in cur.fetchall()}
+        return {'api_key': cfg.get('openwa_api_key', ''),
+                'base_url': cfg.get('openwa_base_url', ''),
+                'session_id': cfg.get('openwa_session_id', '')}
+    except Exception as e:
+        print(f"Error reading openwa config: {e}")
+        return dict(vacio)
+
+
+def save_openwa_config(api_key=None, base_url=None, session_id=None):
+    """
+    Guarda la conexion. Cada parametro es opcional y solo se tocan los que se
+    mandan: la pantalla manda la key sola la mayoria de las veces y no debe
+    borrar el resto. Un valor vacio SI se guarda (es como se borra la key).
+    """
+    campos = {'openwa_api_key': api_key, 'openwa_base_url': base_url,
+              'openwa_session_id': session_id}
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                for clave, valor in campos.items():
+                    if valor is None:
+                        continue
+                    valor = str(valor).strip()
+                    cur.execute("UPDATE HUB_Config SET Valor = %s, Actualizado = GETDATE() "
+                                "WHERE Clave = %s", (valor, clave))
+                    if cur.rowcount == 0:
+                        cur.execute("INSERT INTO HUB_Config (Clave, Valor) VALUES (%s, %s)",
+                                    (clave, valor))
+            conn.commit()
+            return True
+    except Exception as e:
+        print(f"Error saving openwa config: {e}")
+        return False
+
+
+def get_openwa_eventos():
+    """Catalogo de avisos de WhatsApp con su plantilla y sus telefonos."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute("""
+                    SELECT IdEvento, Nombre, Descripcion, PlantillaMensaje,
+                           AdjuntarArchivo, Telefonos, Activo, Actualizado
+                    FROM HUB_WhatsappEventos
+                    ORDER BY Nombre ASC
+                """)
+                return cur.fetchall()
+    except Exception as e:
+        print(f"Error reading openwa events: {e}")
+        return []
+
+
+def get_openwa_evento(id_evento):
+    """Un evento por su clave, o None si no existe."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute("""
+                    SELECT IdEvento, Nombre, Descripcion, PlantillaMensaje,
+                           AdjuntarArchivo, Telefonos, Activo, Actualizado
+                    FROM HUB_WhatsappEventos WHERE IdEvento = %s
+                """, (str(id_evento).strip(),))
+                return cur.fetchone()
+    except Exception as e:
+        print(f"Error reading openwa event: {e}")
+        return None
+
+
+def save_openwa_evento(id_evento, plantilla=None, telefonos=None, activo=None,
+                       adjuntar=None):
+    """Guarda un aviso. Igual que la config: solo toca lo que se le manda."""
+    campos = {'PlantillaMensaje': plantilla, 'Telefonos': telefonos,
+              'Activo': activo, 'AdjuntarArchivo': adjuntar}
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                seteo, params = [], []
+                for columna, valor in campos.items():
+                    if valor is None:
+                        continue
+                    seteo.append(f"{columna} = %s")
+                    params.append(int(valor) if isinstance(valor, bool) else valor)
+                if not seteo:
+                    return True
+                params.append(str(id_evento).strip())
+                cur.execute(f"UPDATE HUB_WhatsappEventos SET {', '.join(seteo)}, "
+                            f"Actualizado = GETDATE() WHERE IdEvento = %s", tuple(params))
+                conn.commit()
+                return cur.rowcount > 0
+    except Exception as e:
+        print(f"Error saving openwa event: {e}")
+        return False
+
+
+def queue_openwa_alerta(id_evento, chat_id, texto, adjunto=None, adjunto_nombre=None,
+                        adjunto_tipo=None):
+    """Encola un mensaje de WhatsApp. El texto entra YA renderizado."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO HUB_WhatsappQueue
+                        (IdEvento, ChatId, Texto, Adjunto, AdjuntoNombre, AdjuntoTipo)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (str(id_evento).strip(), str(chat_id).strip(),
+                      (texto or '').strip() or None, adjunto, adjunto_nombre, adjunto_tipo))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"Error queuing openwa alert: {e}")
+        return False
+
+
+def dequeue_openwa_pendientes(limite=10):
+    """Lo pendiente, mas viejo primero: el orden en que se avisa."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute("""
+                    SELECT TOP (%s) Id, IdEvento, ChatId, Texto, Adjunto, AdjuntoNombre,
+                           AdjuntoTipo, Intentos
+                    FROM HUB_WhatsappQueue
+                    WHERE Estado = 'PENDIENTE'
+                    ORDER BY Creado ASC
+                """, (int(limite),))
+                return cur.fetchall()
+    except Exception as e:
+        print(f"Error dequeuing openwa messages: {e}")
+        return []
+
+
+def marcar_openwa_enviado(id_queue):
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE HUB_WhatsappQueue
+                    SET Estado = 'ENVIADO', Intentos = Intentos + 1,
+                        Error = NULL, Enviado = GETDATE()
+                    WHERE Id = %s
+                """, (int(id_queue),))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"Error marking openwa sent: {e}")
+        return False
+
+
+def marcar_openwa_fallido(id_queue, error, intentos, max_intentos=3):
+    """Suma un intento. A los `max_intentos` deja de reintentar y marca FALLADO."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                nuevo_estado = 'FALLADO' if intentos >= max_intentos else 'PENDIENTE'
+                cur.execute("""
+                    UPDATE HUB_WhatsappQueue
+                    SET Estado = %s, Intentos = %s, Error = %s
+                    WHERE Id = %s
+                """, (nuevo_estado, int(intentos), str(error or '')[:500], int(id_queue)))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"Error marking openwa failed: {e}")
+        return False
+
+
+def get_openwa_historial(limite=100, estado=None):
+    """Ultimos mensajes enviados o fallidos, para la sub-pestana Historial."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                if estado:
+                    cur.execute("""
+                        SELECT TOP (%s) Id, IdEvento, ChatId, Estado, Intentos, Error,
+                               Creado, Enviado
+                        FROM HUB_WhatsappQueue WHERE Estado = %s
+                        ORDER BY Creado DESC
+                    """, (int(limite), estado))
+                else:
+                    cur.execute("""
+                        SELECT TOP (%s) Id, IdEvento, ChatId, Estado, Intentos, Error,
+                               Creado, Enviado
+                        FROM HUB_WhatsappQueue
+                        ORDER BY Creado DESC
+                    """, (int(limite),))
+                return cur.fetchall()
+    except Exception as e:
+        print(f"Error reading openwa history: {e}")
+        return []
+
+
+def openwa_metrics():
+    """Resumen para la tarjeta de conexion: cuantos avisos hay y como van."""
+    m = {'eventos': 0, 'activos': 0, 'con_telefonos': 0,
+         'pendientes': 0, 'enviados': 0, 'fallados': 0}
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute("SELECT COUNT(*) AS n, SUM(CASE WHEN Activo = 1 THEN 1 ELSE 0 END) AS act, "
+                            "SUM(CASE WHEN Telefonos IS NOT NULL AND LEN(LTRIM(RTRIM(Telefonos))) > 0 "
+                            "THEN 1 ELSE 0 END) AS con_tel FROM HUB_WhatsappEventos")
+                r = cur.fetchone() or {}
+                m['eventos'] = r.get('n') or 0
+                m['activos'] = r.get('act') or 0
+                m['con_telefonos'] = r.get('con_tel') or 0
+                cur.execute("SELECT Estado, COUNT(*) AS n FROM HUB_WhatsappQueue "
+                            "GROUP BY Estado")
+                for row in cur.fetchall():
+                    clave = (row.get('Estado') or '').lower()
+                    if clave in m:
+                        m[clave] = row['n']
+        return m
+    except Exception as e:
+        print(f"Error reading openwa metrics: {e}")
+        return m
+
+
+def limpiar_openwa_historial(dias=30):
+    """Borra de la cola lo ya cerrado hace mucho (los adjuntos ocupan)."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM HUB_WhatsappQueue
+                    WHERE Estado IN ('ENVIADO', 'FALLADO') AND Creado < DATEADD(day, -%s, GETDATE())
+                """, (int(dias),))
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"Error cleaning openwa history: {e}")
         return False
 
 

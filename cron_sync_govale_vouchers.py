@@ -345,6 +345,16 @@ def notificar_saldo_diario():
             print(f"[govale_sync] Error Telegram: {e}")
             enviados = 0
 
+        # WhatsApp: el aviso diario y, aparte, el de umbral (que es el que hace
+        # que alguien refactorie). Son dos eventos porque el diario se lee de
+        # arriba y el otro no.
+        try:
+            from openwa_alerts import alertar_saldo_govale
+            wa = alertar_saldo_govale(saldo, saldo_fecha, umbral)
+            print(f"[govale_sync] WhatsApp encolado: {wa}")
+        except Exception as e:
+            print(f"[govale_sync] Error WhatsApp: {e}")
+
         # Log en HUB_Notificaciones (compat)
         db.log_notification(titulo, mensaje, 'Sistema (9AM)', enviados or 0, 0)
         db.set_govale_config('govale_notif_fecha', hoy)

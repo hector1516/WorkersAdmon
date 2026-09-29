@@ -4,6 +4,56 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.3.0] - 2026-09-29
+
+### Agregado
+- **Avisos por WhatsApp con OpenWA** (gateway de whatsapp-web.js que corre en
+  el ServerVM). 5 avisos, con la misma información que ya tenía el resto del
+  sistema: saldo Go Vale diario · **saldo bajo (umbral 2,000)** · registro de
+  kilómetros · reporte de servicio firmado **con el PDF** · ticket OxxoGas
+  **con la foto**.
+- **La API key se pega en la pantalla**, en `Notificaciones > Conexión > OpenWA`
+  (campo de tipo password, como el token del bot). No se siembra en la base ni
+  se pide en variables de entorno: es un paso de configuración, no de despliegue.
+- **A quién avisa se elige con los teléfonos, separados por comas**, en la
+  sub-pestaña `Avisos`. No hay cuentas que vincular ni permisos por usuario: se
+  pega a quien deba recibirlo (`5218123211516, 5512345678`). Con 10 dígitos se
+  asume México y se agrega el 52; si algo no es un número, la pantalla lo dice
+  y **no guarda** en vez de mandar medio aviso.
+- `notif_messages.py`: lo que **se dice** en un aviso vive en un solo módulo,
+  compartido por Telegram y WhatsApp. Antes el texto estaba pegado a Telegram;
+  con dos canales, dos textos distintos acabarían diciendo cosas distintas del
+  mismo dato.
+- Botón `🧪 Mandar prueba`: primero consulta `/api/health` (que es público) y
+  luego manda un WhatsApp de verdad, porque una key mal pegada con solo el
+  health parecería estar bien hasta el primer aviso de la noche.
+- **Aviso de ticket OxxoGas en el registro manual del panel**: antes ese camino
+  no notificaba a nadie (el push solo le llegaba a quien lo registró).
+- `build.ps1` ahora recrea el contenedor conectado a **todas** sus redes, no
+  solo a la principal. `workersadmon` quedó en `openwa_default` (para poder
+  hablarle a OpenWA por hostname) y, con el script anterior, eso se perdía en
+  cada redespliegue: las alertas de WhatsApp se habrían caído solas, sin que
+  nada lo indicara.
+
+### Cambiado
+- `telegram_alerts._normalize_foto_para_cola` ahora delega en
+  `notif_messages.normalizar_foto`: las fotos se recortan igual para los dos
+  canales (WhatsApp también las recorta, y pesa menos en los datos del móvil).
+- `notif_messages` omite la línea de una etiqueta que quedó sin valor
+  (👤 Firmado:) en vez de dejarla colgando con el colon.
+- Los avisos de kilómetros que llegan del sync de Field ahora llevan el nombre
+  del usuario que las registró: ese camino manda el nombre pero no el id, y
+  antes quedaba "Usuario None" en el mensaje.
+
+### Notas
+- Telegram y WhatsApp **conviven**: no se tocó ninguna tabla de Telegram ni su
+  worker. Si algún día se quiere dejar Telegram, es apagar el bloque.
+- El bloque de WhatsApp usa el permiso `AccesoTelegram`: los dos son "avisar a
+  la gente" y quien administra uno administra el otro. Separarlos sería un
+  `ALTER TABLE` con una columna `AccesoWhatsapp`.
+- La migración 0043 se aplicó primero en `ECCSA_Admon_Pruebas`. **Falta aplicarla
+  en producción antes de pegar la key.**
+
 ## [1.2.5] - 2026-09-29
 
 ### Agregado
