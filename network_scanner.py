@@ -55,9 +55,12 @@ def es_mac_util(mac):
 
 
 def get_network_config():
+    # Defaults alineados con la migración 0042: la tolerancia de ENTRADA es 0
+    # porque es un retardo, no una tolerancia (ver procesar_scans_pendientes).
     config = {
         'net_tolerance_salida_min': '5',
-        'net_tolerance_entrada_min': '2',
+        'net_tolerance_entrada_min': '0',
+        'net_scan_interval_seg': '180',
         'net_scan_enabled': '1',
     }
     try:
@@ -71,7 +74,17 @@ def get_network_config():
     return config
 
 
-def get_latest_unprocessed_macs():
+def get_proximo_scan_pendiente():
+    """
+    El escaneo pendiente MÁS ANTIGUO, con los MACs que se detectaron en él.
+
+    OJO con el orden: antes pedía el más NUEVO (`ORDER BY FechaScan DESC`) y
+    como el bucle repite hasta vaciar la cola, los escaneos se procesaban del
+    más reciente al más viejo. El máquina de estados (¿estaba FUERA? ¿ya volvió
+    a aparecer?) necesita la secuencia real: al revés, un ENTRADA se podía
+    registrar con la hora de un escaneo posterior al del SALIDA que lo mêmes
+    dispositivo había generado en el mismo lote.
+    """
     try:
         with db.get_connection() as conn:
             with conn.cursor(as_dict=True) as cur:
@@ -79,7 +92,7 @@ def get_latest_unprocessed_macs():
                     SELECT TOP 1 FechaScan
                     FROM HUB_NetworkScanResults
                     WHERE Procesado = 0
-                    ORDER BY FechaScan DESC
+                    ORDER BY FechaScan ASC
                 """)
                 row = cur.fetchone()
                 if not row:
@@ -170,50 +183,31 @@ def count_scans_since(fecha_desde):
         return 0
 
 
-def update_device_state(device_id, estado, ahora=None):
-    if ahora is None:
-        ahora = datetime.datetime.now()
-    try:
-        with db.get_connection() as conn:
-            with conn.cursor() as cur:
-                if estado == 'AQUI':
-                    cur.execute("""
-                        MERGE HUB_NetworkState AS target
-                        USING (SELECT %s AS IdDispositivo) AS source
-                        ON target.IdDispositivo = source.IdDispositivo
-                        WHEN MATCHED THEN
-                            UPDATE SET Estado = %s, UltimaVezEnRed = %s, UltimoScanOk = %s
-                        WHEN NOT MATCHED THEN
-                            INSERT (IdDispositivo, Estado, UltimaVezEnRed, UltimoScanOk)
-                            VALUES (%s, %s, %s, %s);
-                    """, (device_id, estado, ahora, ahora, device_id, estado, ahora, ahora))
-                else:
-                    cur.execute("""
-                        MERGE HUB_NetworkState AS target
-                        USING (SELECT %s AS IdDispositivo) AS source
-                        ON target.IdDispositivo = source.IdDispositivo
-                        WHEN MATCHED THEN
-                            UPDATE SET Estado = %s
-                        WHEN NOT MATCHED THEN
-                            INSERT (IdDispositivo, Estado)
-                            VALUES (%s, %s);
-                    """, (device_id, estado, device_id, estado))
-                conn.commit()
-    except Exception as e:
-        print(f"[{ts()}] Error actualizando estado device {device_id}: {e}")
+def update_device_state(device_id, estado, momento=None):
+    """
+    Delega en la capa de datos: hay UNA sola copia de esta función.
+
+    El worker tenía su propia versión y `eccsa_db` tenía otra, y divergieron:
+    la de acá guardaba el instante del escaneo y la de allá sellaba con la hora
+    de proceso y en la rama FUERA no guardaba ningún instante. Dos
+    implementaciones del mismo MERGE, con la mitad del arreglado: si mañana se
+    toca una y no la otra, el sistema se contradice en silencio, que es la
+    peor forma de fallar. Ahora la verdad está en `eccsa_db` (la capa de datos,
+    donde debe estar) y el worker la usa.
+    """
+    return db.update_device_state(device_id, estado, momento)
 
 
-def register_presence_event(device_id, tipo_evento, confianza=95.0, notas=''):
-    try:
-        with db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO HUB_NetworkPresence (IdDispositivo, FechaHora, TipoEvento, Confianza, Notas)
-                    VALUES (%s, GETDATE(), %s, %s, %s)
-                """, (device_id, tipo_evento, confianza, notas))
-                conn.commit()
-    except Exception as e:
-        print(f"[{ts()}] Error registrando evento: {e}")
+def register_presence_event(device_id, tipo_evento, confianza=95.0, notas='',
+                           fecha_deteccion=None, ultima_vez_visto=None,
+                           incertidumbre_min=None, origen='RED'):
+    """Delega en eccsa_db; ver update_device_state por qué ya no hay copia aquí."""
+    return db.register_presence_event(
+        device_id, tipo_evento, confianza, notas,
+        fecha_deteccion=fecha_deteccion,
+        ultima_vez_visto=ultima_vez_visto,
+        incertidumbre_min=incertidumbre_min,
+        origen=origen)
 
 
 def get_device_name(device):
@@ -282,22 +276,43 @@ def limpiar_eventos_antiguos():
 
 
 def procesar_scans_pendientes():
-    """Procesa TODOS los scans pendientes en lote (no solo uno)."""
+    """
+    Procesa TODOS los escaneos pendientes, en orden cronológico.
+
+    El instante de referencia de cada transición es el `FechaScan` del escaneo
+    que la produjo, no la hora en que este bucle la está viendo. Con el
+    intervalo de 180s, usar la hora de proceso metía 1-4 minutos de retraso
+    inventado encima de la llegada real.
+    """
     config = get_network_config()
 
     if config.get('net_scan_enabled', '1') != '1':
         return
 
-    tol_salida = int(config.get('net_tolerance_salida_min', '5'))
-    tol_entrada = int(config.get('net_tolerance_entrada_min', '2'))
+    # Tolerancias ASIMÉTRICAS, y a propósito:
+    # · la de ENTRADA no es una tolerancia de puntualidad, es un retardo. Con 2
+    #   minutos, el que llegaba 8:58 y se le veía a las 8:59 todavía no
+    #   registraba nada: la entrada se coría sola. En 0, cualquier reaparición
+    #   tras un FUERA es una entrada.
+    # · la de SALIDA sí es un debounce de verdad: evita que un AP que se cae un
+    #   escaneo genere una salida falsa. Y nunca puede bajar de DOS intervalos
+    #   de escaneo, o un solo escaneo perdido se convertiría en "se fue".
+    intervalo_min = max(1, int(config.get('net_scan_interval_seg', '180') or 180) // 60)
+    tol_entrada = int(config.get('net_tolerance_entrada_min', '0') or 0)
+    tol_salida = max(int(config.get('net_tolerance_salida_min', '5') or 5),
+                     intervalo_min * 2)
 
-    ahora = datetime.datetime.now()
     procesados = 0
 
     while True:
-        fecha_scan, macs_detectadas = get_latest_unprocessed_macs()
+        fecha_scan, macs_detectadas = get_proximo_scan_pendiente()
         if fecha_scan is None:
             break
+
+        # El instante del escaneo es el "ahora" de este lote. Si por lo que sea
+        # no vino (escaneo muy viejo), se usa la hora real para no escribir
+        # tiempos en el pasado.
+        momento = fecha_scan or datetime.datetime.now()
 
         mark_scan_processed(fecha_scan)
         procesados += 1
@@ -322,30 +337,41 @@ def procesar_scans_pendientes():
             if estado_actual == 'FUERA':
                 ultimo_ok = dev.get('UltimoScanOk')
                 if not ultimo_ok:
-                    register_presence_event(device_id, 'ENTRADA', 100.0, 'Primer registro')
+                    register_presence_event(
+                        device_id, 'ENTRADA', 100.0, 'Primer registro',
+                        fecha_deteccion=momento, ultima_vez_visto=None,
+                        incertidumbre_min=intervalo_min)
                     alertar_cambio_presencia(dev, 'ENTRADA')
-                    update_device_state(device_id, 'AQUI', ahora)
-                    print(f"[{ts()}] ENTRADA (primera): {get_device_name(dev)}")
+                    update_device_state(device_id, 'AQUI', momento)
+                    print(f"[{ts()}] ENTRADA (primer registro): {get_device_name(dev)}")
                     continue
 
-                minutos_ausente = (ahora - ultimo_ok).total_seconds() / 60
+                minutos_ausente = (momento - ultimo_ok).total_seconds() / 60
                 if minutos_ausente < tol_entrada:
-                    update_device_state(device_id, 'AQUI', ahora)
+                    update_device_state(device_id, 'AQUI', momento)
                     continue
 
                 ultimo_evento = get_last_presence_event(device_id)
                 if ultimo_evento and ultimo_evento['TipoEvento'] == 'ENTRADA':
-                    update_device_state(device_id, 'AQUI', ahora)
+                    update_device_state(device_id, 'AQUI', momento)
                     continue
 
-                register_presence_event(device_id, 'ENTRADA', 95.0,
-                                        f'Ausente {minutos_ausente:.0f}min, tolerancia {tol_entrada}min')
+                # La llegada ocurrió ENTRE la última vez que se vio ausente
+                # (ultimo_ok) y este escaneo. Se guardan los dos: la asistencia
+                # con eso sabe que fue un intervalo y no un minuto.
+                register_presence_event(
+                    device_id, 'ENTRADA', 95.0,
+                    f'Ausente {minutos_ausente:.0f}min, tolerancia {tol_entrada}min',
+                    fecha_deteccion=momento,
+                    ultima_vez_visto=ultimo_ok,
+                    incertidumbre_min=int(round(minutos_ausente)))
                 alertar_cambio_presencia(dev, 'ENTRADA')
-                update_device_state(device_id, 'AQUI', ahora)
-                print(f"[{ts()}] ENTRADA: {get_device_name(dev)} (ausente {minutos_ausente:.0f}min)")
+                update_device_state(device_id, 'AQUI', momento)
+                print(f"[{ts()}] ENTRADA: {get_device_name(dev)} "
+                      f"(ventana {ultimo_ok}–{momento}, ausente {minutos_ausente:.0f}min)")
 
             elif estado_actual == 'AQUI':
-                update_device_state(device_id, 'AQUI', ahora)
+                update_device_state(device_id, 'AQUI', momento)
 
         for mac, dev in dev_map.items():
             if mac in macs_detectadas:
@@ -358,7 +384,7 @@ def procesar_scans_pendientes():
             if not ultimo_ok:
                 continue
 
-            minutos_ausente = (ahora - ultimo_ok).total_seconds() / 60
+            minutos_ausente = (momento - ultimo_ok).total_seconds() / 60
             if minutos_ausente < tol_salida:
                 continue
 
@@ -366,11 +392,22 @@ def procesar_scans_pendientes():
             if ultimo_evento and ultimo_evento['TipoEvento'] == 'SALIDA':
                 continue
 
-            register_presence_event(device_id, 'SALIDA', 95.0,
-                                    f'Ausente {minutos_ausente:.0f}min, tolerancia {tol_salida}min')
+            # La salida ocurrió ENTRE el último escaneo que lo vio (ultimo_ok) y
+            # este, que ya no lo vio. Ojo al orden: aquí los dos extremos están
+            # al revés que en la entrada, y por eso la asistencia los invierte
+            # al usarlos. `FechaDeteccion` es el escaneo que constató la
+            # ausencia (el techo de la salida) y `UltimaVezVisto` la última vez
+            # que se vio presente (el piso).
+            register_presence_event(
+                device_id, 'SALIDA', 95.0,
+                f'Ausente {minutos_ausente:.0f}min, tolerancia {tol_salida}min',
+                fecha_deteccion=momento,
+                ultima_vez_visto=ultimo_ok,
+                incertidumbre_min=int(round(minutos_ausente)))
             alertar_cambio_presencia(dev, 'SALIDA')
-            update_device_state(device_id, 'FUERA', ultimo_ok)
-            print(f"[{ts()}] SALIDA: {get_device_name(dev)} (ausente {minutos_ausente:.0f}min)")
+            update_device_state(device_id, 'FUERA', momento)
+            print(f"[{ts()}] SALIDA: {get_device_name(dev)} "
+                  f"(ventana {ultimo_ok}–{momento}, ausente {minutos_ausente:.0f}min)")
 
     if procesados > 0:
         print(f"[{ts()}] Procesados {procesados} scans en lote")

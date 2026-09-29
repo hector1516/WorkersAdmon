@@ -1,10 +1,10 @@
 {
   "app": "workersadmon",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "cambios": [
-    "📐 La tarjeta del menú ya no es un cuadrado de 230px con 133px de aire: se ajusta al texto.",
-    "📏 Medido con el CSS real: 2 columnas en móvil, 3 en tablet, 4 en laptop y 5 en escritorio, sin texto cortado.",
-    "🔁 El deploy del panel vuelve a funcionar de punta a punta (el rebuild ya no se tumba en PowerShell).",
-    "🩺 El shell vuelve a estar en su fuente: ECCSA-Shell 1.10.1 publicado y la copia vendorizada al día."
+    "⏱️ La asistencia por MAC deja de retrasarse 3-5 min: el evento se sella con el instante del escaneo, no con el de procesamiento.",
+    "🪟 La hora real se guarda como ventana (08:57–09:00 ±3 min) y cuando esa ventana cruza la tolerancia dice «indeterminado» en vez de acusar.",
+    "⚪ Un día sin escaneo es SIN DATOS, no AUSENTE: una caída de red ya no marca ausente a todo el planta.",
+    "📦 El hotsync copia network_scanner.py: cambiar el escáner ahora sí llega al contenedor (antes se desplegaba sin efecto)."
   ]
 }

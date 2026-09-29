@@ -7203,11 +7203,18 @@ def mark_scan_processed(fecha_scan):
         return False
 
 
-def update_device_state(device_id, estado, ahora=None):
-    """Actualiza el estado de un dispositivo (AQUI/FUERA)."""
+def update_device_state(device_id, estado, momento=None):
+    """
+    Actualiza el estado de un dispositivo (AQUI/FUERA) con el instante del
+    ESCANEO que produjo el cambio.
+
+    `momento` es el `FechaScan`, no la hora de proceso. En la rama FUERA antes no
+    se guardaba ningún instante (solo el estado), con lo que se perdía el
+    "última vez que se vio" y con eso el techo de la ventana de salida.
+    """
     import datetime
-    if ahora is None:
-        ahora = now_mexico()
+    if momento is None:
+        momento = now_mexico()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -7221,18 +7228,22 @@ def update_device_state(device_id, estado, ahora=None):
                         WHEN NOT MATCHED THEN
                             INSERT (IdDispositivo, Estado, UltimaVezEnRed, UltimoScanOk)
                             VALUES (%s, %s, %s, %s);
-                    """, (device_id, estado, ahora, ahora, device_id, estado, ahora, ahora))
+                    """, (device_id, estado, momento, momento,
+                          device_id, estado, momento, momento))
                 else:
+                    # UltimoScanOk NO se toca: sigue siendo la última vez que se
+                    # vio el equipo, que es el piso de la salida. Lo que se
+                    # guarda es UltimaVezEnRed = cuándo se constató la ausencia.
                     cur.execute("""
                         MERGE HUB_NetworkState AS target
                         USING (SELECT %s AS IdDispositivo) AS source
                         ON target.IdDispositivo = source.IdDispositivo
                         WHEN MATCHED THEN
-                            UPDATE SET Estado = %s
+                            UPDATE SET Estado = %s, UltimaVezEnRed = %s
                         WHEN NOT MATCHED THEN
-                            INSERT (IdDispositivo, Estado)
-                            VALUES (%s, %s);
-                    """, (device_id, estado, device_id, estado))
+                            INSERT (IdDispositivo, Estado, UltimaVezEnRed)
+                            VALUES (%s, %s, %s);
+                    """, (device_id, estado, momento, device_id, estado, momento))
                 conn.commit()
                 return True
     except Exception as e:
@@ -7240,20 +7251,64 @@ def update_device_state(device_id, estado, ahora=None):
         return False
 
 
-def register_presence_event(device_id, tipo_evento, confianza=95.0, notas=''):
-    """Registra un evento de presencia (ENTRADA/SALIDA)."""
+def register_presence_event(device_id, tipo_evento, confianza=95.0, notas='',
+                           fecha_deteccion=None, ultima_vez_visto=None,
+                           incertidumbre_min=None, origen='RED'):
+    """
+    Registra un evento de presencia (ENTRADA/SALIDA) con su EVIDENCIA.
+
+    Las dos columnas de fecha tienen papeles distintos y por eso existen las dos:
+
+        FechaHora     GETDATE(): cuándo lo procesó el worker. Sirve para
+                      diagnosticar el retraso del propio worker.
+        FechaDeteccion  el instante del ESCANEO que prueba el evento. Es lo que
+                      usa la asistencia.
+
+    Antes se sellaba todo con GETDATE(), y por eso la entrada salía 1-4 minutos
+    después de la real: el desfase no era de la red, era del proceso.
+
+    `ultima_vez_visto` es el otro extremo de la ventana: en una ENTRADA, la
+    última vez que se vio el equipo AUSENTE (piso de la llegada); en una
+    SALIDA, la última vez que se vio PRESENTE (piso de la salida). Con los dos,
+    la asistencia sabe que pasó en un intervalo y no en un minuto inventado.
+
+    OJO con el orden del despliegue: si el código llega antes que la migración
+    0042, el INSERT con las columnas nuevas falla y se dejarían de registrar
+    eventos, o sea, se dejaría de generar asistencia sin que nada más avise. Por
+    eso, si el INSERT completo falla, se reintenta con el INSERT viejo (5
+    columnas): la asistencia sigue siendo inexacta, pero no se pierde nada
+    mientras se aplica la migración.
+    """
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO HUB_NetworkPresence (IdDispositivo, FechaHora, TipoEvento, Confianza, Notas)
-                    VALUES (%s, GETDATE(), %s, %s, %s)
-                """, (device_id, tipo_evento, confianza, notas.strip() if notas else None))
+                    INSERT INTO HUB_NetworkPresence
+                        (IdDispositivo, FechaHora, TipoEvento, Confianza, Notas,
+                         FechaDeteccion, UltimaVezVisto, VentanaMin, Origen)
+                    VALUES (%s, GETDATE(), %s, %s, %s, %s, %s, %s, %s)
+                """, (device_id, tipo_evento, confianza,
+                      notas.strip() if notas else None,
+                      fecha_deteccion, ultima_vez_visto,
+                      incertidumbre_min, origen))
                 conn.commit()
                 return True
     except Exception as e:
-        print(f"Error registering presence event: {e}")
-        return False
+        print(f"Error registrando evento de presencia: {e}")
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO HUB_NetworkPresence
+                            (IdDispositivo, FechaHora, TipoEvento, Confianza, Notas)
+                        VALUES (%s, GETDATE(), %s, %s, %s)
+                    """, (device_id, tipo_evento, confianza,
+                          notas.strip() if notas else None))
+                    conn.commit()
+                    return True
+        except Exception as e2:
+            print(f"Error registrando evento (tampoco con el INSERT simple): {e2}")
+            return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -7376,6 +7431,7 @@ def get_usuario_turno_actual(user_id):
             with conn.cursor(as_dict=True) as cur:
                 cur.execute("""
                     SELECT ut.*, t.Nombre AS TurnoNombre, t.LV_Entrada, t.LV_Salida, t.Sab_Entrada, t.Sab_Salida,
+                           t.Dom_Entrada, t.Dom_Salida,
                            t.Tol_Llegada_Min, t.Tol_Salida_Antes_Min
                     FROM HUB_UsuarioTurno ut
                     JOIN HUB_Turnos t ON ut.IdTurno = t.Id
@@ -7468,136 +7524,319 @@ def _get_horario_dia(turno, fecha):
         return turno.get('Dom_Entrada'), turno.get('Dom_Salida')
 
 
-def calcular_asistencia_dia(user_id, fecha=None):
+# --- Ventana de evidencia ---------------------------------------------------
+# La asistencia se infiere de la red, así que el dato nunca es un minuto: es un
+# intervalo. Estas dos funciones son las que convierten la línea de tiempo de
+# escaneos en ese intervalo.
+
+def _ventana_turno(fecha, entrada_esperada, salida_esperada, margen_min):
     """
-    Calcula la asistencia de un usuario en una fecha basándose en:
-    - Eventos de red (HUB_NetworkPresence) = entradas/salidas reales
-    - Turno asignado = horario esperado
-    Retorna dict con: entrada_real, salida_real, entrada_tardia, minutos_tarde, salida_temprana, minutos_antes, ausente
+    (desde, hasta) en datetimes: el margen alrededor del turno dentro del cual
+    se considera que hay evidencia de presencia.
+
+    Sirve para que un equipo encendido de madrugada no cuente como "llegó a las
+    00:15". Antes el fallback tomaba el primer escaneo del día y ese equipo
+    salía como puntual toda la semana sin que nadie lo notara.
     """
     import datetime
-    
-    if fecha is None:
-        fecha = datetime.date.today()
-    
-    # Obtener turno activo del usuario
-    turno = get_usuario_turno_actual(user_id)
-    if not turno:
-        return {'error': 'Usuario sin turno asignado', 'ausente': True}
-    
-    entrada_esperada, salida_esperada = _get_horario_dia(turno, fecha)
-    if not entrada_esperada or not salida_esperada:
-        return {'error': 'No hay horario para este día', 'ausente': True}
-    
-    tol_llegada = int(turno.get('Tol_Llegada_Min', 15))
-    tol_salida_antes = int(turno.get('Tol_Salida_Antes_Min', 5))
-    
-    # Obtener eventos de red del día
+    desde = datetime.datetime.combine(fecha, entrada_esperada) - datetime.timedelta(minutes=margen_min)
+    hasta = datetime.datetime.combine(fecha, salida_esperada) + datetime.timedelta(minutes=margen_min)
+    return desde, hasta
+
+
+def _linea_de_escaneos(desde, hasta):
+    """
+    Los instantes en que se escaneó la red dentro de [desde, hasta], en orden.
+
+    OJO con por qué esto NO es "SELECT COUNT(*)": save_results() no escribe nada
+    cuando un escaneo no detecta equipos, así que de madrugada (oficina vacía)
+    un escáner sano no deja ninguna fila. Por eso el conteo solo NO prueba que
+    el sistema estuviera vivo; los huecos entre escaneos sí.
+    """
     try:
         with get_connection() as conn:
             with conn.cursor(as_dict=True) as cur:
                 cur.execute("""
-                    SELECT FechaHora, TipoEvento
+                    SELECT DISTINCT FechaScan
+                    FROM HUB_NetworkScanResults
+                    WHERE FechaScan >= %s AND FechaScan <= %s
+                    ORDER BY FechaScan
+                """, (desde, hasta))
+                return [r['FechaScan'] for r in cur.fetchall()]
+    except Exception as e:
+        print(f"Error leyendo línea de escaneos: {e}")
+        return []
+
+
+def _hueco_maximo(escaneos, desde, hasta):
+    """
+    El hueco más largo ENTRE escaneos consecutivos, en minutos, o None si hay
+    menos de dos. Un hueco grande significa que el escáner se estuvo caído, y
+    por eso ese día no se puede afirmar nada (SIN DATOS, no AUSENTE).
+
+    OJO con lo que NO se hace: NO se mide el hueco desde el último escaneo hasta
+    el fin de la ventana, ni del inicio de la ventana al primer escaneo. Se
+    podría, y parecería más estricto, pero sería un falso positivo enorme:
+    save_results() no escribe NADA cuando un escaneo no detecta equipos, así que
+    una oficina vacía (temprano en la mañana, o al final del día) no deja ni una
+    fila. Medir esos bordes convertiría "la gente se fue a las 15:00" en "el
+    escáner se cayó 5 horas" y marcaría el día SIN DATOS. La cobertura del día
+    la mide el conteo (`escaneos_minimos`); el hueco, solo los huecos de
+    verdad, los del medio.
+    """
+    import datetime
+    if not escaneos or len(escaneos) < 2:
+        return None
+    return int(max((b - a).total_seconds() / 60.0
+                   for a, b in zip(escaneos, escaneos[1:])))
+
+
+def _piso_de_llegada(escaneos, techo, respaldo):
+    """
+    El extremo temprano de la llegada: el escaneo INMEDIATAMENTE anterior al que
+    lo vio, porque en ese momento el equipo no estaba. Ese escaneo es la
+    última prueba de que aún no había llegado, y es lo que hace que la ventana
+    mida lo que mide el muestreo (un intervalo) y no días.
+    """
+    anteriores = [e for e in escaneos if e < techo]
+    if anteriores:
+        return max(anteriores)
+    return respaldo  # evento sin línea de tiempo: se usa la evidencia del evento
+
+
+def _techo_de_salida(escaneos, piso, respaldo):
+    """
+    El extremo tardío de la salida: el escaneo INMEDIATAMENTE posterior al
+    último que lo vio. A partir de ahí ya no estaba, así que se fue en el
+    medio. Es el mismo intervalo que el de la llegada, por construcción.
+    """
+    posteriores = [e for e in escaneos if e > piso]
+    if posteriores:
+        return min(posteriores)
+    return respaldo
+
+
+def _eventos_del_usuario(user_id, desde, hasta):
+    """
+    Eventos de presencia del usuario en la ventana, con su evidencia.
+
+    `FechaDeteccion` es el instante del ESCANEO que prueba el evento;
+    `FechaHora` quedó como el instante en que el worker lo procesó. La
+    diferencia entre las dos columnas ES el retraso del worker, medido.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute("""
+                    SELECT np.TipoEvento,
+                           COALESCE(np.FechaDeteccion, np.FechaHora) AS Deteccion,
+                           np.UltimaVezVisto,
+                           np.VentanaMin
                     FROM HUB_NetworkPresence np
                     JOIN HUB_NetworkDevices nd ON np.IdDispositivo = nd.Id
                     WHERE nd.IdUsuario = %s
-                      AND CAST(np.FechaHora AS DATE) = %s
-                    ORDER BY np.FechaHora
-                """, (int(user_id), fecha))
-                eventos = cur.fetchall()
+                      AND COALESCE(np.FechaDeteccion, np.FechaHora) >= %s
+                      AND COALESCE(np.FechaDeteccion, np.FechaHora) <= %s
+                    ORDER BY COALESCE(np.FechaDeteccion, np.FechaHora)
+                """, (int(user_id), desde, hasta))
+                return cur.fetchall()
     except Exception as e:
         print(f"Error fetching eventos: {e}")
-        eventos = []
-    
-    # Determinar primera entrada y última salida
-    entrada_real = None
-    salida_real = None
-    
-    for ev in eventos:
-        hora = ev['FechaHora'].time() if hasattr(ev['FechaHora'], 'time') else ev['FechaHora']
-        if ev['TipoEvento'] == 'ENTRADA' and entrada_real is None:
-            entrada_real = hora
-        if ev['TipoEvento'] == 'SALIDA':
-            salida_real = hora  # La última será la real
-    
-    # Si no hay eventos de red, verificar última detección en HUB_NetworkScanResults
-    if entrada_real is None:
-        try:
-            with get_connection() as conn:
-                with conn.cursor(as_dict=True) as cur:
-                    cur.execute("""
-                        SELECT TOP 1 FechaScan FROM HUB_NetworkScanResults nsr
-                        JOIN HUB_NetworkDevices nd ON nsr.MACAddress = nd.MACAddress
-                        WHERE nd.IdUsuario = %s AND CAST(nsr.FechaScan AS DATE) = %s
-                        ORDER BY nsr.FechaScan
-                    """, (int(user_id), fecha))
-                    r = cur.fetchone()
-                    if r:
-                        entrada_real = r['FechaScan'].time() if hasattr(r['FechaScan'], 'time') else None
-        except:
-            pass
-    
-    if salida_real is None:
-        try:
-            with get_connection() as conn:
-                with conn.cursor(as_dict=True) as cur:
-                    cur.execute("""
-                        SELECT TOP 1 FechaScan FROM HUB_NetworkScanResults nsr
-                        JOIN HUB_NetworkDevices nd ON nsr.MACAddress = nd.MACAddress
-                        WHERE nd.IdUsuario = %s AND CAST(nsr.FechaScan AS DATE) = %s
-                        ORDER BY nsr.FechaScan DESC
-                    """, (int(user_id), fecha))
-                    r = cur.fetchone()
-                    if r:
-                        salida_real = r['FechaScan'].time() if hasattr(r['FechaScan'], 'time') else None
-        except:
-            pass
-    
-    # Evaluar
-    ausente = entrada_real is None
-    entrada_tardia = False
-    minutos_tarde = 0
-    salida_temprana = False
-    minutos_antes = 0
-    
-    if not ausente:
-        # Tolerancia llegada
-        from datetime import datetime, timedelta
-        dt_entrada_esperada = datetime.combine(fecha, entrada_esperada)
-        dt_entrada_real = datetime.combine(fecha, entrada_real)
-        diff_min = (dt_entrada_real - dt_entrada_esperada).total_seconds() / 60
-        
-        if diff_min > 15:  # tolerancia global 15 min (configurable)
-            entrada_tardia = True
-            minutos_tarde = int(diff_min)
-        
-        # Tolerancia salida (5 min antes permitido)
-        if salida_real:
-            dt_salida_esperada = datetime.combine(fecha, salida_esperada)
-            dt_salida_real = datetime.combine(fecha, salida_real)
-            diff_salida = (dt_salida_esperada - dt_salida_real).total_seconds() / 60
-            
-            if diff_salida > 5:  # se fue más de 5 min antes
-                salida_temprana = True
-                minutos_antes = int(diff_salida)
-    
+        return []
+
+
+def _config_asistencia():
+    """Parámetros del cálculo, con los defaults del código (migración 0042)."""
+    import config_db
+    valores = {
+        'net_asistencia_ventana_min': '120',
+        'net_asistencia_escaneos_minimos': '20',
+        'net_asistencia_politica': 'PISO',
+        'net_scan_interval_seg': '180',
+    }
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute(
+                    "SELECT Clave, Valor FROM HUB_Config WHERE Clave IN (%s)",
+                    tuple(valores))
+                for row in cur.fetchall():
+                    valores[row['Clave']] = row['Valor']
+    except Exception as e:
+        print(f"Error leyendo config de asistencia: {e}")
+    try:
+        ventana = int(valores['net_asistencia_ventana_min'])
+        minimos = int(valores['net_asistencia_escaneos_minimos'])
+        politica = (valores['net_asistencia_politica'] or 'PISO').upper()
+        intervalo_min = max(1, int(valores['net_scan_interval_seg']) // 60)
+    except (TypeError, ValueError):
+        ventana, minimos, politica, intervalo_min = 120, 20, 'PISO', 3
     return {
-        'fecha': fecha,
-        'turno_nombre': turno.get('Nombre'),
-        'entrada_esperada': entrada_esperada,
-        'salida_esperada': salida_esperada,
-        'entrada_real': entrada_real,
-        'salida_real': salida_real,
-        'entrada_tardia': entrada_tardia,
-        'minutos_tarde': minutos_tarde,
-        'salida_temprana': salida_temprana,
-        'minutos_antes': minutos_antes,
-        'ausente': ausente,
+        'ventana_min': ventana,
+        'escaneos_minimos': minimos,
+        'politica': politica,
+        'intervalo_min': intervalo_min,
+        # Tres intervalos seguidos sin escanear ya no es "el escáner se atrasó",
+        # es que no hubo datos. Con el intervalo por defecto son 9 minutos.
+        'gap_maximo_min': max(15, intervalo_min * 3),
     }
 
 
+def calcular_asistencia_dia(user_id, fecha=None):
+    """
+    Calcula la asistencia de un usuario en una fecha a partir de la evidencia
+    de red, y devuelve la VENTANA en la que podido entrar/salir, no un minuto.
+
+    La lógica de veredicto vive en `asistencia_core` (funciones puras, con
+    pruebas); aquí solo se traen los datos de la base y se le pasan.
+
+    Claves del dict devuelto:
+        estado                  CALCULADA | TARDE | SALIDA_TEMPRANA |
+                               INDETERMINADO | AUSENTE | SIN_DATOS |
+                               NO_APLICA
+        entrada_piso/techo      la ventana de la llegada
+        salida_piso/techo       la ventana de la salida
+        minutos_tarde/antes     según la política configurada
+        ventana_min   qué tan ancho es el dato
+        escaneos_dia            evidencia de que el sistema estuvo escaneando
+        gap_maximo_min          el hueco más largo entre escaneos
+    """
+    import datetime
+    import asistencia_core as core
+
+    if fecha is None:
+        fecha = datetime.date.today()
+
+    turno = get_usuario_turno_actual(user_id)
+    if not turno:
+        return {'error': 'Usuario sin turno asignado', 'estado': core.ESTADO_NO_APLICA,
+                'fecha': fecha, 'sin_turno': True}
+
+    entrada_esperada, salida_esperada = _get_horario_dia(turno, fecha)
+    entrada_esperada = core.limpiar_hora(entrada_esperada)
+    salida_esperada = core.limpiar_hora(salida_esperada)
+    hay_turno = bool(entrada_esperada and salida_esperada)
+
+    cfg = _config_asistencia()
+    tol_llegada = int(turno.get('Tol_Llegada_Min', 15) or 0)
+    tol_salida = int(turno.get('Tol_Salida_Antes_Min', 5) or 0)
+
+    # Sin horario para ese día no se busca evidencia: no hay contra qué medir y
+    # se marcaría AUSENTE al que solo tiene un día normal.
+    if not hay_turno:
+        return core.evaluar_dia(fecha, None, None, tol_llegada, tol_salida,
+                                hay_turno=False, escaneos_dia=0,
+                                escaneos_minimos=cfg['escaneos_minimos'])
+
+    desde, hasta = _ventana_turno(fecha, entrada_esperada, salida_esperada,
+                                  cfg['ventana_min'])
+    escaneos = _linea_de_escaneos(desde, hasta)
+    escaneos_dia = len(escaneos)
+    gap_maximo = _hueco_maximo(escaneos, desde, hasta)
+
+    # Si el escáner no cubrió el día, NO se marca ausente: no hay evidencia.
+    escaneos_efectivos = escaneos_dia
+    if gap_maximo is not None and gap_maximo > cfg['gap_maximo_min']:
+        # Un hueco largo no es "faltaron escaneos": es que el sistema estuvo
+        # caído un rato, y lo que hay a ambos lados no cubre la jornada.
+        escaneos_efectivos = 0
+
+    eventos = _eventos_del_usuario(user_id, desde, hasta)
+    entradas = [e for e in eventos if e['TipoEvento'] == 'ENTRADA']
+    salidas = [e for e in eventos if e['TipoEvento'] == 'SALIDA']
+
+    entrada_piso = entrada_techo = None
+    if entradas:
+        entrada_techo = entradas[0]['Deteccion']
+        entrada_piso = _piso_de_llegada(escaneos, entrada_techo,
+                                        entradas[0].get('UltimaVezVisto'))
+
+    salida_piso = salida_techo = None
+    if salidas:
+        # En la SALIDA los dos extremos están al revés que en la entrada: el
+        # piso es la última vez que se vio PRESENTE (`UltimaVezVisto`) y el
+        # techo es el escaneo que ya no lo vio. Por eso aquí no se usa
+        # `Deteccion` como piso: eso ya es el techo.
+        ultimo_presente = salidas[-1].get('UltimaVezVisto') or salidas[-1]['Deteccion']
+        salida_piso = ultimo_presente
+        salida_techo = _techo_de_salida(escaneos, ultimo_presente,
+                                        salidas[-1]['Deteccion'])
+
+    resultado = core.evaluar_dia(
+        fecha=fecha,
+        entrada_esperada=entrada_esperada,
+        salida_esperada=salida_esperada,
+        tol_llegada_min=tol_llegada,
+        tol_salida_antes_min=tol_salida,
+        entrada_piso=entrada_piso,
+        entrada_techo=entrada_techo,
+        salida_piso=salida_piso,
+        salida_techo=salida_techo,
+        escaneos_dia=escaneos_efectivos,
+        escaneos_minimos=cfg['escaneos_minimos'],
+        hay_turno=True,
+        politica=cfg['politica'],
+    )
+    resultado.update({
+        'turno_nombre': turno.get('Nombre'),
+        'turno_id': turno.get('IdTurno') or turno.get('Id'),
+        'gap_maximo_min': gap_maximo,
+        'entrada_tardia': resultado.get('entrada_tardia', False),
+        'salida_temprana': resultado.get('salida_temprana', False),
+        'minutos_tarde': resultado.get('minutos_tarde'),
+        'minutos_antes': resultado.get('minutos_antes'),
+        'fuente': 'RED',
+    })
+    return resultado
+
+
 def guardar_asistencia_diaria(user_id, fecha, datos):
-    """Guarda/actualiza el registro diario de asistencia."""
+    """
+    Guarda/actualiza el registro diario de asistencia.
+
+    Además de los minutos "declarados" (HoraEntradaReal/HoraSalidaReal, que se
+    mantienen para no romper nada que ya los lea) se guarda la VENTANA completa
+    y el estado. Lo declarado pasa a ser el extremo que decide la política
+    configurada, y lo demás queda como evidencia para poder auditar y recalcular
+    sin volver a escanear la red.
+    """
+    import asistencia_core as core
+
+    estado = datos.get('estado') or core.ESTADO_CALCULADA
+    entrada_piso = datos.get('entrada_piso')
+    entrada_techo = datos.get('entrada_techo')
+    salida_piso = datos.get('salida_piso')
+    salida_techo = datos.get('salida_techo')
+
+    # El minuto "declarado" es el que la política eligió: con PISO, el extremo
+    # que favorece; con TECHO, el que castiga. Antes era el techo de la
+    # llegada, que es el dato más caro de la ventana.
+    def _hora_legible(valor):
+        h = core.limpiar_hora(valor)
+        return h.strftime('%H:%M:%S') if h else None
+
+    params = (
+        int(user_id), fecha,
+        datos.get('turno_id'),
+        _hora_legible(datos.get('entrada_esperada')),
+        _hora_legible(datos.get('salida_esperada')),
+        _hora_legible(entrada_techo), _hora_legible(salida_piso),
+        int(bool(datos.get('entrada_tardia', False))),
+        datos.get('minutos_tarde'),
+        int(bool(datos.get('salida_temprana', False))),
+        datos.get('minutos_antes'),
+        int(bool(datos.get('ausente', False))),
+        _hora_legible(entrada_piso), _hora_legible(entrada_techo),
+        _hora_legible(salida_piso), _hora_legible(salida_techo),
+        datos.get('ventana_min'),
+        int(bool(datos.get('indeterminado', False))),
+        datos.get('escaneos_dia'),
+        datos.get('gap_maximo_min'),
+        estado,
+        (datos.get('fuente') or 'RED'),
+        (datos.get('observaciones') or '')[:500],
+    )
+
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -7606,22 +7845,38 @@ def guardar_asistencia_diaria(user_id, fecha, datos):
                     USING (SELECT %s AS IdUsuario, %s AS Fecha) AS source
                     ON target.IdUsuario = source.IdUsuario AND target.Fecha = source.Fecha
                     WHEN MATCHED THEN
-                        UPDATE SET IdTurno = %s, HoraEntradaReal = %s, HoraSalidaReal = %s,
-                               EntradaTardia = %s, MinutosTarde = %s, SalidaTemprana = %s,
-                               MinutosAntes = %s, Ausente = %s, FechaCalculo = GETDATE()
+                        UPDATE SET IdTurno = %s,
+                                   HoraEntradaEsperada = %s, HoraSalidaEsperada = %s,
+                                   HoraEntradaReal = %s, HoraSalidaReal = %s,
+                                   EntradaTardia = %s, MinutosTarde = %s,
+                                   SalidaTemprana = %s, MinutosAntes = %s,
+                                   Ausente = %s,
+                                   EntradaPiso = %s, EntradaTecho = %s,
+                                   SalidaPiso = %s, SalidaTecho = %s,
+                                   VentanaMin = %s, Indeterminado = %s,
+                                   EscaneosDia = %s, GapMaximoMin = %s,
+                                   Estado = %s, Fuente = %s, Observaciones = %s,
+                                   FechaCalculo = GETDATE()
                     WHEN NOT MATCHED THEN
-                        INSERT (IdUsuario, Fecha, IdTurno, HoraEntradaReal, HoraSalidaReal,
-                               EntradaTardia, MinutosTarde, SalidaTemprana, MinutosAntes, Ausente)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-                """, (int(user_id), fecha, 
-                      datos.get('turno_id'), datos.get('entrada_real'), datos.get('salida_real'),
-                      int(datos.get('entrada_tardia', False)), datos.get('minutos_tarde'),
-                      int(datos.get('salida_temprana', False)), datos.get('minutos_antes'),
-                      int(datos.get('ausente', False)),
-                      int(user_id), fecha, datos.get('turno_id'), datos.get('entrada_real'), datos.get('salida_real'),
-                      int(datos.get('entrada_tardia', False)), datos.get('minutos_tarde'),
-                      int(datos.get('salida_temprana', False)), datos.get('minutos_antes'),
-                      int(datos.get('ausente', False))))
+                        INSERT (IdUsuario, Fecha, IdTurno,
+                                HoraEntradaEsperada, HoraSalidaEsperada,
+                                HoraEntradaReal, HoraSalidaReal,
+                                EntradaTardia, MinutosTarde,
+                                SalidaTemprana, MinutosAntes, Ausente,
+                                EntradaPiso, EntradaTecho, SalidaPiso, SalidaTecho,
+                                VentanaMin, Indeterminado,
+                                EscaneosDia, GapMaximoMin, Estado, Fuente,
+                                Observaciones)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                """, (
+                    # USING
+                    params[0], params[1],
+                    # UPDATE SET
+                    *params[2:],
+                    # INSERT
+                    params[0], params[1], *params[2:]
+                ))
                 conn.commit()
                 return True
     except Exception as e:
@@ -7682,14 +7937,20 @@ def get_asistencia_fecha(fecha, user_id=None):
 def calcular_y_guardar_asistencias_fecha(fecha=None):
     """
     Calcula y guarda asistencias de todos los usuarios con turno para una fecha.
-    Usado por job automático (ej. cada noche a las 23:00).
+
+    Devuelve el desglose por estado, no solo un número: el número solo no dice
+    nada (guardar "40 asistencias" suena a que 40 personas asistieron, cuando
+    pueden ser 40 filas de las cuales 12 son SIN DATOS y 3 NO_APLICA). Lo que
+    sirve para nómina es saber cuántas son afirmables y cuántas no.
     """
     import datetime
     if fecha is None:
         fecha = datetime.date.today() - datetime.timedelta(days=1)  # día anterior
-    
+
     usuarios_turno = get_all_usuario_turnos()
     guardados = 0
+    por_estado = {}
+    sin_turno = 0
     for ut in usuarios_turno:
         user_id = ut['IdUsuario']
         # Verificar si el turno está vigente en la fecha
@@ -7697,13 +7958,27 @@ def calcular_y_guardar_asistencias_fecha(fecha=None):
             continue
         if ut['FechaDesde'] > fecha:
             continue
-        
+
         datos = calcular_asistencia_dia(user_id, fecha)
-        if 'error' not in datos:
-            datos['turno_id'] = ut['IdTurno']
-            if guardar_asistencia_diaria(user_id, fecha, datos):
-                guardados += 1
-    return guardados
+        if datos.get('error'):
+            sin_turno += 1
+            continue
+        datos.setdefault('turno_id', ut['IdTurno'])
+        estado = datos.get('estado') or 'CALCULADA'
+        por_estado[estado] = por_estado.get(estado, 0) + 1
+        if guardar_asistencia_diaria(user_id, fecha, datos):
+            guardados += 1
+
+    return {
+        'fecha': fecha,
+        'guardados': guardados,
+        'por_estado': por_estado,
+        'sin_turno': sin_turno,
+        'afirmables': por_estado.get('CALCULADA', 0)
+                      + por_estado.get('TARDE', 0)
+                      + por_estado.get('SALIDA_TEMPRANA', 0)
+                      + por_estado.get('AUSENTE', 0),
+    }
 
 
 # =============================================================================

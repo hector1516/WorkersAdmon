@@ -4,6 +4,66 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.2.3] - 2026-09-29
+
+Asistencia por MAC: el desfase de 3-5 min y los falsos positivos que venían
+con él. Este repo tiene su propia copia de `network_scanner.py` y
+`eccsa_db.py` (es de aquí de donde corre el `network_scanner_worker`), así que
+el arreglo llega por acá y no solo por el repo de HUB.
+
+### Corregido
+- **El evento de presencia se sellaba con la hora de PROCESAR (`GETDATE()`), no
+  con el instante del escaneo que lo vio** (`network_scanner.py`). Con el
+  worker cada 60s y el escáner cada 180s, eso metía 1-4 min de retraso
+  inventado. Ahora `FechaDeteccion` guarda el escaneo y `FechaHora` sigue
+  guardando el de proceso: la diferencia entre las dos ES el retraso medido.
+- **La llegada se guarda como VENTANA, no como minuto.** Con el escáner cada
+  3 min, lo que se sabe es que ocurrió entre el escaneo que no vio el equipo y
+  el que sí (`UltimaVezVisto` + `FechaDeteccion`, `VentanaMin` con el ancho).
+  El cálculo compara la ventana contra la tolerancia: `TARDE` solo si el
+  extremo temprano ya la pasa, `A_SALVO` solo si el tardío no, y
+  `INDETERMINADO` si la cruza. La política `PISO`/`TECHO`/`PROMEDIO` decide qué
+  minuto se anota.
+- **Un día sin escaneo ya no es AUSENTE.** Con el escáner caído no había
+  `FechaScan`, no había eventos, y `ausente = (entrada_real is None)` marcaba a
+  todo el planta. Ahora es `SIN DATOS`, y un día sin horario es `NO_APLICA`.
+- **La presencia de madrugada no cuenta como entrada**: el fallback tomaba el
+  primer escaneo del día, y un equipo encendido de noche salía como "llegó a
+  las 00:15" y luego como puntual toda la semana.
+- **Las tolerancias configurables del turno se usan.** El cálculo comparaba
+  contra los literales 15 y 5, leía `Tol_Llegada_Min` y nunca lo aplicaba.
+- **Tolerancias asimétricas**: entrada en 0 (era un retardo, no una
+  tolerancia) y salida con piso de dos intervalos de escaneo, que es el
+  debounce que evita que un AP que se cae un escaneo genere una salida falsa.
+- **Los escaneos pendientes se procesan en orden cronológico** (`ASC`): antes
+  pedía el más nuevo y el bucle vaciaba la cola al revés.
+- **Fin del código duplicado**: `register_presence_event` y
+  `update_device_state` estaban aquí y en `eccsa_db.py`, y ya divergían. Ahora
+  el worker delega en la capa de datos: una sola copia.
+- **`register_presence_event` reintenta con el INSERT viejo** si falla el
+  completo: si el código llega antes que la migración, se siguen registrando
+  eventos en vez de dejar de generar asistencia en silencio.
+
+### Agregado
+- `asistencia_core.py`: la lógica de ventanas y veredictos, en funciones puras
+  sin base de datos, para que sea verificable.
+- `tests/`: 4 archivos de pruebas (clasificación de ventanas, orden y sellado
+  del escáner, cálculo completo con base falsa, y que el `MERGE` no se
+  desalinee). Suma 59 pruebas; la suite del panel sigue verde (136 en total).
+- La vista de asistencias (en HUB) ahora muestra la esperada de verdad, la
+  ventana, y el desglose por estado.
+
+### Corregido en el deploy
+- **`deploy/hotsync.sh` no copiaba `network_scanner.py`.** La lista de módulos
+  Python era explícita y el escáner no estaba: el hotsync copiaba todo lo
+  demás, reiniciaba los procesos, reportaba éxito, y el worker seguía con el
+  código viejo en memoria (importado al arrancar). Un cambio en el escáner se
+  desplegaba "bien" y no hacía nada. Ahora copia también `network_scanner.py` y
+  `asistencia_core.py`, y la verificación por hash los incluye.
+
+**Requiere la migración `0042_asistencia_precisa.sql`** (ya aplicada en
+producción; vive en el repo de HUB, que comparte la base).
+
 ## [1.2.2] - 2026-09-29
 
 ### Corregido

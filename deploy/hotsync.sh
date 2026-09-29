@@ -88,9 +88,16 @@ fi
 say "1/4 copiando panel/, api/ y los módulos raíz"
 run docker cp "$ROOT_DOCKER/panel/." "$CONTAINER:/app/panel"
 run docker cp "$ROOT_DOCKER/api/." "$CONTAINER:/app/api"
+# OJO con la lista: es explícita a propósito, pero si se agrega un módulo de
+# Python del que dependen los workers y NO está aquí, el hotsync copia todo lo
+# demás, reinicia los procesos, y aun así el worker sigue con el código viejo en
+# memoria (importado al arrancar). Eso pasó con network_scanner.py: estaba
+# fuera de la lista, así que un cambio en el escáner se desplegaba "bien" y no
+# cambiaba nada. La verificación del paso 1b compara hashes justamente para que
+# esto no vuelva a pasar en silencio.
 for f in eccsa_db.py eccsa_db_server.py config_db.py telegram_alerts.py \
          pdf_generator.py shared_report_pdf.py numbers_helper.py \
-         worker_heartbeat.py; do
+         worker_heartbeat.py network_scanner.py asistencia_core.py; do
   [ -f "$ROOT/$f" ] && run docker cp "$ROOT_DOCKER/$f" "$CONTAINER:/app/$f"
 done
 # Los .conf de supervisor viven en conf.d.available: se copian para que un
@@ -110,7 +117,8 @@ run docker cp "$ROOT_DOCKER/ECCSA_SHELL_VERSION" "$CONTAINER:/app/ECCSA_SHELL_VE
 # ADENTRO del contenedor; si difieren, se aborta sin reiniciar nada.
 say "1b/4 comprobando que la copia quedo dentro del contenedor"
 fallos=0
-for par in panel/panel.css panel/templates.py panel/shell.css ECCSA_SHELL_VERSION; do
+for par in panel/panel.css panel/templates.py panel/shell.css ECCSA_SHELL_VERSION \
+           eccsa_db.py network_scanner.py asistencia_core.py; do
   [ -f "$ROOT_DOCKER/$par" ] || continue
   a=$(sha256sum "$ROOT_DOCKER/$par" | cut -d' ' -f1)
   b=$(docker exec "$CONTAINER" sha256sum "/app/$par" 2>/dev/null | cut -d' ' -f1)
