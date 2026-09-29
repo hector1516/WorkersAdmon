@@ -83,6 +83,17 @@ que no había tenido entrada en este archivo).
   contenedor recreado con la imagen recien construida". El array se arma sin
   pipelinar el `docker` y el paso termina con `exit 0` explícito cuando todos
   los checks pasaron.
+- **`test_60` / `check.yml` en rojo: el panel corría un shell que no existía**
+  (`check_daily.py` exige `panel/shell.css` ≡ `shell/dist/shell.plain.css` y
+  `ECCSA_SHELL_VERSION` ≡ `shell/VERSION`). El commit `d1edcec` propagó **solo
+  los 3 archivos de la app** (la copia quedó en 1.10.1) y el fuente **nunca se
+  commiteó en ECCSA-Shell**, que seguía en 1.10.0, igual que la copia
+  vendorizada `shell/`. Se publicó **ECCSA-Shell 1.10.1** (los mismos 2 cambios
+  en `src/body.css` + `VERSION` + `dist/` regenerado — el sha resultante
+  `4e6ac2de301a` es byte a byte el de `panel/shell.css`, y `dist/BUILD.json`
+  nuevo coincide con los shas que ya tenían field y AdmonApp) y se
+  re-vendorizaron los 6 archivos de `shell/`. `check_daily` sale 0 y la suite
+  queda en 76/76.
 
 ### Agregado
 - `panel/views/apps.py`: helpers con `class="input"` y `sel-tipo` en el

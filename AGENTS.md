@@ -176,6 +176,16 @@ y la regla de ubicación viven en el repo `hector1516/ECCSA-Shell` y aquí hay
 `ECCSA_SHELL_SHA`). Para cambiar el diseño se edita `tokens.css` o
 `src/body.css` en el repo del shell y se propaga.
 
+**Ojo con propagar a mano**: `sync_shell.py`/`propagate.py` actualizan los
+archivos de la app (`panel/shell.css`, `ECCSA_SHELL_*` y los artefactos del
+banner), **pero no `shell/`**, que es un espejo del repo del shell. Si la
+propagación se hace a mano hay que re-vendorizar `shell/` en el mismo commit
+(copiar los archivos que cambien desde `hector1516/ECCSA-Shell`) y asegurarse
+de que el cambio esté commiteado ALLÁ: `check_daily.py` (`test_60`) compara
+`panel/shell.css` contra `shell/dist/shell.plain.css` y `ECCSA_SHELL_VERSION`
+contra `shell/VERSION`. Así salió el rojo de `check.yml` del 2026-09-28: la
+app corría un shell 1.10.1 que nunca existió en el repo del shell.
+
 `panel/templates.py` **lee los CSS de disco** (`_read_css()`) justamente para
 que actualizar el shell no requiera tocar Python.
 

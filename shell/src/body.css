@@ -608,10 +608,11 @@ animation: pulse-offline 2s infinite;
 	     900-1279  4 columnas
 	     1280+     5 columnas
 
-	   El max-width evita que en un monitor de 2560 las tarjetas queden de
-	   400px: el menu se ordena en un ancho legible y centrado. */
-	max-width: 900px;
-	margin: 0 auto;
+	   Las tarjetas se estiran a todo el ancho disponible (1fr, sin max-width):
+	   en la PC y la tablet las columnas quedaban apeladas al centro y con
+	   mucho aire a los lados, porque el menu se limitaba a 900px en un monitor
+	   de 1920. El alto si tiene tope (max-height en .module-card) para que
+	   no se vuelvan de 400px de alto. */
 	grid-template-columns: repeat(2, 1fr);
 }
 @media (min-width: 560px) {
@@ -633,7 +634,7 @@ animation: pulse-offline 2s infinite;
 	/* Cuadradas: la altura sigue al ancho de la columna (que es 1fr), con un
 	   tope para que en un monitor grande no queden de 250px. */
 	aspect-ratio: 1;
-	max-height: 200px;
+	max-height: 230px;
 	/* 130px, no 88: con la letra de Admon el contenido (padding + icono +
 	   titulo + 2 lineas de descripcion) mide 123px, asi que con 88 se cortaba
 	   a la mitad. Es el piso real del contenido. */
