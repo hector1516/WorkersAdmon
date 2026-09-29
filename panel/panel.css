@@ -67,6 +67,21 @@ header.header{position:sticky;top:var(--banner-h);z-index:90;background:rgba(15,
 .modulo-back{margin:0 0 .6rem;min-height:var(--tap);padding:.5rem .9rem;
   text-decoration:none}
 
+/* Tarjeta del menú: la que se ajusta al CONTENIDO, no un cuadrado de 230px.
+   El shell la deja cuadrada a propósito (aspect-ratio:1 + max-height:230px,
+   el look de Field, donde la tarjeta sí tiene para llenar ese alto). Acá el
+   contenido es icono + título + una línea de descripción y mide 97px: la
+   tarjeta salía de 230x230 con 133px de aire muerto, y con cinco columnas
+   pegadas a la izquierda el menú se veía ralo y descompuesto.
+
+   Es la única excepción a la regla de arriba ("no se redefine nada del
+   shell"), y es deliberada: lo mismo se corrigió en Admon sobre su
+   `Dashboard.svelte` en vez de `styles/app.css`, porque el CSS del shell está
+   validado por hash. El alto mínimo (--tap del shell) se queda: es el piso
+   de lo que se puede tocar, y sin `aspect-ratio` la tarjeta crece con el
+   texto en vez de recortarlo. */
+.module-card{aspect-ratio:auto;max-height:none}
+
 /* ── Aviso de conexión del header ─────────────────────────────────────────
    El shell ya trae .badge con sus variantes de color. Este solo conserva el
    borde y el nowrap; el relleno, el color y el tamano salen de .badge, asi que

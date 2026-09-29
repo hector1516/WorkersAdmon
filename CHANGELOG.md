@@ -4,6 +4,33 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.2.2] - 2026-09-29
+
+### Corregido
+- **La tarjeta del menú era un cuadrado de 230px con 133px de aire muerto**
+  (`panel/panel.css`): el shell trae `.module-card` con `aspect-ratio:1` y
+  `max-height:230px` —el look cuadrado de Field, donde la tarjeta sí tiene para
+  llenar ese alto—, pero el contenido del panel (icono, título y una línea de
+  descripción) mide 97px. Medido con el CSS real: la tarjeta salía de
+  **216.8×216.8** en escritorio y el menú se veía ralo y descompuesto. Ahora
+  `aspect-ratio:auto; max-height:none` y queda de **216.8×130**, con el
+  `min-height` del shell (objetivo táctil) intacto y sin recortes de texto.
+
+  Es la única excepción declarada a la regla de "no se redefine nada del
+  shell", y es deliberada: el CSS del shell está validado por hash y Field
+  quiere sus tarjetas cuadradas, así que el ajuste va en el CSS propio del
+  panel, igual que Admon lo hizo en su `Dashboard.svelte` sin tocar
+  `styles/app.css`. El orden importa (panel.css va después de shell.css) y
+  hay una prueba que lo verifica sobre el CSS que de verdad se sirve.
+
+  Medido a 390 / 820 / 1024 / 1366 / 1920 px: 2 · 3 · 4 · 5 columnas, tarjetas
+  de 130px de alto, 0 de 5 recortadas. Antes: 230px de alto, 133px de holgaje.
+
+### Agregado
+- `test_71` cubre el override de la tarjeta y que quede **después** del shell
+  en la cascada; `test_61` se afinó para que prohíba `aspect-ratio` en las
+  reglas de `.actions` (que era el bug del cuadrado) y no en todo el archivo.
+
 ## [1.2.1] - 2026-09-28
 
 Revisión visual de la interfaz del panel (también recoge el bump a 1.2.0,

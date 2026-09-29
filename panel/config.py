@@ -88,7 +88,7 @@ TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 # Versión del panel (la de la app) y del shell (estampada por
 # tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
 APP_ID = "workersadmon"
-APP_VERSION = "1.2.1"   # "1.2.1" revisión visual: botones, volver, subtítulos
+APP_VERSION = "1.2.2"   # "1.2.2" la tarjeta del menú deja de ser un cuadrado con aire
 
 
 def _shell_version():

@@ -1,11 +1,10 @@
 {
   "app": "workersadmon",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "cambios": [
-    "🧪 Botones de acción: ya no son cuadrados gigantes; van dos por fila en las tarjetas y en línea en la tabla.",
-    "↩️ Todo módulo y el detalle de logs traen botón «Volver» con texto, al lugar correcto y que se puede tocar.",
-    "🔤 Corregidos subtítulos con <code> rotos (Estado, Logs) y la descripción repetida de la home.",
-    "🎨 Selects, campos de texto y badges legibles: ya no se cortan ni se estiran de lado a lado.",
-    "📦 Los emoji de los botones se pintan en el contenedor: se instalan las fuentes de emoji."
+    "📐 La tarjeta del menú ya no es un cuadrado de 230px con 133px de aire: se ajusta al texto.",
+    "📏 Medido con el CSS real: 2 columnas en móvil, 3 en tablet, 4 en laptop y 5 en escritorio, sin texto cortado.",
+    "🔁 El deploy del panel vuelve a funcionar de punta a punta (el rebuild ya no se tumba en PowerShell).",
+    "🩺 El shell vuelve a estar en su fuente: ECCSA-Shell 1.10.1 publicado y la copia vendorizada al día."
   ]
 }

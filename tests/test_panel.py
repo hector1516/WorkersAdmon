@@ -1717,8 +1717,15 @@ class PanelTest(unittest.TestCase):
         celda era estrecha, los botones se apilaban y cada fila crecía ~100px.
         """
         propio = self._panel_css()
-        self.assertNotIn("aspect-ratio", propio,
-                         "el cuadrado viene de aspect-ratio + height:100%")
+        # `aspect-ratio` no puede aparecer en las reglas de las acciones: el
+        # cuadrado venía de ahi (aspect-ratio + height:100%). El chequeo es por
+        # reglas y no sobre el archivo entero porque la TARJETA DEL MENÚ sí lo
+        # usa, y a propósito, para dejar de ser un cuadrado de 230px
+        # (ver test_71).
+        reglas_accion = re.findall(r"[^{}]*\.actions[^{}]*\{[^}]*\}", propio)
+        self.assertTrue(reglas_accion, "no se encontró ninguna regla de .actions")
+        for r in reglas_accion:
+            self.assertNotIn("aspect-ratio", r, r)
         self.assertNotIn("auto-fit,minmax(88px,1fr)", propio)
         # Tarjeta: 2 columnas fijas; si queda uno solo, ocupa la fila entera.
         self.assertIn(".wcard .actions{display:grid", propio)
@@ -1865,6 +1872,35 @@ class PanelTest(unittest.TestCase):
             r'<div class="card"><div class="wcard-name">[^<]+</div>'
             r'<div class="muted" style="font-size:\.85rem">')
         self.assertNotIn('<div class="empty">⚠️ no hay log', html)
+
+    def test_71_tarjeta_del_menu_se_ajusta_al_contenido(self):
+        """La tarjeta del menú no es un cuadrado de 230px con aire muerto.
+
+        El shell trae `.module-card` con `aspect-ratio:1` y `max-height:230px`
+        (el look cuadrado de Field). En el panel el contenido real —icono, título
+        y una línea de descripción— mide 97px, así que la tarjeta salía de
+        230x230 con 133px de aire y el menú se veía ralo y descompuesto.
+
+        Igual que en Admon (que lo corrigió en su `Dashboard.svelte` sin tocar
+        `styles/app.css`, porque ese CSS del shell está validado por hash), acá
+        el override va en `panel/panel.css`, que sí es propio. Y tiene que
+        quedar DESPUÉS del `shell.css` en el CSS que sirve el panel, que es lo
+        único que hace que gane a igual especificidad.
+        """
+        propio = self._panel_css()
+        regla = re.search(r"\.module-card\s*\{[^}]*\}", propio)
+        self.assertIsNotNone(regla, "panel.css debe ajustar .module-card")
+        self.assertIn("aspect-ratio:auto", regla.group(0).replace(" ", ""))
+        self.assertIn("max-height:none", regla.group(0).replace(" ", ""))
+
+        # Y el orden de la cascada en lo que de verdad llega al navegador.
+        c = self._logged()
+        _, _, html = c.get("/")
+        css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
+        shell = css.index("aspect-ratio:1")
+        panel = css.index("aspect-ratio:auto")
+        self.assertLess(shell, panel,
+                        "el override del panel tiene que ir después del shell")
 
 
 if __name__ == "__main__":
