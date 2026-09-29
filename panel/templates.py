@@ -61,6 +61,29 @@ def esc(value):
     return html.escape(str(value if value is not None else ""))
 
 
+# Etiquetas que un subtítulo puede traer escritas a mano. Se listan sin
+# atributos a propósito: con eso alcanza para marcar rutas y comandos y no se
+# abre la puerta a inyectar un <a href=...> o un <img onerror=...>.
+_SUB_TAGS = ("code", "b", "strong", "em", "br")
+
+
+def esc_sub(texto):
+    """Escapa el subtítulo conservando las pocas etiquetas que trae a mano.
+
+    esc() convierte cualquier etiqueta en texto visible, y los subtítulos usan
+    <code> para los directorios y archivos (p.ej. "datos en <code>/data</code>"):
+    al escaparlo el usuario veía literalmente "datos en <code>/data</code>" en
+    Logs y Estado. Se escapa TODO y luego se devuelven solo las etiquetas de la
+    lista, así lo que venga del usuario (nombre del worker, por ejemplo) sigue
+    escapado igual que antes.
+    """
+    out = esc(texto)
+    for tag in _SUB_TAGS:
+        out = out.replace(f"&lt;{tag}&gt;", f"<{tag}>")
+        out = out.replace(f"&lt;/{tag}&gt;", f"</{tag}>")
+    return out
+
+
 def flash(message, kind="ok"):
     if not message:
         return ""
@@ -319,8 +342,16 @@ FUENTES = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
 
 
 def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refresh=0,
-         conn=None, banner="", sync="idle", lugar="desconocido", ip=""):
-    """Layout general: banner + header fijo + contenido + tab bar inferior."""
+         conn=None, banner="", sync="idle", lugar="desconocido", ip="",
+         back_href=None, back_label="← Volver al panel"):
+    """Layout general: banner + header + botón de volver + contenido.
+
+    back_href: a dónde vuelve el botón "← …" que abre el bloque del módulo.
+    None = la home (es el menú, no tiene a dónde volver). Las vistas que están
+    dentro de un módulo lo dejan en None y se resuelve abajo contra el módulo
+    al que pertenecen; solo se pasa a mano cuando el destino es otro (p.ej. el
+    log de un worker vuelve a Estado).
+    """
     if not banner:
         banner = shell_banner(user, sync=sync, lugar=lugar, ip=ip)
     refresh_js = (AUTO_REFRESH_JS.replace("__SECS__", str(int(refresh)))
@@ -355,11 +386,24 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
         # antes vivia en el header. Field y Admon no lo tienen ahi — su header
         # es solo la marca — asi que bajo al bloque de modulo, que es donde
         # aporta: el titulo de la seccion, su descripcion y este detalle.
-        extra = f'<div class="sub">{esc(subtitle)}</div>' if subtitle else ""
+        # esc_sub, no esc: el subtitulo trae <code> con las rutas y escaparlo
+        # los mostraba como texto literal.
+        extra = (f'<div class="sub">{esc_sub(subtitle)}</div>' if subtitle else "")
+        # Volver al menú. La home ES el módulo inicial, así que ahí no va: no
+        # habría a qué volver. Antes la única vuelta era la flecha diminuta del
+        # log de un worker (y apuntaba a la home, no a Estado).
+        if back_href is None and active != config.MODULO_INICIO["id"]:
+            back_href = "/"  # la home es el menú: cualquier módulo vuelve ahí
+        volver = ""
+        if back_href:
+            volver = (f'<a class="btn btn-sm btn-secondary modulo-back" '
+                      f'href="{esc(back_href)}" title="Volver atrás">'
+                      f'{esc(back_label)}</a>')
         modulo_html = (
             f'<div class="modulo">'
+            f'{volver}'
             f'<h2 class="modulo-titulo">{esc(tab["modulo"])}</h2>'
-            f'<div class="sub">{esc(tab.get("desc", ""))}</div>'
+            f'<div class="sub">{esc_sub(tab.get("desc", ""))}</div>'
             f'{extra}'
             f'</div>')
     else:

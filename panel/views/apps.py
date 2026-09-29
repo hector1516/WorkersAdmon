@@ -50,7 +50,10 @@ def _select_tipo(name, actual, con_vacio=False):
     opts = "".join(
         f'<option value="{v}"{" selected" if v == (actual or "") else ""}>{l}</option>'
         for v, l in opciones)
-    return f'<select class="input" name="{esc(name)}">{opts}</select>'
+    # sel-tipo: ancho mínimo para que la celda no corte la etiqueta elegida
+    # ("TEXTO"/"SOLO"/"SECR" se cortaban porque el ancho mínimo de un select
+    # lo da la opción SELECCIONADA).
+    return f'<select class="input sel-tipo" name="{esc(name)}">{opts}</select>'
 
 
 def _campo_valor(tipo, valor, name):
@@ -71,10 +74,14 @@ def _campo_valor(tipo, valor, name):
             opts = "".join(
                 f'<option value="{v}"{" selected" if val == v else ""}>{l}</option>'
                 for v, l in (("1", "Sí"), ("0", "No")))
-        return f'<select class="input" name="{esc(name)}">{opts}</select>'
+        # sel-tipo: ancho mínimo para que la celda no corte la etiqueta elegida.
+        return f'<select class="input sel-tipo" name="{esc(name)}">{opts}</select>'
     tipo_input = "number" if tipo == "number" else "text"
+    # class="input" es obligatorio: sin la clase el input toma el estilo por
+    # defecto del navegador (caja blanca) y queda el único campo raro de la
+    # tabla, al lado de los que sí la traen.
     return (f'<input type="{tipo_input}" name="{esc(name)}" '
-            f'value="{esc(valor)}">')
+            f'value="{esc(valor)}" class="input">')
 
 
 def _fila_catalogo(f):
@@ -113,7 +120,7 @@ def _panel_app(app, filas):
       {_csrf_field()}
       <input type="hidden" name="grupo" value="cat">
       <input type="hidden" name="app" value="{esc(app)}">
-      <div class="tscroll"><table>
+      <div class="tscroll"><table class="apps-tabla">
         <thead><tr>
           <th>Título</th><th>Clave</th><th>Valor</th><th>Tipo</th>
           <th class="hide-sm">Descripción</th><th></th>
@@ -181,24 +188,24 @@ def _panel_alta(apps):
       <input type="hidden" name="grupo" value="alta">
       <datalist id="apps-list-alta">{apps_opt}</datalist>
       <div class="cfg-grid">
-        <div class="cfg-field"><label>App</label>
+        <div class="field cfg-field"><label>App</label>
           <input type="text" name="app" list="apps-list-alta"
                  placeholder="HUB / Field / admon / …" maxlength="40" required class="input"></div>
-        <div class="cfg-field"><label>Clave (HUB_Config)</label>
+        <div class="field cfg-field"><label>Clave (HUB_Config)</label>
           <input type="text" name="clave" placeholder="mi_clave" maxlength="50"
                  required class="input"></div>
-        <div class="cfg-field"><label>Título</label>
+        <div class="field cfg-field"><label>Título</label>
           <input type="text" name="titulo" maxlength="120" required class="input"></div>
-        <div class="cfg-field"><label>Tipo</label>
+        <div class="field cfg-field"><label>Tipo</label>
           {_select_tipo("tipo", "text", con_vacio=True)}</div>
-        <div class="cfg-field"><label>Unidad (opcional)</label>
+        <div class="field cfg-field"><label>Unidad (opcional)</label>
           <input type="text" name="unidad" placeholder="seg / min / …"
                  maxlength="20" class="input"></div>
-        <div class="cfg-field"><label>Orden</label>
+        <div class="field cfg-field"><label>Orden</label>
           <input type="number" name="orden" value="100" min="0" max="9999" class="input"></div>
-        <div class="cfg-field"><label>Valor inicial (opcional)</label>
+        <div class="field cfg-field"><label>Valor inicial (opcional)</label>
           <input type="text" name="valor" maxlength="500" class="input"></div>
-        <div class="cfg-field"><label>Descripción</label>
+        <div class="field cfg-field"><label>Descripción</label>
           <input type="text" name="descripcion" maxlength="400" class="input"></div>
       </div>
       <div class="cfg-save">

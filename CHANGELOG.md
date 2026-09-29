@@ -4,6 +4,55 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.2.1] - 2026-09-28
+
+Revisión visual de la interfaz del panel (también recoge el bump a 1.2.0,
+que no había tenido entrada en este archivo).
+
+### Corregido
+- **Botones de acción mal dibujados** (`panel/panel.css`): eran cuadrados
+  (relación de aspecto 1:1 con `height:100%`), y como la altura salía del
+  ancho de la columna, en escritorio salían de ~200px y en la tabla de Apps
+  levantaban cada fila ~100px. Ahora las tarjetas usan `display:grid` de
+  **2 por fila** (uno solo ocupa la fila entera) y la tabla de Apps mantiene
+  los botones **en línea** con `flex-wrap:nowrap` + `min-width` en la celda.
+  El alto mínimo sigue siendo `--tap` (44px), que es lo que pide el shell.
+- **Los emoji salían vacíos en producción**: `python:3.11-slim` no trae
+  ninguna fuente que pinte `💾 🗑️ 📋 🚪 📄`, así que los botones aparecían
+  como píldoras de color sin nada dentro. `Dockerfile` instala
+  `fonts-noto-color-emoji`.
+- **Falta el botón de volver**: ahora todo módulo que no es la home lleva un
+  botón con texto (`← Volver al panel`, sobreescribible con
+  `page(back_href=…, back_label=…)`), y los logs vuelven a **Estado** en vez
+  de saltar a la home (la flecha sola dentro del `<h2>` ya no existe).
+- **Subtítulos rotos**: `esc()` escapaba por completo las etiquetas y
+  mostraba el texto literal `datos en &lt;code&gt;…&lt;/code&gt;`. `page()`
+  ahora acepta un subconjunto de etiquetas seguro (`_SUB_TAGS` /
+  `esc_sub()`) y se usa en Estado y Logs.
+- **Home con descripción duplicada**: se quitó `subtitle="elegí un módulo"`
+  (el módulo ya lo dice en su descripción).
+- **Campos de texto y selects** de Apps/Config/Notificaciones: los inputs sin
+  `class="input"` mostraban la caja blanca del navegador; el `select` de Tipo
+  se cortaba (`SOLO`, `SECR`, `NÚME`); el campo de prueba SMTP medía 190px
+  fijos. Se sumó la clase `field` a los bloques `cfg-field` para que los
+  labels usen el estilo del shell.
+- **Badge "Este es el panel"** se estiraba a todo el ancho de la tarjeta y
+  parecía botón (`.wcard > .badge{align-self:flex-start}`).
+- **Bloques "no hay log"** usaban `.empty` (padding de 3rem) y encabezados en
+  versalitas: ahora es una línea compacta con `wcard-name`.
+- El badge de la pestaña Estado decía `shell X · app Y`: `app_version` es la
+  copia del shell (`ECCSA_SHELL_VERSION`), no la versión del panel, y hacía
+  parecer que el panel era una 1.10.x → ahora dice `copia`.
+- `static/changelog.json` estaba en 1.1.0 con `APP_VERSION` en 1.2.0 (el
+  popup 📋 nunca iba a saltar; lo valida `check.yml`).
+
+### Agregado
+- `panel/views/apps.py`: helpers con `class="input"` y `sel-tipo` en el
+  selector de tipo de valor.
+- Pruebas `test_61`–`test_70` en `tests/test_panel.py` (acciones por fila,
+  volver, subtítulos, badge sin estirar, select legible, fuentes de emoji,
+  bloque de log compacto).
+
 ## [1.1.0] - 2026-09-27
 
 ### Nuevo

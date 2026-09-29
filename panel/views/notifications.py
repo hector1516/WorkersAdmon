@@ -46,14 +46,18 @@ def _allowed(user, bloque):
 def _text(name, value="", label="", help_="", tipo="text", attrs=""):
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
     lab = f'<label>{esc(label)}</label>' if label else ""
-    return (f'<div class="cfg-field">{lab}<input type="{tipo}" name="{esc(name)}" '
-            f'value="{esc(value)}"{attrs}>{h}</div>')
+    # class="input" es obligatorio (sin ella sale la caja blanca del navegador)
+    # y attrs va con un espacio delante: puede venir vacío o con style=….
+    extra = f" {attrs.strip()}" if attrs.strip() else ""
+    return (f'<div class="field cfg-field">{lab}<input type="{tipo}" '
+            f'name="{esc(name)}" value="{esc(value)}" class="input"{extra}>'
+            f'{h}</div>')
 
 
 def _secret(name, has_value, label="", help_=""):
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
     ph = "(guardado)" if has_value else "(sin definir)"
-    return (f'<div class="cfg-field"><label>{esc(label)}</label>'
+    return (f'<div class="field cfg-field"><label>{esc(label)}</label>'
             f'<input type="password" name="{esc(name)}" value="" '
             f'autocomplete="new-password" placeholder="{esc(ph)}" class="input">{h}</div>')
 
@@ -65,7 +69,7 @@ def _number(name, value, label="", mn=None, mx=None, help_=""):
     if mx is not None:
         attrs += f' max="{int(mx)}"'
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
-    return (f'<div class="cfg-field"><label>{esc(label)}</label>'
+    return (f'<div class="field cfg-field"><label>{esc(label)}</label>'
             f'<input type="number" name="{esc(name)}" value="{esc(value)}"'
             f'{attrs} class="input">{h}</div>')
 
@@ -75,14 +79,14 @@ def _bool(name, value, label="", help_=""):
     opts = "".join(f'<option value="{v}"{" selected" if val == v else ""}>{l}</option>'
                    for v, l in (("1", "Sí"), ("0", "No")))
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
-    return (f'<div class="cfg-field"><label>{esc(label)}</label>'
+    return (f'<div class="field cfg-field"><label>{esc(label)}</label>'
             f'<select class="input" name="{esc(name)}">{opts}</select>{h}</div>')
 
 
 def _textarea(name, value, label="", help_="", rows=3):
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
     lab = f'<label>{esc(label)}</label>' if label else ""
-    return (f'<div class="cfg-field" style="grid-column:1/-1">{lab}'
+    return (f'<div class="field cfg-field" style="grid-column:1/-1">{lab}'
             f'<textarea class="input" name="{esc(name)}" rows="{rows}">{esc(value)}</textarea>{h}</div>')
 
 
@@ -92,7 +96,7 @@ def _multi(name, options, selected, label=""):
     opts = "".join(
         f'<option value="{esc(v)}"{" selected" if str(v) in sel else ""}>{esc(t)}</option>'
         for v, t in options)
-    return (f'<div class="cfg-field" style="grid-column:1/-1"><label>{esc(label)}</label>'
+    return (f'<div class="field cfg-field" style="grid-column:1/-1"><label>{esc(label)}</label>'
             f'<select class="input" name="{esc(name)}" multiple size="{min(8, max(3, len(options)))}">'
             f'{opts}</select></div>')
 
@@ -191,7 +195,7 @@ def _tg_conexion():
         '<div class="cfg-grid">'
         + _secret("telegram_bot_token", bool(token), "Token del bot (@BotFather)",
                   "Se guarda en HUB_Config; lo usan todas las alertas del HUB.")
-        + f'<div class="cfg-field"><label>Resumen</label><div class="ro">'
+        + f'<div class="field cfg-field"><label>Resumen</label><div class="ro">'
           f'vinculados {esc(m.get("vinculados", 0))} · eventos {esc(m.get("eventos", 0))} · '
           f'destinatarios {esc(m.get("destinatarios", 0))} · '
           f'cola {esc(m.get("pendientes", 0))} pend / {esc(m.get("fallados", 0))} fall / '
@@ -316,7 +320,7 @@ def _tg_destinatarios():
             for u in usuarios)
         forms = (
             '<div class="cfg-grid">'
-            f'<div class="cfg-field" style="grid-column:1/-1">'
+            f'<div class="field cfg-field" style="grid-column:1/-1">'
             f'<label>Usuarios que reciben esta alerta</label>'
             f'<div class="chklist">{checks}</div>'
             f'<p class="desc">Seleccionados ahora: <b>{n}</b>. Los cambios '
@@ -377,11 +381,11 @@ def _tg_vinculados():
   <div class="panel"><h2>\u2795 Vincular usuario manualmente</h2>
     <form method="post" action="/notificaciones/telegram/vincular">{_csrf_field()}
       <div class="cfg-grid">
-        <div class="cfg-field"><label>Usuario sin vincular</label>{campo_usuario}</div>
-        <div class="cfg-field"><label>Chat ID de Telegram</label>
+        <div class="field cfg-field"><label>Usuario sin vincular</label>{campo_usuario}</div>
+        <div class="field cfg-field"><label>Chat ID de Telegram</label>
           <input type="number" name="ChatId" min="1" step="1" required
                  placeholder="Ej: 512345678" class="input"></div>
-        <div class="cfg-field"><label>Nombre en Telegram (opcional)</label>
+        <div class="field cfg-field"><label>Nombre en Telegram (opcional)</label>
           <input type="text" name="NombreTelegram" maxlength="60"
                  placeholder="@usuario o nombre visible" class="input"></div>
       </div>
@@ -442,7 +446,7 @@ def _bloque_push(user):
                         "Firma los mensajes push; jamás sale del servidor.")
               + _text("VapidEmail", cfg.get("email", ""), "Correo de contacto",
                       "Se usa como claim mailto: de VAPID.")
-              + f'<div class="cfg-field"><label>Suscriptores</label><div class="ro">'
+              + f'<div class="field cfg-field"><label>Suscriptores</label><div class="ro">'
                 f'{len(subs)} navegador(es) suscrito(s) · '
                 f'actualizado {esc(str(cfg.get("updated") or "—"))}</div></div>'
               + "</div>" + _save_bar())
@@ -470,7 +474,8 @@ def _bloque_correo(user, correo_prueba):
     prueba = (f'<form class="inline" method="post" action="/notificaciones/correo/probar">'
               f'{_csrf_field()}'
               f'<input type="email" name="destino" value="{esc(correo_prueba)}" '
-              f'placeholder="para@correo.com" style="width:190px" required class="input">'
+              f'placeholder="para@correo.com" style="width:15rem;max-width:100%" '
+              f'required class="input">'
               f'<button class="btn btn-sm btn-secondary" type="submit">🧪 Enviar prueba</button></form>')
     return _card("📧 Correo SMTP", "AccesoConfigurarCorreo", True, cuerpo,
                  "/notificaciones/correo", prueba=prueba)

@@ -39,12 +39,12 @@ def _field_html(f, env_vals, cfg_vals, worker):
 
     if tipo == "info" or origen == "info":
         value = esc(f.get("valor", ""))
-        return (f'<div class="cfg-field"><label>{esc(f["label"])} '
+        return (f'<div class="field cfg-field"><label>{esc(f["label"])} '
                 f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<div class="ro">{value}</div></div>')
 
     if tipo == "const" or origen == "const":
-        return (f'<div class="cfg-field"><label>{esc(f["label"])} '
+        return (f'<div class="field cfg-field"><label>{esc(f["label"])} '
                 f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<div class="ro">{esc(f.get("valor", ""))}</div>'
                 f'<div class="help">{esc(f.get("ayuda", ""))}</div></div>')
@@ -62,7 +62,7 @@ def _field_html(f, env_vals, cfg_vals, worker):
         shown = current if has_value else str(f.get("default", ""))
 
     if tipo == "readonly":
-        return (f'<div class="cfg-field"><label>{esc(f["label"])} '
+        return (f'<div class="field cfg-field"><label>{esc(f["label"])} '
                 f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<div class="ro">{esc(shown) or "—"}</div>'
                 f'<div class="help">{esc(f.get("ayuda", ""))}</div></div>')
@@ -74,7 +74,7 @@ def _field_html(f, env_vals, cfg_vals, worker):
 
     if tipo == "secret":
         # El valor nunca viaja al navegador: en blanco = no cambiar.
-        return (f'<div class="cfg-field"><label>{esc(f["label"])}{unit} '
+        return (f'<div class="field cfg-field"><label>{esc(f["label"])}{unit} '
                 f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<input type="password" name="{esc(fid)}" value="" '
                 f'autocomplete="new-password" '
@@ -86,7 +86,7 @@ def _field_html(f, env_vals, cfg_vals, worker):
         opts = "".join(
             f'<option value="{v}"{" selected" if val == v else ""}>{lbl}</option>'
             for v, lbl in (("1", "Sí"), ("0", "No")))
-        return (f'<div class="cfg-field"><label>{esc(f["label"])} '
+        return (f'<div class="field cfg-field"><label>{esc(f["label"])} '
                 f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<select class="input" name="{esc(fid)}">{opts}</select>{help_html}</div>')
 
@@ -95,12 +95,12 @@ def _field_html(f, env_vals, cfg_vals, worker):
         for bound in ("min", "max"):
             if f.get(bound) is not None:
                 attrs += f' {bound}="{int(f[bound])}"'
-        return (f'<div class="cfg-field"><label>{esc(f["label"])}{unit} '
+        return (f'<div class="field cfg-field"><label>{esc(f["label"])}{unit} '
                 f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
                 f'<input type="number" name="{esc(fid)}" value="{esc(shown)}"'
                 f'{attrs} class="input">{help_html}</div>')
 
-    return (f'<div class="cfg-field"><label>{esc(f["label"])} '
+    return (f'<div class="field cfg-field"><label>{esc(f["label"])} '
             f'<span class="badge {tag_cls}">{tag_txt}</span></label>'
             f'<input type="text" name="{esc(fid)}" value="{esc(shown)}" class="input">'
             f'{help_html}</div>')

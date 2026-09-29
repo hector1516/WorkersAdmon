@@ -49,6 +49,7 @@ def render(user, flash_ok="", flash_err="", conn=None,
     """La home: grilla de módulos."""
     tarjetas = "".join(_tarjeta(t, user) for t in config.TABS)
     body = f'<div class="module-grid">{tarjetas}</div>'
+    # Sin subtitle: MODULO_INICIO ya describe el módulo ("Elegí un módulo para
+    # empezar.") y el segundo renglón repetía la misma idea con otras palabras.
     return page("inicio", body, user=user, flash_ok=flash_ok, flash_err=flash_err,
-                conn=conn, lugar=lugar, ip=ip,
-                subtitle="elegí un módulo")
+                conn=conn, lugar=lugar, ip=ip)

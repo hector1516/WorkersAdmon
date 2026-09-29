@@ -1588,7 +1588,9 @@ class PanelTest(unittest.TestCase):
         self.assertIn('class="sync-header', html)       # banner fijo arriba
         self.assertIn("👤 Admin", html)                 # usuario
         self.assertIn(f"shell {shell_version()}", html)   # versión del shell
-        self.assertIn("v1.1.0", html)                   # versión de la app
+        # La versión de la app sale de config.APP_VERSION: escribirla a mano
+        # hacía fallar la prueba en cada subida de versión (pasó con 1.2.0).
+        self.assertIn(f"v{config.APP_VERSION}", html)     # versión de la app
         self.assertIn("Todo sincronizado", html)        # estado idle
 
     def test_56_lugar_oficina_o_remoto(self):
@@ -1693,6 +1695,176 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue("shell_check" in html or "SHELL" in html or True)
         self.assertIn("shell", html.lower())
+
+
+    # ── Revisión visual 1.2.1 ──────────────────────────────────────────────────
+    # La suite anterior cubría el comportamiento; estas pruebas cubren las
+    # reglas de panel.css (que nadie edita a mano) y los HTML que antes salían
+    # rotos a simple vista: baldosas gigantes, subtítulos escapados, selectos
+    # cortados, badge estirado y botones que no pintaban nada.
+
+    def _panel_css(self):
+        """panel.css leído de disco: el CSS propio del panel, no el del shell."""
+        with open(os.path.join(REPO, "panel", "panel.css"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_61_acciones_de_tarjeta_por_filas(self):
+        """Las baldosas de acción van dos por fila y chicas en la tabla.
+
+        El bug: `.actions` era un grid `auto-fit minmax(88px,1fr)` y cada
+        `.btn` tenía `height:100%; aspect-ratio:1`, o sea que la ALTURA salía
+        del ancho de la columna (~200px en escritorio). En la tabla de Apps la
+        celda era estrecha, los botones se apilaban y cada fila crecía ~100px.
+        """
+        propio = self._panel_css()
+        self.assertNotIn("aspect-ratio", propio,
+                         "el cuadrado viene de aspect-ratio + height:100%")
+        self.assertNotIn("auto-fit,minmax(88px,1fr)", propio)
+        # Tarjeta: 2 columnas fijas; si queda uno solo, ocupa la fila entera.
+        self.assertIn(".wcard .actions{display:grid", propio)
+        self.assertIn("grid-template-columns:repeat(2,minmax(0,1fr))", propio)
+        self.assertIn(".wcard .actions > :only-child{grid-column:1 / -1}", propio)
+        # Tabla: los mismos botones en fila, con ancho mínimo de la celda.
+        self.assertIn(".actions-cell .actions{flex-wrap:nowrap}", propio)
+        self.assertIn(".actions-cell{white-space:nowrap;min-width:9rem}", propio)
+        # El objetivo táctil del shell no se pierde al achicarlos.
+        self.assertIn("min-height:var(--tap)", propio)
+        # Y el HTML de Estado sí trae el contenedor de acciones.
+        c = self._logged()
+        code, _, estado = c.get("/estado")
+        self.assertEqual(code, 200)
+        self.assertIn('<div class="actions">', estado)
+
+    def test_62_boton_de_volver_en_todo_modulo(self):
+        """Todo módulo que no es la home ofrece volver, con texto y destino."""
+        c = self._logged()
+        # La home no vuelve a ningún lado: no debe arrastrar el botón.
+        _, _, home = c.get("/")
+        self.assertNotIn('class="btn btn-sm btn-secondary modulo-back"', home)
+        # Estado sí, y apunta a la home.
+        code, _, estado = c.get("/estado")
+        self.assertEqual(code, 200)
+        self.assertIn(
+            'class="btn btn-sm btn-secondary modulo-back" href="/"', estado)
+        self.assertIn("← Volver al panel", estado)
+        self.assertIn('title="Volver atrás"', estado)
+        # El detalle de un log es una ficha de un worker: vuelve a Estado,
+        # no a la home, y ya no tiene la flecha suelta dentro del <h2>.
+        code, _, logs = c.get("/workers/status_web/logs")
+        self.assertEqual(code, 200)
+        self.assertIn("← Volver a Estado", logs)
+        self.assertIn('href="/estado"', logs)
+        self.assertNotIn('class="back-btn"', logs)
+
+    def test_63_subtitulos_con_etiquetas_reales(self):
+        """Los subtítulos pintan <code>, no su versión escapada.
+
+        `esc()` escapaba por completo la etiqueta y el usuario leía
+        «datos en &lt;code&gt;…&lt;/code&gt;». Ahora `page()` admite un
+        subconjunto seguro de etiquetas (`_SUB_TAGS` / `esc_sub`).
+        """
+        c = self._logged()
+        _, _, estado = c.get("/estado")
+        self.assertIn("datos en <code>", estado)
+        self.assertNotIn("datos en &lt;code&gt;", estado)
+        _, _, logs = c.get("/workers/status_web/logs")
+        self.assertIn("últimas líneas de <code>status_web.log</code>", logs)
+        self.assertNotIn("últimas líneas de &lt;code&gt;", logs)
+        # Y no se puede inyectar etiquetas o atributos por el subtítulo.
+        from panel.templates import esc_sub
+        self.assertEqual(esc_sub('x <script>alert(1)</script> <code>y</code>'),
+                         'x &lt;script&gt;alert(1)&lt;/script&gt; <code>y</code>')
+        self.assertEqual(esc_sub('<a href="/x">no</a>'),
+                         '&lt;a href=&quot;/x&quot;&gt;no&lt;/a&gt;')
+
+    def test_64_home_sin_descripcion_duplicada(self):
+        """La home no repite «elegí un módulo»: ya lo dice su descripción."""
+        c = self._logged()
+        code, _, home = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertNotIn("elegí un módulo", home)
+        self.assertIn('class="module-grid"', home)
+
+    def test_65_botones_de_apps_en_fila(self):
+        """En la tabla de Apps los botones quedan en una sola fila."""
+        c = self._logged()
+        code, _, html = c.get("/apps")
+        self.assertEqual(code, 200)
+        self.assertIn('<td class="actions-cell"><div class="actions">', html)
+        propio = self._panel_css()
+        self.assertIn(".actions-cell .actions{flex-wrap:nowrap}", propio)
+        self.assertIn(".actions-cell .actions .btn{width:auto", propio)
+
+    def test_66_badge_de_tarjeta_sin_estirar(self):
+        """El badge «Este es el panel» no se estira a todo el ancho.
+
+        `.wcard` es flex-column y todos sus hijos toman el ancho completo: la
+        píldora salía como una barra azul que parecía un botón. Con
+        `align-self:flex-start` queda a su tamaño.
+        """
+        propio = self._panel_css()
+        self.assertIn(".wcard > .badge{align-self:flex-start}", propio)
+        c = self._logged()
+        _, _, estado = c.get("/estado")
+        self.assertIn('<span class="badge badge-info">🖥️ Este es el panel</span>',
+                      estado)
+        # Y el badge no está dentro del contenedor de acciones.
+        self.assertNotIn('<div class="actions"><span class="badge', estado)
+
+    def test_68_select_de_tipo_y_campos_legibles(self):
+        """El select de Tipo no se corta y el input de valor usa el estilo."""
+        propio = self._panel_css()
+        # 11rem es lo que pide «SOLO LECTURA», la etiqueta más larga.
+        self.assertIn(".sel-tipo{min-width:11rem}", propio)
+        # El título de la fila no queda cortado a la mitad. Con
+        # `*{box-sizing:border-box}` del shell, 15rem deja ~196px de
+        # contenido después del padding de la celda.
+        self.assertIn(".apps-tabla td:first-child{min-width:15rem}", propio)
+        c = self._logged()
+        code, _, html = c.get("/apps")
+        self.assertEqual(code, 200)
+        self.assertIn('class="input sel-tipo"', html)
+        # Unidades: el input por defecto traía class="input" (sin la clase la
+        # caja sale blanca, con el resto de la tabla ya tematizada).
+        from panel.views import apps as apps_view
+        campo = apps_view._campo_valor("text", "x", "valor")
+        self.assertIn('class="input"', campo)
+        self.assertIn('name="valor"', campo)
+        # y los bloques de configuración heredan el label del shell
+        from panel.views import config as config_view
+        for modulo in (config_view, apps_view):
+            fuente = open(os.path.join(REPO, "panel", "views",
+                                       modulo.__name__.split(".")[-1] + ".py"),
+                          encoding="utf-8").read()
+            self.assertNotIn('class="cfg-field"', fuente,
+                             f"{modulo.__name__} sin la clase field")
+            self.assertIn('class="field cfg-field"', fuente)
+
+    def test_69_fuentes_de_emoji_en_el_contenedor(self):
+        """Los botones son emoji puro: el runtime necesita una fuente que los
+        pinte. python:3.11-slim no trae NINGUNA y salían píldoras vacías."""
+        with open(os.path.join(REPO, "Dockerfile"), encoding="utf-8") as fh:
+            docker = fh.read()
+        self.assertIn("fonts-noto-color-emoji", docker)
+        runtime = docker.split("FROM python:3.11-slim AS runtime", 1)[-1]
+        self.assertIn("fonts-noto-color-emoji", runtime,
+                      "hay que instalarlo en la etapa runtime, no solo en el build")
+        self.assertIn("fonts-dejavu-core", runtime)
+
+    def test_70_bloque_de_log_vacio_compacto(self):
+        """Un worker sin log ocupa una línea, no un .empty de 3rem.
+
+        Con varios workers sin log la página quedaba hecha de cajas vacías de
+        ~110px cada una, con el nombre en versalitas de encabezado de sección.
+        """
+        c = self._logged()
+        code, _, html = c.get("/logs")
+        self.assertEqual(code, 200)
+        self.assertRegex(
+            html,
+            r'<div class="card"><div class="wcard-name">[^<]+</div>'
+            r'<div class="muted" style="font-size:\.85rem">')
+        self.assertNotIn('<div class="empty">⚠️ no hay log', html)
 
 
 if __name__ == "__main__":

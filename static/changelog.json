@@ -1,11 +1,11 @@
 {
   "app": "workersadmon",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "cambios": [
-    "🔔 Se fue el botón de notificaciones de la barra: ya no se usaba y en algunos casos estaba duplicado con la pestaña propia de cada app.",
-    "📋 Novedades: la primera vez que abras una versión nueva te dicen qué cambió. El botón 📋 las vuelve a mostrar.",
-    "🏢 El banner ahora sí dice si estás en la oficina o en remoto.",
-    "🔎 El panel verifica solo que las 3 apps sigan las versiones de Field.",
-    "🧹 El botón de salir y el de novedades son los del shell."
+    "🧪 Botones de acción: ya no son cuadrados gigantes; van dos por fila en las tarjetas y en línea en la tabla.",
+    "↩️ Todo módulo y el detalle de logs traen botón «Volver» con texto, al lugar correcto y que se puede tocar.",
+    "🔤 Corregidos subtítulos con <code> rotos (Estado, Logs) y la descripción repetida de la home.",
+    "🎨 Selects, campos de texto y badges legibles: ya no se cortan ni se estiran de lado a lado.",
+    "📦 Los emoji de los botones se pintan en el contenedor: se instalan las fuentes de emoji."
   ]
 }

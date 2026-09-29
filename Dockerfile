@@ -26,12 +26,16 @@ WORKDIR /app
 
 # freetds (pymssql) · smbclient (PDFs al shared) · netcat (diagnóstico)
 # fonts-dejavu-core: respaldo de fuentes para reportlab
+# fonts-noto-color-emoji: los botones y chips del panel son emoji puro (💾 🗑️ 📋
+# 🚪 📄). En python-slim no hay NINGUNA fuente que los pinte y salían como
+# píldoras de color vacías.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         freetds-dev \
         cifs-utils \
         smbclient \
         netcat-openbsd \
         fonts-dejavu-core \
+        fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages

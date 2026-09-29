@@ -32,7 +32,9 @@ def _csrf_field():
 def _actions(e):
     """Botones disponibles para un programa según su estado (≥44px de alto)."""
     if e.get("protected"):
-        return '<span class="badge badge-info">PANEL</span>'
+        # Badge directo del .wcard (no dentro de .actions): así no se estira a
+        # todo el ancho de la tarjeta y no parece un botón.
+        return '<span class="badge badge-info">🖥️ Este es el panel</span>'
     buttons = []
     if e.get("enabled"):
         name = esc(e["name"])
@@ -159,6 +161,9 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
         hint = ""
 
     # Estado del shell (lo escribe el chequeo diario: shell/tools/check_daily.py)
+    # OJO con las etiquetas: shell_version es VERSION del shell y app_version es
+    # ECCSA_SHELL_VERSION, la COPIA que trae este repo. Decir "app" junto al
+    # número del shell hacía parecer que el panel era una 1.10.x.
     chk = workers.shell_check()
     if chk:
         if chk.get("ok"):
@@ -166,7 +171,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
                 f'<div class="callout callout-row ok">'
                 f'<span class="badge badge-success">● SHELL AL DÍA</span>'
                 f'<span class="muted" style="font-size:.8rem">'
-                f'shell {esc(chk.get("shell_version", "?"))} · app '
+                f'shell {esc(chk.get("shell_version", "?"))} · copia '
                 f'{esc(chk.get("app_version", "?"))} · revisado '
                 f'{esc(chk.get("revisado", "?"))}</span></div>')
         else:
@@ -254,12 +259,14 @@ def logs_page(name, text, error, user):
         content = (f'<pre class="log">{html.escape(text) or "(log vacío)"}</pre>')
     body = f"""
   <div class="panel">
-    <h2><span class="panel-titulo">📄 Logs · {esc(name)}</span>
-      <span class="panel-actions">
-        <a class="back-btn" href="/" title="Volver al inicio">←</a></span></h2>
+    <h2><span class="panel-titulo">📄 Logs · {esc(name)}</span></h2>
     {content}
   </div>"""
-    return page("estado", body, user=user,
+    # Vuelve a Estado, no a la home: el log es una ficha de un worker y el
+    # usuario viene de ahí. La flecha sin texto que había en el <h2> la reemplaza
+    # el botón de volver que lleva todo módulo.
+    return page("estado", body, user=user, back_href="/estado",
+                back_label="← Volver a Estado",
                 subtitle=f"últimas líneas de <code>{esc(name)}.log</code>")
 
 
@@ -299,9 +306,14 @@ def logs_index(status, user, flash_ok="", flash_err="", csrf="",
         nombre = e.get("name", "")
         texto, error = tail_log(nombre, lineas_por_defecto)
         if error:
+            # Una línea compacta, no un .empty (padding de 3rem): con varios
+            # workers sin log la página quedaba hecha de cajas vacías de
+            # ~110px. El nombre va igual que en los bloques que sí tienen log
+            # (wcard-name), no en versalitas de encabezado de sección.
             bloques.append(
-                f'<div class="card"><div class="wgroup">{esc(nombre)}</div>'
-                f'<div class="empty">⚠️ {esc(error)}</div></div>')
+                f'<div class="card"><div class="wcard-name">{esc(nombre)}</div>'
+                f'<div class="muted" style="font-size:.85rem">⚠️ {esc(error)}'
+                f'</div></div>')
             continue
         cox = _error_resaltes(texto)
         if cox:
