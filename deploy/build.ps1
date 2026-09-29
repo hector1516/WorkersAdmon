@@ -86,7 +86,12 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Fail 'docker no e
 Log ("docker: " + (docker version --format '{{.Server.Version}}' 2>&1))
 
 $existe = docker ps -a --filter "name=^${name}$" --format '{{.Names}}'
-if ($existe -notcontains $name) { Fail "no existe el contenedor $name: no se puede leer su configuracion" }
+# OJO: dentro de una cadena entre comillas dobles, `$name:` se lee como una
+# variable con scope (como $env:PATH) y PowerShell 5.1 la rechaza al PARSEAR,
+# cosa que ni ejecuta el script: moria antes de escribir build.log y el deploy
+# fallaba con "el build no llego a escribir build.log; no arranco". Con ${}
+# los dos primeros caracteres son el nombre y el ':' queda literal.
+if ($existe -notcontains $name) { Fail "no existe el contenedor ${name}: no se puede leer su configuracion" }
 
 # ── 1. Codigo actualizado ─────────────────────────────────────────────────────
 # El clon canonico lo deja al dia el paso "Sincronizar el clon canonico" del

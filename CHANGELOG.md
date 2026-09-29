@@ -52,6 +52,14 @@ que no había tenido entrada en este archivo).
   rebuild quedaba skipeado. Los `git` de ese paso corren ahora con
   `EAP=Continue` y sin `2>&1` (el progreso queda en el log) y el código se
   captura a mano.
+- **`deploy/build.ps1` no ejecutaba ni la primera línea**: en la línea 89
+  decía `"...$name: no se puede leer..."` y PowerShell 5.1 lee `$name:` como
+  una variable con scope (`$env:PATH`), que es un **error de parseo**: el
+  proceso hijo moría antes de crear `build.log` y el deploy fallaba con un
+  "el build no llego a escribir build.log" que no explicaba nada. Con `${name}`
+  parsea limpio (verificado con el PowerShell del ServerVM). El paso del
+  workflow además espera hasta 60s por `build.log` y vuelca stdout/stderr del
+  proceso hijo si no aparece.
 
 ### Agregado
 - `panel/views/apps.py`: helpers con `class="input"` y `sel-tipo` en el

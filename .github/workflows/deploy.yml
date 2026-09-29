@@ -335,15 +335,46 @@ jobs:
           # en el modo correcto y la contrasena de Windows para registrarlo.
           # Con Start-Process no depende de nada de eso.
           $script = 'C:\WorkersAdmon\deploy\build.ps1'
+          # stdout y stderr del proceso hijo van a archivos: si build.ps1 muere
+          # ANTES de crear build.log (le paso a una version con error de parseo:
+          # PowerShell la rechaza al leerla y no llega a ejecutar ni la linea 1),
+          # lo unico que explica el por que es el stderr del powershell hijo y
+          # este paso no lo estaba capturando.
+          $childOut = 'C:\WorkersAdmon\build.ps1.out'
+          $childErr = 'C:\WorkersAdmon\build.ps1.err'
           if (-not (Test-Path $script)) { Show-Diag; throw "no existe $script" }
+          Remove-Item $childOut, $childErr -Force -ErrorAction SilentlyContinue
           Write-Host "Lanzando build.ps1 (proceso desacoplado)..."
-          Start-Process -FilePath 'powershell.exe' `
+          $child = Start-Process -FilePath 'powershell.exe' `
               -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script `
-              -WindowStyle Hidden
-          Start-Sleep -Seconds 3
-          if (-not (Test-Path $logPath)) {
+              -WindowStyle Hidden `
+              -RedirectStandardOutput $childOut `
+              -RedirectStandardError $childErr `
+              -PassThru
+
+          # build.log puede tardar (PowerShell frio en una VM con un monton de
+          # contenedores): no se falla a los 3s, se espera hasta 60.
+          $arranco = $false
+          for ($i = 0; $i -lt 20; $i++) {
+            Start-Sleep -Seconds 3
+            if (Test-Path $logPath) { $arranco = $true; break }
+          }
+          if (-not $arranco) {
             Show-Diag
-            throw "el build no llego a escribir build.log; no arranco"
+            foreach ($f in @($childOut, $childErr)) {
+              if (Test-Path $f) {
+                Write-Host "--- $f (tail) ---"
+                try { Get-Content $f -Tail 30 -ErrorAction Stop | ForEach-Object { Write-Host $_ } }
+                catch { Write-Host ("no se pudo leer {0}: {1}" -f $f, $_.Exception.Message) }
+              } else {
+                Write-Host "--- $f no existe (el proceso ni abrio la redireccion) ---"
+              }
+            }
+            if ($child -and -not $child.HasExited) {
+              Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
+              Write-Host ("proceso hijo (pid {0}) detenido: no escribio build.log" -f $child.Id)
+            }
+            throw "el build no llego a escribir build.log en 60s; no arranco"
           }
           Write-Host "build.log creado; esperando a que termine..."
 
