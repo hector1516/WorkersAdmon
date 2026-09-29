@@ -75,6 +75,14 @@ que no había tenido entrada en este archivo).
   imagen nueva" aunque el contenedor acabara de recrearse con esa misma imagen.
   Se le quita el prefijo `sha256:` antes de comparar y el error ahora incluye
   los dos ids.
+- **El paso quedaba en rojo aunque todos los checks pasaran**: el wrapper de
+  `shell: powershell` de Actions cierra con `exit $LASTEXITCODE`, o sea que el
+  código de salida del paso es el del último comando nativo, y
+  `docker images … | Select-Object -First 1` cortaba el pipeline dejando
+  `$LASTEXITCODE=-1` → *exit code 1* justo después de imprimir "OK -
+  contenedor recreado con la imagen recien construida". El array se arma sin
+  pipelinar el `docker` y el paso termina con `exit 0` explícito cuando todos
+  los checks pasaron.
 
 ### Agregado
 - `panel/views/apps.py`: helpers con `class="input"` y `sel-tipo` en el

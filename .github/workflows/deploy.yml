@@ -407,7 +407,9 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $salud = (docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}sin-healthcheck{{end}}' workersadmon 2>$null)
           $img = (docker inspect -f '{{.Image}}' workersadmon 2>$null)
-          $esperada = (docker images --format '{{.ID}}' workersadmon:latest 2>$null | Select-Object -First 1)
+          # Sin Select-Object en el PIPE: cortar el pipeline ahi adentro dejaba
+          # a docker con $LASTEXITCODE=-1 (ver mas abajo).
+          $imgs = @(docker images --format '{{.ID}}' workersadmon:latest 2>$null)
           $ErrorActionPreference = 'Stop'
           $salud = "$salud".Trim()
           # docker inspect -f '{{.Image}}' devuelve "sha256:<64 hex>" y
@@ -416,7 +418,7 @@ jobs:
           # se mataba con "el contenedor no quedo con la imagen nueva" aunque el
           # contenedor justo estuviera con la imagen recien construida.
           $img = ("$img".Trim() -replace '^sha256:', '')
-          $esperada = "$esperada".Trim()
+          $esperada = if ($imgs.Count -gt 0) { "$($imgs[0])".Trim() } else { '' }
           Write-Host "contenedor: health=$salud imagen=$(if ($img.Length -ge 12) { $img.Substring(0,12) } else { $img })"
           if (-not $img -or -not $esperada) {
             Write-Host "::error::no pude leer la imagen del contenedor o la recien construida"
@@ -428,3 +430,14 @@ jobs:
             Write-Host "::error::el contenedor corre con una imagen que no es la recien construida (cont=$img nueva=$esperada)"
             throw "el contenedor no quedo con la imagen nueva"
           }
+
+          # El wrapper de `shell: powershell` de Actions cierra cada script con
+          #   if (Test-Path -LiteralPath variable:\LASTEXITCODE) { exit $LASTEXITCODE }
+          # es decir: el codigo de salida del PASO es el del ultimo comando
+          # nativo, no lo que decida el script. Aqui `docker images ... |
+          # Select-Object -First 1` cortaba el pipe, dejaba $LASTEXITCODE=-1 y
+          # el paso se ponia en rojo AUNQUE todos los checks hubieran pasado
+          # (se vio: "OK - contenedor recreado..." seguido de exit code 1).
+          # Todos los checks ya pasaron, asi que se sale explicito con 0.
+          Write-Host "rebuild verificado: contenedor $img (salud=$salud)"
+          exit 0
