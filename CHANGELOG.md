@@ -68,6 +68,13 @@ que no había tenido entrada en este archivo).
   redirigido con `2>$null`. El template ahora usa `{{if .State.Health}}`, el
   bloque corre con `EAP=Continue` (mismo truco que los `git` del paso de
   sincronización) y se limpian/validan los strings antes de comparar imágenes.
+- **La verificación "imagen nueva" nunca había salido bien**: `docker inspect
+  -f '{{.Image}}'` devuelve `sha256:<64 hex>` y `docker images --format
+  '{{.ID}}'` solo los 12 primeros hex, así que `$img.StartsWith(...)` daba
+  *false* siempre y el paso se mataba con "el contenedor no quedo con la
+  imagen nueva" aunque el contenedor acabara de recrearse con esa misma imagen.
+  Se le quita el prefijo `sha256:` antes de comparar y el error ahora incluye
+  los dos ids.
 
 ### Agregado
 - `panel/views/apps.py`: helpers con `class="input"` y `sel-tipo` en el

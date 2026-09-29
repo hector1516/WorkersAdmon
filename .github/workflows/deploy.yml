@@ -410,7 +410,12 @@ jobs:
           $esperada = (docker images --format '{{.ID}}' workersadmon:latest 2>$null | Select-Object -First 1)
           $ErrorActionPreference = 'Stop'
           $salud = "$salud".Trim()
-          $img = "$img".Trim()
+          # docker inspect -f '{{.Image}}' devuelve "sha256:<64 hex>" y
+          # docker images --format '{{.ID}}' solo los 12 primeros hex: sin
+          # sacar el prefijo, $img.StartsWith(...) siempre daba false y el paso
+          # se mataba con "el contenedor no quedo con la imagen nueva" aunque el
+          # contenedor justo estuviera con la imagen recien construida.
+          $img = ("$img".Trim() -replace '^sha256:', '')
           $esperada = "$esperada".Trim()
           Write-Host "contenedor: health=$salud imagen=$(if ($img.Length -ge 12) { $img.Substring(0,12) } else { $img })"
           if (-not $img -or -not $esperada) {
@@ -420,6 +425,6 @@ jobs:
           if ($img.StartsWith($esperada.Substring(0, 12))) {
             Write-Host "OK - contenedor recreado con la imagen recien construida"
           } else {
-            Write-Host "::error::el contenedor corre con una imagen que no es la recien construida"
+            Write-Host "::error::el contenedor corre con una imagen que no es la recien construida (cont=$img nueva=$esperada)"
             throw "el contenedor no quedo con la imagen nueva"
           }
