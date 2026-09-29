@@ -97,7 +97,8 @@ run docker cp "$ROOT_DOCKER/api/." "$CONTAINER:/app/api"
 # esto no vuelva a pasar en silencio.
 for f in eccsa_db.py eccsa_db_server.py config_db.py telegram_alerts.py \
          pdf_generator.py shared_report_pdf.py numbers_helper.py \
-         worker_heartbeat.py network_scanner.py asistencia_core.py; do
+         worker_heartbeat.py network_scanner.py asistencia_core.py \
+         notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py; do
   [ -f "$ROOT/$f" ] && run docker cp "$ROOT_DOCKER/$f" "$CONTAINER:/app/$f"
 done
 # Los .conf de supervisor viven en conf.d.available: se copian para que un
@@ -118,7 +119,8 @@ run docker cp "$ROOT_DOCKER/ECCSA_SHELL_VERSION" "$CONTAINER:/app/ECCSA_SHELL_VE
 say "1b/4 comprobando que la copia quedo dentro del contenedor"
 fallos=0
 for par in panel/panel.css panel/templates.py panel/shell.css ECCSA_SHELL_VERSION \
-           eccsa_db.py network_scanner.py asistencia_core.py; do
+           eccsa_db.py network_scanner.py asistencia_core.py \
+           notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py; do
   [ -f "$ROOT_DOCKER/$par" ] || continue
   a=$(sha256sum "$ROOT_DOCKER/$par" | cut -d' ' -f1)
   b=$(docker exec "$CONTAINER" sha256sum "/app/$par" 2>/dev/null | cut -d' ' -f1)
@@ -143,6 +145,12 @@ if [ "$FULL" = "1" ]; then
   say "2/4 reiniciando TODOS los programas de supervisor"
   run docker exec "$CONTAINER" supervisorctl restart all
 else
+  # Un .conf NUEVO no lo conoce supervisor hasta que relee la configuracion:
+  # sin esto el worker nuevo se queda en "no such process" y sus avisos nunca
+  # salen, aunque el deploy reporte que fue bien.
+  say "2/4 dando de alta programas nuevos de supervisor"
+  run docker exec "$CONTAINER" supervisorctl reread
+  run docker exec "$CONTAINER" supervisorctl update
   say "2/4 reiniciando el panel y los workers que tocan estos módulos"
   run docker exec "$CONTAINER" supervisorctl restart status_web
   run docker exec "$CONTAINER" supervisorctl restart mcp_server
@@ -151,6 +159,9 @@ else
   run docker exec "$CONTAINER" supervisorctl restart govale_vouchers_worker
   run docker exec "$CONTAINER" supervisorctl restart vales_worker
   run docker exec "$CONTAINER" supervisorctl restart telegram_worker
+  # El worker de WhatsApp consume la cola de OpenWA: si no se reinicia, sigue
+  # con el codigo anterior en memoria y no entrega nada nuevo.
+  run docker exec "$CONTAINER" supervisorctl restart openwa_worker
   run docker exec "$CONTAINER" supervisorctl restart tipo_cambio_worker
   run docker exec "$CONTAINER" supervisorctl restart pdf_storage_worker
   run docker exec "$CONTAINER" supervisorctl restart network_scanner_worker
