@@ -88,7 +88,7 @@ TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 # Versión del panel (la de la app) y del shell (estampada por
 # tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
 APP_ID = "workersadmon"
-APP_VERSION = "1.3.0"   # "1.3.0" los avisos por WhatsApp con OpenWA (migracion 0043)
+APP_VERSION = "1.3.1"   # "1.3.1" boton de reenvio del ultimo evento por aviso
 
 
 def _shell_version():

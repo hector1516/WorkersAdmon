@@ -69,7 +69,13 @@ Telegram**) · migracion `0043_openwa_whatsapp.sql` (`HUB_WhatsappEventos`,
    adivinar produce un numero valido que no es de nadie.
 4. La API key nunca se loguea: `openwa_client._limpiar_detalle` la tapa antes de
    devolver cualquier error (al log del worker va justo lo que se devuelve).
-5. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
+5. El aviso **no se guarda como evento**: en la cola solo queda el texto ya
+   rendido (y se borra a los 30 días). El botón "🧪 Reenviar último" por eso
+   reconstruye el caso releyendo el último registro de la tabla del módulo
+   (`HUB_RegistroKilometros`, `HUB_OxxoGasTickets` con su foto,
+   `ReportesServicio` firmado) en vez de reenviar la fila de la cola. El saldo
+   no es un evento: es una revisión periódica, y ahí manda el estado de ahora.
+6. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
    adjuntos pesan, asi que se limpia lo cerrado a mas de 30 dias
    (`limpiar_openwa_historial`), nunca lo pendiente.
 

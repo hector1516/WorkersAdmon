@@ -581,6 +581,7 @@ class Handler(BaseHTTPRequestHandler):
             ("openwa", "guardar"): self._notif_openwa,
             ("openwa", "probar"): self._notif_openwa_probar,
             ("openwa", "evento"): self._notif_openwa_evento,
+            ("openwa", "reenviar"): self._notif_openwa_reenviar,
             ("push", "guardar"): self._notif_push,
             ("push", "probar"): self._notif_push_probar,
             ("correo", "guardar"): self._notif_correo,
@@ -798,6 +799,29 @@ class Handler(BaseHTTPRequestHandler):
                                      vista_wa="conexion")
         self._notif_log(user, "Conexión de OpenWA (WhatsApp) actualizada")
         return self._notif_flash("Conexión de OpenWA guardada.", vista_wa="conexion")
+
+    def _notif_openwa_reenviar(self, user, form):
+        """
+        Manda el último caso real de un aviso a los teléfonos de ese aviso, para
+        probar que el texto y el adjunto salen bien sin esperar a que algo pase.
+
+        Se encola (no se manda directo) a propósito: así recorre el mismo camino
+        que un aviso de verdad y aparece en el Historial, que es donde se
+        comprueba si llegó.
+        """
+        import importlib
+        eid = (form.get("IdEvento", [""])[0] or "").strip()
+        if not eid:
+            return self._notif_flash("Falta el aviso.", err=True, vista_wa="eventos")
+        try:
+            alertas = importlib.import_module("openwa_alerts")
+            ok, msg = alertas.reenviar_ultimo(eid)
+        except Exception as exc:
+            self._notif_log(user, f"Reenvío del aviso {eid}: ERROR")
+            return self._notif_flash(f"No se pudo reenviar: {exc}", err=True,
+                                     vista_wa="eventos")
+        self._notif_log(user, f"Reenvío del aviso {eid}: {'OK' if ok else 'sin envío'}")
+        return self._notif_flash(msg, err=not ok, vista_wa="eventos")
 
     def _notif_openwa_probar(self, user, form):
         destino = (form.get("openwa_prueba_numero", [""])[0] or "").strip()

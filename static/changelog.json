@@ -1,10 +1,10 @@
 {
   "app": "workersadmon",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "cambios": [
+    "🧪 Cada aviso de WhatsApp tiene un botón para reenviar el último caso real y comprobar que sale bien.",
     "📲 Avisos por WhatsApp: saldo Go Vale, saldo bajo, kilómetros, reporte firmado con su PDF y ticket con su foto.",
     "📱 A quién le llega cada aviso lo eliges con los teléfonos, separados por comas.",
-    "🧪 Botón de prueba: te llega un WhatsApp de verdad y sabes que ya funciona.",
     "🔐 La clave de OpenWA se pega en la pantalla, nunca se escribe en el código."
   ]
 }

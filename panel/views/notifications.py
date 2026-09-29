@@ -509,6 +509,13 @@ def _wa_instrucciones():
   </div>"""
 
 
+# Avisos que el boton sabe reproducir. El saldo tambien entra, pero lo que
+# manda es el estado de ahora (no hay "ultimo evento": es una revision
+# periodica), y la pantalla lo dice.
+REPRODUCIBLES = {"KILOMETROS", "OXXOGAS_TICKET", "REPORTE_SERVICIO",
+                 "GOVALE_SALDO", "GOVALE_SALDO_BAJO"}
+
+
 def _wa_eventos():
     out = [_encabezado(
         "\U0001f4e3 Avisos de WhatsApp",
@@ -532,6 +539,20 @@ def _wa_eventos():
         if rechazados:
             destino += (f'<div class="help" style="color:#f87171">No se usaron: '
                         f'{esc(", ".join(rechazados))} (no son números)</div>')
+        # Boton de prueba: reenvia el ultimo caso real de este aviso. No es
+        # inventing: el aviso no se guarda como evento, asi que se relee el
+        # ultimo registro de la tabla del modulo (ver openwa_alerts.reenviar_ultimo).
+        probar = ""
+        if eid in REPRODUCIBLES:
+            probar = (
+                '<form class="inline" method="post" '
+                'action="/notificaciones/openwa/reenviar">'
+                + _csrf_field()
+                + f'<input type="hidden" name="IdEvento" value="{esc(eid)}">'
+                '<button class="btn btn-sm btn-secondary" type="submit" '
+                f'title="Manda a los teléfonos de este aviso el último caso real">'
+                '\U0001f9ea Reenviar último</button></form>')
+
         desc = ev.get("Descripcion") or ""
         forms = (
             ('<div class="help" style="margin-bottom:8px">' + esc(desc) + '</div>')
@@ -554,7 +575,7 @@ def _wa_eventos():
         out.append(f"""
   <div class="panel">
     <h2>{estado} {esc(ev.get("Nombre") or eid)}
-      <span class="panel-actions">Acceso por {esc(eid)}</span></h2>
+      <span class="panel-actions">{probar}Acceso por {esc(eid)}</span></h2>
     <form method="post" action="/notificaciones/openwa/evento">{_csrf_field()}
       <input type="hidden" name="IdEvento" value="{esc(eid)}">{forms}
     </form>

@@ -191,3 +191,110 @@ def alertar_saldo_govale(saldo, saldo_fecha, umbral=2000.0, solo_si_bajo=False):
         print(f"alertar_saldo_govale (whatsapp) error: {e}")
         traceback.print_exc()
         return 0
+
+
+# ── Botón "reenviar el último evento" ────────────────────────────────────────
+
+def reenviar_ultimo(id_evento):
+    """
+    Vuelve a mandar el último caso real de un aviso, para probar que el
+    mensaje y el adjunto salen bien sin tener que esperar a que pase algo.
+
+    Por qué reconstruye y no reenvía: el aviso no se guarda. Lo que queda en
+    `HUB_WhatsappQueue` es el texto ya rendido (y se borra a los 30 días), no el
+    evento. Así que se relee el último registro de la tabla del módulo y se
+    arma el mensaje igual que cuando ocurrió de verdad.
+
+    El saldo no es un evento sino una revisión periódica, así que ahí lo que se
+    manda es el estado de este momento, y se dice.
+
+    Devuelve `(ok, mensaje)` para poder ponerlo en la pantalla.
+    """
+    try:
+        if id_evento == 'KILOMETROS':
+            reg = db.get_ultimo_registro_kilometros()
+            if not reg:
+                return False, 'No hay ningún kilometraje registrado todavía.'
+            fecha, hora = nm.ahora_mx()
+            datos = nm.datos_kilometros(reg.get('IdAutomovil'), reg.get('Kilometros'),
+                                        reg.get('IdUsuario'), fecha, hora)
+            km = reg.get('Kilometros')
+            detalle = (f"último registro: {km:,} km de {datos['Usuario']}"
+                       if isinstance(km, (int, float))
+                       else f"último registro de {datos['Usuario']}")
+            return _resultado(_encolar('KILOMETROS', datos), detalle)
+
+        elif id_evento == 'OXXOGAS_TICKET':
+            reg = db.get_ultimo_ticket_oxxogas(con_foto=True)
+            if not reg:
+                return False, 'No hay ningún ticket registrado todavía.'
+            fecha, hora = nm.ahora_mx()
+            # El nombre lo resuelve datos_ticket a partir del IdUsuario; aqui
+            # solo se pasa el id.
+            datos = nm.datos_ticket(reg.get('FolioTicket'), reg.get('IdVehiculo'),
+                                    reg.get('IdCliente'), reg.get('IdUsuario'),
+                                    reg.get('Descripcion'), fecha, hora)
+            foto = nm.normalizar_foto(reg.get('ImagenTicket'))
+            n = _encolar('OXXOGAS_TICKET', datos, foto,
+                         'foto.jpg' if foto else None, 'imagen' if foto else None)
+            return _resultado(n, f"último ticket: folio {reg.get('FolioTicket')}"
+                                 + ("" if foto else " (sin foto legible)"))
+
+        elif id_evento == 'REPORTE_SERVICIO':
+            reg = db.get_ultimo_reporte_firmado()
+            if not reg:
+                return False, 'No hay ningún reporte firmado todavía.'
+            datos, pdf, nombre = _datos_reporte_para_reenvio(reg)
+            n = _encolar('REPORTE_SERVICIO', datos, pdf, nombre,
+                         'documento' if pdf else None)
+            return _resultado(n, f"último reporte firmado: {reg.get('Folio')}"
+                                 + ("" if pdf else " (sin PDF)"))
+
+        elif id_evento in ('GOVALE_SALDO', 'GOVALE_SALDO_BAJO'):
+            saldo = db.get_govale_config('govale_saldo') or '0'
+            fecha = db.get_govale_config('govale_saldo_fecha') or 'sin revisar'
+            try:
+                saldo = float(saldo)
+            except (TypeError, ValueError):
+                return False, 'No hay saldo registrado todavía.'
+            # Se manda el que se pidio, no los dos: si pides el diario y estas
+            # en $9,709 no tiene sentido que salga tambien el de "saldo bajo".
+            datos = nm.datos_saldo(saldo, fecha)
+            n = _encolar(id_evento, datos)
+            return _resultado(n, f"saldo actual: ${saldo:,.2f} (revisado {fecha})")
+
+        else:
+            return False, f'No se sabe reproducir el aviso {id_evento}.'
+
+    except Exception as e:
+        print(f"reenviar_ultimo({id_evento}) error: {e}")
+        traceback.print_exc()
+        return False, 'Hubo un error al reconstruir el aviso (ver el log).'
+
+
+def _datos_reporte_para_reenvio(reg):
+    """Arma los datos del reporte firmado usando la misma ruta del aviso real."""
+    fecha, hora = nm.ahora_mx()
+    completo = None
+    try:
+        completo = db.get_service_report_by_id(reg.get('IdReporte'))
+    except Exception as e:
+        print(f"reenviar_ultimo: no se pudo leer el reporte completo ({e})")
+    if not completo:
+        completo = {'Folio': reg.get('Folio'), 'Cliente': reg.get('Cliente')}
+    pdf, nombre = None, None
+    try:
+        from pdf_generator import generate_service_report_pdf
+        pdf = generate_service_report_pdf(completo)
+        nombre = f"{completo.get('Folio', 'reporte')}.pdf" if pdf else None
+    except Exception as e:
+        print(f"reenviar_ultimo: no se pudo generar el PDF ({e})")
+    datos = nm.datos_reporte(completo, completo.get('Tecnico', ''), 'Panel', fecha, hora)
+    return datos, pdf, nombre
+
+
+def _resultado(n, detalle):
+    if n:
+        return True, f"Reenviado a {n} destinatario(s) — {detalle}."
+    return False, (f"No se encoló nada ({detalle}). Revisa que el aviso tenga "
+                   f"teléfonos y esté activo.")

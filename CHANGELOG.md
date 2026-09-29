@@ -4,7 +4,9 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
-## [1.3.0] - 2026-09-29
+## [1.3.1] - 2026-09-29
+
+
 
 ### Agregado
 - **Avisos por WhatsApp con OpenWA** (gateway de whatsapp-web.js que corre en
@@ -34,6 +36,31 @@
   hablarle a OpenWA por hostname) y, con el script anterior, eso se perdía en
   cada redespliegue: las alertas de WhatsApp se habrían caído solas, sin que
   nada lo indicara.
+
+### Agregado (1.3.1)
+- **Botón `🧪 Reenviar último` en cada aviso de WhatsApp**: manda a los
+  teléfonos de ese aviso el último caso real, para comprobar que el texto y el
+  adjunto salen bien sin tener que esperar a que pase algo.
+- Una respuesta a por qué hacía falta: **el aviso no se guarda como evento**.
+  Lo que queda en `HUB_WhatsappQueue` es el texto ya rendido (y se borra a los
+  30 días), no el evento. Así que el botón reconstruye el caso releyendo el
+  último registro de la tabla del módulo: el odómetro de `HUB_RegistroKilometros`,
+  el ticket con su foto de `HUB_OxxoGasTickets`, o el último reporte con firma
+  de `ReportesServicio` (y su PDF se regenera). El saldo no es un evento sino
+  una revisión periódica, así que ahí manda el estado de ahora y lo dice.
+- Si no hay ningún registro, lo dice en vez de inventar uno; y si el PDF o la
+  foto no se pueden reconstruir, manda el texto solo y avisa.
+
+### Corregido
+- **`oxxogas_vales_automation` no se podía conectar a la base**: pasaba
+  `tds_version='7.4'` a `pymssql.connect()`, que la versión de FreeTDS de la
+  imagen rechaza ("unrecognized tds version: 7.4"). El worker `govale_vouchers`
+  llevaba 237 errores seguidos, uno cada 5 minutos: el sync de vales de Go Vale
+  y el aviso diario de saldo estaban caídos. Verificado dentro del contenedor
+  contra producción: con el parámetro falla, sin él conecta. Al arreglarlo hizo
+  el sync de rezago y el saldo pasó de $11,709 (27-sep) a $9,709 (hoy).
+- `deploy/hotsync.sh` no copiaba `oxxogas_vales_automation.py`, así que el
+  arreglo anterior habría llegado al repo pero no al contenedor.
 
 ### Cambiado
 - `telegram_alerts._normalize_foto_para_cola` ahora delega en

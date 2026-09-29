@@ -5864,6 +5864,73 @@ def save_openwa_evento(id_evento, plantilla=None, telefonos=None, activo=None,
         return False
 
 
+def get_ultimo_registro_kilometros():
+    """
+    El ultimo odometro registrado, con su auto y su usuario.
+
+    Existe para el boton "reenviar el ultimo evento" de los avisos: el aviso no
+    se guarda como evento (en la cola solo queda el texto ya rendido, y se
+    borra a los 30 dias), asi que para reproducirlo hay que releer el registro
+    real de la tabla del modulo.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute("""
+                    SELECT TOP 1 k.Id, k.IdAutomovil, k.Kilometros, k.FechaHora, k.IdUsuario
+                    FROM HUB_RegistroKilometros k
+                    ORDER BY k.FechaHora DESC, k.Id DESC
+                """)
+                return cur.fetchone()
+    except Exception as e:
+        print(f"Error reading last kilometro: {e}")
+        return None
+
+
+def get_ultimo_ticket_oxxogas(con_foto=True):
+    """
+    El ultimo ticket registrado, con la foto si se pide.
+
+    `con_foto=False` para listados: la imagen pesa (~1 MB) y aca solo se usa
+    para mandarla de nuevo.
+    """
+    cols = ("t.FolioTicket, t.IdVehiculo, t.IdCliente, t.Descripcion, t.IdUsuario, "
+            "t.FechaRegistro, t.Estacion, t.ImagenNombre"
+            + (", t.ImagenTicket" if con_foto else ""))
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute(f"""
+                    SELECT TOP 1 {cols}
+                    FROM HUB_OxxoGasTickets t
+                    ORDER BY t.FechaRegistro DESC, t.Id DESC
+                """)
+                return cur.fetchone()
+    except Exception as e:
+        print(f"Error reading last ticket: {e}")
+        return None
+
+
+def get_ultimo_reporte_firmado():
+    """
+    El ultimo reporte de servicio que tiene firma (Estatus = 'Firmado' y firma
+    guardada). Sin la firma no hay PDF que mandar, asi que no cuenta.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute("""
+                    SELECT TOP 1 IdReporte, Folio, Cliente, Estatus
+                    FROM ReportesServicio
+                    WHERE Estatus = 'Firmado' AND FirmaConformidad IS NOT NULL
+                    ORDER BY IdReporte DESC
+                """)
+                return cur.fetchone()
+    except Exception as e:
+        print(f"Error reading last signed report: {e}")
+        return None
+
+
 def queue_openwa_alerta(id_evento, chat_id, texto, adjunto=None, adjunto_nombre=None,
                         adjunto_tipo=None):
     """Encola un mensaje de WhatsApp. El texto entra YA renderizado."""

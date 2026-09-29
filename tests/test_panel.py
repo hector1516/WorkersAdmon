@@ -447,6 +447,28 @@ def fake_update_openwa(eid, plantilla, telefonos, adjunto, activo):
 
 db.update_openwa_evento = fake_update_openwa
 
+
+class _WaDbFalso:
+    """Lo justo de eccsa_db para que openwa_alerts.reenviar_ultimo corra."""
+
+    def __init__(self, enviados, km=None):
+        self.enviados = enviados
+        self.km = km or {"IdAutomovil": 4, "Kilometros": 324107,
+                         "IdUsuario": 2, "FechaHora": "2026-09-29 10:00:00"}
+
+    def get_ultimo_registro_kilometros(self):
+        return self.km
+
+    def get_openwa_evento(self, id_evento):
+        return {"IdEvento": id_evento, "Activo": 1, "AdjuntarArchivo": 0,
+                "PlantillaMensaje": "Km {Kilometros} de {Usuario}",
+                "Telefonos": "5218123211516"}
+
+    def queue_openwa_alerta(self, id_evento, chat, texto, adjunto=None,
+                            nombre=None, tipo=None):
+        self.enviados.append({"evento": id_evento, "chat": chat, "texto": texto})
+        return True
+
 _TG["vinculados"] = [
     {"IdUsuario": 1, "ChatId": 5551234, "NombreTelegram": "admin_tg",
      "TelefonoMAC": "MAC-1", "Activo": 1, "FechaVinculado": "2026-09-01 10:00",
@@ -1166,6 +1188,58 @@ class PanelTest(unittest.TestCase):
         loc = urllib.parse.unquote_plus(headers.get("Location", ""))
         self.assertIn("err=", loc)
         self.assertIn("API key", loc)
+
+    def test_35_boton_de_reenvio_por_aviso(self):
+        c = self._logged()
+        code, _, html = c.get("/notificaciones?wa=eventos")
+        self.assertEqual(code, 200)
+        # un boton por aviso, con su IdEvento
+        for eid in ("KILOMETROS", "REPORTE_SERVICIO"):
+            self.assertIn(f'value="{eid}"', html)
+        self.assertIn("/notificaciones/openwa/reenviar", html)
+        self.assertIn("Reenviar", html)
+
+    def test_36_reenvio_de_un_aviso(self):
+        c = self._logged()
+        enviados = []
+        import sys
+        sys.path.insert(0, ROOT)
+        import openwa_alerts
+        previo = openwa_alerts.db
+        openwa_alerts.db = _WaDbFalso(enviados)
+        try:
+            code, headers, _ = c.post("/notificaciones/openwa/reenviar",
+                                      csrf=c.csrf(), IdEvento="KILOMETROS")
+        finally:
+            openwa_alerts.db = previo
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
+        self.assertIn("ok=", loc)
+        self.assertIn("wa=eventos", loc)       # se queda en Avisos
+        self.assertEqual(len(enviados), 1)
+        self.assertEqual(enviados[0]["chat"], "5218123211516@c.us")
+        # y el texto lleva el dato real del ultimo registro
+        self.assertIn("324,107", enviados[0]["texto"])
+
+    def test_37_reenvio_sin_registros_lo_dice(self):
+        c = self._logged()
+        enviados = []
+        import sys
+        sys.path.insert(0, ROOT)
+        import openwa_alerts
+        previo = openwa_alerts.db
+        db = _WaDbFalso(enviados)
+        db.km = None
+        openwa_alerts.db = db
+        try:
+            code, headers, _ = c.post("/notificaciones/openwa/reenviar",
+                                      csrf=c.csrf(), IdEvento="KILOMETROS")
+        finally:
+            openwa_alerts.db = previo
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
+        self.assertIn("err=", loc)
+        self.assertIn("No hay", loc)
+        self.assertEqual(enviados, [])
 
     def test_29_evento_y_destinatarios(self):
         c = self._logged()
