@@ -666,20 +666,33 @@ animation: pulse-offline 2s infinite;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 0.45rem;
-	/* Cuadradas: la altura sigue al ancho de la columna (que es 1fr), con un
-	   tope para que en un monitor grande no queden de 250px. */
-	aspect-ratio: 1;
-	max-height: 230px;
-	/* 130px, no 88: con la letra de Admon el contenido (padding + icono +
-	   titulo + 2 lineas de descripcion) mide 123px, asi que con 88 se cortaba
-	   a la mitad. Es el piso real del contenido. */
+	gap: 0.5rem;
+	/* NO cuadradas. Antes llevaba `aspect-ratio: 1` + `max-height: 230px`
+	   (el look cuadrado de Field) y, como las 3 apps comparten esta clase,
+	   ese alto se le colaba a las tarjetas que NO son de la home: en Admon
+	   salían cuadradas de ~230px pegadas al lado izquierdo con un hueco
+	   enorme al centro, y en el panel igual.
+
+	   Ahora el alto lo marca el CONTENIDO (icono + titulo + 2 lineas de
+	   descripcion) y la tarjeta se estira a todo el ancho de su columna,
+	   borde a borde. Es el mismo calculo que hacia Admon por su cuenta:
+	   con estos valores el alto sale en ~166px sin importar cuantos modulos
+	   ni que tan ancha sea la columna, y los min-height de .module-title /
+	   .module-desc son los que garantizan que todas las tarjetas de una fila
+	   midan lo mismo aunque un titulo ocupe 2 lineas y otro 1. */
+	aspect-ratio: auto;
+	max-height: none;
+	/* 130px es solo el piso para una tarjeta con muy poco texto; el alto
+	   real (~166px) lo saca el contenido. */
 	min-height: 130px;
-	padding: 0.8rem 0.6rem;
+	height: 100%;
+	padding: 1.25rem 0.75rem;
 	overflow: hidden;
 	background: var(--color-surface);
 	border: 1px solid rgba(255, 255, 255, 0.05);
-	border-radius: var(--radius-sm);
+	/* --radius (16px), no --radius-sm (12px): es el radio de las tarjetas de
+	   Admon, que es de donde viene el look. */
+	border-radius: var(--radius);
 	cursor: pointer;
 	transition: all 0.15s;
 	text-align: center;
@@ -692,18 +705,21 @@ animation: pulse-offline 2s infinite;
 	background: var(--color-surface-2);
 }
 .module-icon {
-	/* Admon usa 2.5rem. Aqui va 2.1rem porque su tarjeta es de alto minimo
-	   176px y esta es cuadrada: con 2.5rem la letra de abajo se sale. */
-	font-size: 2.1rem;
+	/* 2.5rem, el de Admon. Antes iba 2.1rem porque la tarjeta era cuadrada y
+	   el alto no daba para mas; con el alto por contenido entra de sobra. */
+	font-size: 2.5rem;
 	line-height: 1;
-	height: 2.1rem;
+	height: 2.5rem;
 	display: flex;
 	align-items: center;
 }
 .module-title {
 	font-weight: 700;
 	font-size: 0.95rem;
-	line-height: 1.2;
+	line-height: 1.25;
+	/* 2 lineas de alto siempre. Sin esto, un titulo de 1 linea dejaba su
+	   tarjeta mas baja que la de al lado y la fila se veia dispareja. */
+	min-height: 2.4em;
 	display: flex;
 	align-items: center;
 }
@@ -711,13 +727,13 @@ animation: pulse-offline 2s infinite;
 	font-size: 0.75rem;
 	color: var(--color-text-muted);
 	line-height: 1.3;
-	/* En una tarjeta cuadrada y chica la descripcion es lo primero que no
-	   entra. Se recorta con puntos suspensivos en vez de desbordar. Con la
-	   letra de Admon caben 2 lineas, no 3. */
+	/* 2 lineas de alto siempre (mismo motivo que el titulo) y recorte con
+	   puntos suspensivos en vez de desbordar. */
 	display: -webkit-box;
 	-webkit-line-clamp: 2;
 	-webkit-box-orient: vertical;
 	overflow: hidden;
+	min-height: 2.6em;
 }
 /* Contador arriba a la derecha (por ejemplo remisiones sin firmar en Field). */
 .module-badge {
