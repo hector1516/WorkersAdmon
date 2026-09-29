@@ -145,10 +145,24 @@ if [ "$FULL" = "1" ]; then
   say "2/4 reiniciando TODOS los programas de supervisor"
   run docker exec "$CONTAINER" supervisorctl restart all
 else
-  # Un .conf NUEVO no lo conoce supervisor hasta que relee la configuracion:
-  # sin esto el worker nuevo se queda en "no such process" y sus avisos nunca
-  # salen, aunque el deploy reporte que fue bien.
-  say "2/4 dando de alta programas nuevos de supervisor"
+  # Un .conf NUEVO no lo conoce supervisor hasta que se copia a
+  # /etc/supervisor/conf.d: sin esto el worker nuevo se queda en
+  # "no such process" y sus avisos nunca salen, aunque el deploy reporte que
+  # fue bien. El hotsync solo copia a conf.d.available, que es donde el
+  # entrypoint Lee al arrancar.
+  #
+  # Se usa enable_worker (no un `reread` a secas) porque ademas mete el nombre
+  # en /data/workers_enabled.txt, que vive en el VOLUMEN: asi el worker sobrevive
+  # al proximo rebuild, que si no lo perderia en silencio.
+  #
+  # La lista es EXPLICITA y no un "todos los que falten": un worker
+  # deshabilitado a proposito desde el panel no esta ni en la lista ni en
+  # conf.d, o sea que es indistinguible de uno nuevo, y un barrido lo volveria
+  # a encender solo. Al agregar un worker nuevo, agregarlo aqui.
+  for w in openwa_worker; do
+    say "    habilitando $w (nuevo en conf.d.available)"
+    run docker exec "$CONTAINER" /app/docker/bin/enable_worker "$w" || true
+  done
   run docker exec "$CONTAINER" supervisorctl reread
   run docker exec "$CONTAINER" supervisorctl update
   say "2/4 reiniciando el panel y los workers que tocan estos módulos"
