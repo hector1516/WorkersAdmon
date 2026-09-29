@@ -129,6 +129,15 @@ USERS = {
     "sin_app@ecc-sa.com.mx": {"password": "s3cret", "nombre": "Sin App",
                               "permiso": True,
                               "solo": {"AccesoConfiguracion"}},
+    # Con Detección de red: entra a /asistencia
+    "det_red@ecc-sa.com.mx": {"password": "s3cret", "nombre": "Det Red",
+                              "permiso": True,
+                              "solo": {"AccesoConfiguracion",
+                                       "AccesoDeteccionRed"}},
+    # SIN Detección de red: la pestaña se oculta y /asistencia responde 403
+    "sin_det@ecc-sa.com.mx": {"password": "s3cret", "nombre": "Sin Det",
+                              "permiso": True,
+                              "solo": {"AccesoConfiguracion"}},
 }
 _SESSIONS = {}     # token -> email
 _ACTIVITY = []
@@ -140,7 +149,7 @@ def _fake_user(email, permiso, nombre, solo=None):
              "AccesoTelegram": permiso, "AccesoAppConfig": permiso,
              "AccesoConfigurarCorreo": permiso, "AccesoConfigAI": permiso,
              "AccesoUsuarios": permiso, "AccesoVM": False,
-             "AccesoEdicionBD": False}
+             "AccesoEdicionBD": False, "AccesoDeteccionRed": permiso}
     if solo is not None:
         todos = {k: (k in solo) for k in todos}
     return {"id": 1, "email": email, "nombre": nombre, "nickname": "",
@@ -472,6 +481,81 @@ def fake_test_bot():
 
 
 _workers.test_telegram_bot = fake_test_bot
+
+# ── Asistencia (la escribe el escáner; aquí se falsea) ─────────────────────
+# Las filas cubren los estados que la vista tiene que distinguir. Un caso que
+# NO se pinte bien es un falso positivo en nómina: "Sin datos" tiene que verse
+# distinto de "Ausente", y "Indeterminado" distinto de "Tarde".
+import datetime as _dt  # noqa: E402
+
+_ASIS_FILAS = [
+    {"IdUsuario": 1, "UsuarioNombre": "Admin", "TurnoNombre": "Operativo",
+     "HoraEntradaEsperada": _dt.time(9, 0), "HoraSalidaEsperada": _dt.time(18, 30),
+     "EntradaPiso": _dt.time(8, 57), "EntradaTecho": _dt.time(9, 0),
+     "SalidaPiso": _dt.time(18, 33), "SalidaTecho": _dt.time(18, 36),
+     "HoraEntradaReal": _dt.time(9, 0), "HoraSalidaReal": _dt.time(18, 33),
+     "VentanaMin": 3, "EscaneosDia": 270, "GapMaximoMin": 3,
+     "EntradaTardia": 0, "SalidaTemprana": 0, "MinutosTarde": None,
+     "MinutosAntes": None, "Ausente": 0, "Indeterminado": 0,
+     "Estado": "CALCULADA", "Observaciones": ""},
+    {"IdUsuario": 2, "UsuarioNombre": "Tarde", "TurnoNombre": "Operativo",
+     "HoraEntradaEsperada": _dt.time(9, 0), "HoraSalidaEsperada": _dt.time(18, 30),
+     "EntradaPiso": _dt.time(9, 22), "EntradaTecho": _dt.time(9, 25),
+     "SalidaPiso": _dt.time(18, 33), "SalidaTecho": _dt.time(18, 36),
+     "HoraEntradaReal": _dt.time(9, 25), "HoraSalidaReal": _dt.time(18, 33),
+     "VentanaMin": 3, "EscaneosDia": 270, "GapMaximoMin": 3,
+     "EntradaTardia": 1, "SalidaTemprana": 0, "MinutosTarde": 22,
+     "MinutosAntes": None, "Ausente": 0, "Indeterminado": 0,
+     "Estado": "TARDE", "Observaciones": ""},
+    {"IdUsuario": 3, "UsuarioNombre": "Indeterminado", "TurnoNombre": "Operativo",
+     "HoraEntradaEsperada": _dt.time(9, 0), "HoraSalidaEsperada": _dt.time(18, 30),
+     "EntradaPiso": _dt.time(9, 12), "EntradaTecho": _dt.time(9, 20),
+     "SalidaPiso": _dt.time(18, 33), "SalidaTecho": _dt.time(18, 36),
+     "HoraEntradaReal": _dt.time(9, 20), "HoraSalidaReal": _dt.time(18, 33),
+     "VentanaMin": 8, "EscaneosDia": 270, "GapMaximoMin": 3,
+     "EntradaTardia": 0, "SalidaTemprana": 0, "MinutosTarde": None,
+     "MinutosAntes": None, "Ausente": 0, "Indeterminado": 1,
+     "Estado": "INDETERMINADO", "Observaciones": "la ventana cruza la tolerancia"},
+    {"IdUsuario": 4, "UsuarioNombre": "Escaner Caido", "TurnoNombre": "Operativo",
+     "HoraEntradaEsperada": _dt.time(9, 0), "HoraSalidaEsperada": _dt.time(18, 30),
+     "EntradaPiso": None, "EntradaTecho": None,
+     "SalidaPiso": None, "SalidaTecho": None,
+     "HoraEntradaReal": None, "HoraSalidaReal": None,
+     "VentanaMin": None, "EscaneosDia": 0, "GapMaximoMin": None,
+     "EntradaTardia": 0, "SalidaTemprana": 0, "MinutosTarde": None,
+     "MinutosAntes": None, "Ausente": 0, "Indeterminado": 0,
+     "Estado": "SIN_DATOS",
+     "Observaciones": "solo 0 escaneos ese dia (minimo 20): el escaner no cubrio"},
+]
+_ASIS_GUARDADO = {"n": 0, "fecha": None}
+
+
+def fake_asistencia_fecha(fecha, user_id=None):
+    filas = [dict(f) for f in _ASIS_FILAS]
+    if user_id:
+        filas = [f for f in filas if f["IdUsuario"] == int(user_id)]
+    return filas
+
+
+def fake_turnos():
+    return [{"IdUsuario": f["IdUsuario"], "IdTurno": 1, "NombreUsuario": f["UsuarioNombre"],
+             "Nombre": "Operativo", "Activo": 1, "FechaDesde": None, "FechaHasta": None}
+            for f in _ASIS_FILAS]
+
+
+def fake_calcular(fecha=None):
+    _ASIS_GUARDADO["n"] += 1
+    _ASIS_GUARDADO["fecha"] = fecha
+    return {"fecha": fecha, "guardados": 4,
+            "por_estado": {"CALCULADA": 1, "TARDE": 1, "INDETERMINADO": 1,
+                            "SIN_DATOS": 1},
+            "sin_turno": 0, "afirmables": 2}
+
+
+db.get_asistencia_fecha = fake_asistencia_fecha
+db.get_all_usuario_turnos = fake_turnos
+db.calcular_y_guardar_asistencias_fecha = fake_calcular
+
 
 # ── Servidor en hilo aparte ──────────────────────────────────────────────────
 HTTPD = None
@@ -1901,6 +1985,132 @@ class PanelTest(unittest.TestCase):
         panel = css.index("aspect-ratio:auto")
         self.assertLess(shell, panel,
                         "el override del panel tiene que ir después del shell")
+
+
+    # ── Asistencia ──────────────────────────────────────────────────────────
+    def test_71_pestana_de_asistencia_muestra_la_ventana(self):
+        """La hora real se muestra como ventana, no como un minuto.
+
+        Este es el punto de toda la vista: el escáner ve la red cada 3 minutos,
+        así que 09:00 a secas es una afirmación que el dato no soporta. La
+        ventana (08:57–09:00 ±3 min) sí.
+        """
+        c = Client()
+        c.login("det_red@ecc-sa.com.mx", "s3cret")
+        code, _, html = c.get("/asistencia")
+        self.assertEqual(code, 200)
+        # La ventana tal como la formatea asistencia_core (el mismo código que
+        # usa el cálculo): '08:57–09:00 ±3 min'.
+        import asistencia_core as _core
+        ventana = _core.formatear_ventana(_dt.time(8, 57), _dt.time(9, 0))
+        self.assertIn(ventana, html)
+        self.assertIn("±3 min", ventana)
+        # Y las columnas esperada/real separadas: antes la "esperada" pintaba
+        # la real duplicada, con lo que el desfase no se podía ni ver.
+        self.assertIn("Entrada esp.", html)
+        self.assertIn("Salida esp.", html)
+
+    def test_72_asistencia_distingue_los_cinco_estados(self):
+        """Sobre todo SIN DATOS de AUSENTE, y INDETERMINADO de TARDE.
+
+        Con el escáner caído, la versión anterior marcaba ausente a todo el
+        planta; y cuando la ventana cruzaba la tolerancia se acusaba o se
+        exoneraba sin poder. Son los dos falsos positivos que costarían un
+        reclamo justo.
+        """
+        c = Client()
+        c.login("det_red@ecc-sa.com.mx", "s3cret")
+        _, _, html = c.get("/asistencia")
+        # Lo que se ve son las ETIQUETAS (las claves internas no se pintan: son
+        # detalle de la base y nadie tiene que conocerlas para leer la tabla).
+        for etiqueta in ("Normal", "Tarde", "Indeterminado", "Sin datos"):
+            self.assertIn(etiqueta, html, etiqueta)
+        # Y el nombre de quien está en cada estado, para que se vea que la fila
+        # es de una persona y no un estado suelto.
+        for nombre in ("Admin", "Tarde", "Indeterminado", "Escaner Caido"):
+            self.assertIn(nombre, html, nombre)
+        # Y el "por qué" de cada veredicto queda a la vista (bloque de
+        # evidencia): un SIN DATOS sin explicación es indistinguible de un
+        # bug, y es justo el caso que más reclama genera.
+        self.assertIn("Evidencia", html)
+        self.assertIn("Escaneos", html)
+        self.assertIn("escáner no cubrió", html)
+
+    def test_73_asistencia_requiere_permiso(self):
+        """Con AccesoDeteccionRed entra; sin él, 403 y la tarjeta no enlaza."""
+        c = Client()
+        c.login("det_red@ecc-sa.com.mx", "s3cret")
+        self.assertEqual(c.get("/asistencia")[0], 200)
+        _, _, home = c.get("/")
+        self.assertIn('href="/asistencia"', home)
+
+        c2 = Client()
+        c2.login("sin_det@ecc-sa.com.mx", "s3cret")
+        code, _, html = c2.get("/asistencia")
+        self.assertEqual(code, 403)
+        self.assertIn("AccesoDeteccionRed", html)
+        _, _, home2 = c2.get("/")
+        self.assertIn('title="Requiere el permiso AccesoDeteccionRed"', home2)
+        self.assertNotIn('href="/asistencia"', home2)
+        # Tampoco por POST (escribiriate la asistencia sin permiso).
+        self.assertEqual(
+            c2.post("/asistencia", csrf=c2.csrf(), calcular="1")[0], 403)
+
+    def test_74_calcular_asistencia_es_post_con_csrf(self):
+        """Calcular ESCRIBE en HUB_AsistenciaDiaria: no puede ser un GET."""
+        c = Client()
+        c.login("det_red@ecc-sa.com.mx", "s3cret")
+        # El GET no calcula.
+        self.assertEqual(_ASIS_GUARDADO["n"], 0)
+        c.get("/asistencia?fecha=2026-09-28")
+        self.assertEqual(_ASIS_GUARDADO["n"], 0,
+                         "un GET no debe escribir la asistencia")
+        # El POST sí, y redirige con el conteo.
+        code, headers, _ = c.post("/asistencia", csrf=c.csrf(),
+                                  calcular="1", fecha="2026-09-28")
+        self.assertEqual(code, 303)
+        self.assertEqual(_ASIS_GUARDADO["n"], 1)
+        self.assertIn("calculado=4", urllib.parse.unquote_plus(
+            headers.get("Location", "")))
+        # Y al volver se ve el resultado, con el aviso de los días sin datos.
+        _, _, html = c.get("/asistencia?fecha=2026-09-28&calculado=4&sin_datos=1")
+        self.assertIn("Se guardaron", html)
+        self.assertIn("SIN DATOS", html)
+        self.assertIn("No son faltas", html)
+
+    def test_75_fecha_por_defecto_es_ayer(self):
+        """Hoy todavía no termina: por defecto daría 'sin salida registrada'."""
+        _, _, html = self._logged().get("/asistencia")
+        ayer = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
+        self.assertIn(ayer, html)
+
+    def test_77_el_dia_sale_en_espanol(self):
+        """`strftime("%A")` sale en inglés (el locale del contenedor es C) y un
+        'Monday 28/09/2026' en una ui en español se ve como bug."""
+        import panel.views.asistencia as _asis
+        import datetime as _d
+        self.assertEqual(_asis._fecha_larga(_d.date(2026, 9, 28)),
+                         "lunes 28/09/2026")
+        c = Client()
+        c.login("det_red@ecc-sa.com.mx", "s3cret")
+        _, _, html = c.get("/asistencia?fecha=2026-09-28")
+        self.assertIn("lunes 28/09/2026", html)
+        for ingles in ("Monday", "Tuesday", "Sunday"):
+            self.assertNotIn(ingles, html, ingles)
+
+    def test_76_sin_registros_lo_dice_y_ofrece_calcular(self):
+        """Día sin calcular: no es una tabla vacía rara, es una instrucción."""
+        import panel.db as _db
+        import panel.views.asistencia as _asis
+        original = _db.get_asistencia_fecha
+        _db.get_asistencia_fecha = lambda fecha, user_id=None: []
+        try:
+            html = _asis.render({"nombre": "X", "perms": {}},
+                                fecha=_dt.date(2026, 9, 1))
+        finally:
+            _db.get_asistencia_fecha = original
+        self.assertIn("No hay asistencias calculadas", html)
+        self.assertIn("Calcular y guardar", html)
 
 
 if __name__ == "__main__":

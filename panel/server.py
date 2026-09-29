@@ -19,6 +19,8 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
   GET  /notificaciones                 → pestaña Notificaciones (Fase C)
   POST /notificaciones/<bloque>[/...]  → guarda / prueba (telegram|push|correo|ia)
   GET  /apps                           → pestaña Apps (catálogo por app)
+  GET  /asistencia                    → pestaña Asistencia (por día, con ventana)
+  POST /asistencia                    → calcular y guardar la asistencia del día
   POST /apps                           → alta / editar / borrar / guardar valores
 
 Seguridad: cookie `ecsa_token` (HttpOnly), CSRF de doble envío, límite de
@@ -35,6 +37,7 @@ from .templates import (esc, forbidden_page, lugar_de, login_page,
                          offline_page, page, shell_banner, shell_actions)
 from .lugar import lugar_de_handler
 from .views import apps as apps_view
+from .views import asistencia as asis_view
 from .views import config as config_view
 from .views import home as home_view
 from .views import notifications as notif_view
@@ -335,6 +338,32 @@ class Handler(BaseHTTPRequestHandler):
                 correo_prueba=query.get("para", [""])[0] or user.get("email", ""),
                 vista_tg=query.get("tg", [""])[0] or "conexion"))
 
+        if path == "/asistencia":
+            user, done = self._require()
+            if done:
+                return
+            if not auth.has_perm(user, "AccesoDeteccionRed"):
+                return self._html(forbidden_page(
+                    "La pestaña Asistencia requiere el permiso "
+                    "AccesoDeteccionRed en el HUB. Pídeselo al "
+                    "administrador."), 403)
+            fecha = asis_view._fecha_de_query(query.get("fecha", [""])[0])
+            ok, err = self._flash(query)
+            # El POST de "calcular" redirige acá con el conteo en la URL (este
+            # handler no tiene estado entre peticiones), y la vista lo pinta
+            # como "Resultado del cálculo".
+            calculado = query.get("calculado", [""])[0]
+            resumen = None
+            if calculado:
+                sin_datos = int(query.get("sin_datos", ["0"])[0] or 0)
+                resumen = {"guardados": int(calculado or 0),
+                           "por_estado": ({"SIN_DATOS": sin_datos}
+                                          if sin_datos else {})}
+            return self._html(asis_view.render(
+                user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                fecha=fecha, usuario=query.get("usuario", [""])[0] or None,
+                resumen=resumen, **self._shell_ctx()))
+
         if path == "/apps":
             user, done = self._require()
             if done:
@@ -384,6 +413,9 @@ class Handler(BaseHTTPRequestHandler):
             rest = path[len("/configuracion/"):]
             name, _, action = rest.partition("/")
             return self._config_action(user, name, action, form)
+
+        if path == "/asistencia":
+            return self._asistencia_action(user, form)
 
         if path == "/apps":
             return self._apps_action(user, form)
@@ -557,6 +589,29 @@ class Handler(BaseHTTPRequestHandler):
         return handler(user, form)
 
     # ── Apps (Fase D) ──────────────────────────────────────────────────────
+    def _asistencia_action(self, user, form):
+        """
+        POST de la pestaña Asistencia. Es POST (y no GET) porque escribir en
+        HUB_AsistenciaDiaria no es una lectura: el token CSRF ya lo validó el
+        handler antes de llegar acá.
+        """
+        if not auth.has_perm(user, "AccesoDeteccionRed"):
+            return self._html(forbidden_page(
+                "La pestaña Asistencia requiere el permiso "
+                "AccesoDeteccionRed."), 403)
+
+        fecha = asis_view._fecha_de_query(form.get("fecha", [""])[0])
+        if not form.get("calcular"):
+            return self._redirect("/asistencia")
+
+        resumen = db.calcular_y_guardar_asistencias_fecha(fecha)
+        # El resumen se pasa por la URL porque el handler de GET no tiene estado
+        # entre peticiones; los conteos son lo que hace falta ver de inmediato.
+        return self._redirect(
+            f"/asistencia?fecha={fecha.isoformat()}"
+            f"&calculado={resumen.get('guardados', 0)}"
+            f"&sin_datos={(resumen.get('por_estado') or {}).get('SIN_DATOS', 0)}")
+
     def _apps_action(self, user, form):
         """Dispatch de la pestaña Apps: los botones se distinguen por su name."""
         if not auth.has_perm(user, "AccesoAppConfig"):

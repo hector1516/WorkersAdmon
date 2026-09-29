@@ -88,7 +88,7 @@ TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 # Versión del panel (la de la app) y del shell (estampada por
 # tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
 APP_ID = "workersadmon"
-APP_VERSION = "1.2.3"   # "1.2.3" asistencia exacta por MAC + hotsync que sí despliega el escáner
+APP_VERSION = "1.2.4"   # "1.2.4" pestaña Asistencia: la hora real como ventana
 
 
 def _shell_version():
@@ -141,6 +141,10 @@ TABS = [
     {"id": "apps", "label": "⚙️ Apps", "href": "/apps", "enabled": True,
      "perm": "AccesoAppConfig", "modulo": "Apps",
      "desc": "Catálogo de apps: tipo, endpoint y credenciales."},
+    {"id": "asistencia", "label": "🕒 Asistencia", "href": "/asistencia",
+     "enabled": True, "perm": "AccesoDeteccionRed", "modulo": "Asistencia",
+     "desc": "Entradas y salidas por día, con la ventana en la que "
+             "ocurrieron."},
 ]
 
 

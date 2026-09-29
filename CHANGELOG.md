@@ -4,6 +4,42 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.2.4] - 2026-09-29
+
+Pestaña **🕒 Asistencia** en el panel. Antes el cálculo y la vista vivían
+solo en el HUB (que ya no se usa), o sea que el escáner escribía datos
+correctos y **nadie los miraba**.
+
+### Nuevo
+- **Vista de asistencias por día** (`panel/views/asistencia.py`, rutas
+  `GET/POST /asistencia`, permiso `AccesoDeteccionRed`): tarjetas de resumen
+  (afirmables · tardanzas · indeterminados · sin datos · ausentes), filtro por
+  fecha y usuario, tabla con **esperada y real por separado**, y la real como
+  **ventana** (`08:57–09:00 ±3 min`).
+- **Bloque "Evidencia"**: por cada fila, cuántos escaneos hubo ese día, el hueco
+  máximo entre ellos y la nota del cálculo. Un veredicto sin evidencia no se
+  puede defender, y antes no se guardaba nada de eso.
+- **"Calcular y guardar"** (POST con CSRF, porque escribe en
+  `HUB_AsistenciaDiaria`): recalcula el día para todos los usuarios con turno y
+  muestra el desglose por estado, con aviso cuando hubo días SIN DATOS.
+- La leyenda que explica que la hora real es una ventana y que ⚪ Sin datos y
+  ➖ No aplica **no** son faltas: sin eso, la diferencia entre los dos se pierde
+  y el falso positivo vuelve por la puerta de atrás.
+
+### Corregido
+- **`AccesoDeteccionRed` no se leía** en el panel: `panel/db.py` solo pedía las
+  columnas de permisos de sus propias pestañas, así que `auth.has_perm` no
+  encontraba la de asistencia. Ahora está en la lista.
+- **El día salía en inglés** ("Monday 28/09/2026"): `strftime("%A")` usa el
+  locale del contenedor. Los nombres van a mano en español, y hay prueba de que
+  no vuelva a pasar.
+
+### Agregado
+- 6 pruebas del panel (`test_71` a `test_77`): la ventana en la tabla, los
+  estados distinguibles entre sí, el permiso (incluido que un POST sin permiso
+  también da 403), que calcular sea POST y no GET, que la fecha por defecto sea
+  ayer, el estado vacío y el idioma del día. Suite: 143 en verde.
+
 ## [1.2.3] - 2026-09-29
 
 Asistencia por MAC: el desfase de 3-5 min y los falsos positivos que venían

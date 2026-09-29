@@ -1,10 +1,10 @@
 {
   "app": "workersadmon",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "cambios": [
-    "⏱️ La asistencia por MAC deja de retrasarse 3-5 min: el evento se sella con el instante del escaneo, no con el de procesamiento.",
-    "🪟 La hora real se guarda como ventana (08:57–09:00 ±3 min) y cuando esa ventana cruza la tolerancia dice «indeterminado» en vez de acusar.",
-    "⚪ Un día sin escaneo es SIN DATOS, no AUSENTE: una caída de red ya no marca ausente a todo el planta.",
-    "📦 El hotsync copia network_scanner.py: cambiar el escáner ahora sí llega al contenedor (antes se desplegaba sin efecto)."
+    "🕒 Nueva pestaña Asistencia: entradas y salidas por día, con la ventana en la que ocurrieron.",
+    "📏 La hora real se ve como ventana (08:57–09:00 ±3 min), no como un minuto inventado.",
+    "🔍 Cuando la ventana cruza la tolerancia sale Indeterminado, en vez de acusar o exonerar sin poder.",
+    "⚪ Un día sin escáner es Sin datos y no Ausente: una caída de red ya no marca faltas."
   ]
 }

@@ -24,6 +24,7 @@ ICONOS = {
     "config": "⚙️",
     "notificaciones": "🔔",
     "apps": "📦",
+    "asistencia": "🕒",
 }
 
 

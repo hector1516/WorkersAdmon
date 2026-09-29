@@ -87,9 +87,12 @@ def _execute(query, params=()):
 
 # ─── Usuarios y permisos ─────────────────────────────────────────────────────
 # Columnas de permisos que el panel necesita (lectura granular por pestaña).
+# AccesoDeteccionRed es la de la pestaña Asistencia: es la misma columna que
+# usa el HUB (comparten HUB_Users), y sin ella `auth.has_perm` no la encontraría
+# porque aquí solo se leen las columnas de esta lista.
 _PERM_COLS = (
     "AccesoConfiguracion, AccesoAppConfig, AccesoTelegram, AccesoConfigurarCorreo, "
-    "AccesoConfigAI, AccesoUsuarios, AccesoVM, AccesoEdicionBD"
+    "AccesoConfigAI, AccesoUsuarios, AccesoVM, AccesoEdicionBD, AccesoDeteccionRed"
 )
 
 
@@ -737,3 +740,42 @@ def delete_catalog_item(item_id):
         return (rows > 0, "" if rows else "la clave ya no existe en el catálogo")
     except Exception as exc:
         return False, str(exc)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ASISTENCIA
+# ═══════════════════════════════════════════════════════════════════════════════
+# Estas NO están en panel/db.py: la lógica vive en `eccsa_db.py` (la capa de
+# datos del ecosistema, la misma que usa el worker del escáner) porque la
+# escriben y la leen los dos. Aquí solo se delegan, para que las vistas del
+# panel sigan hablando únicamente con `panel.db` — que es lo que permite
+# falsearlas en las pruebas.
+#
+# El import es perezoso a propósito: `eccsa_db` resuelve sus propias credenciales
+# y no hace falta para arrancar el panel (login, config, notificaciones).
+
+
+def _hub():
+    """Importa `eccsa_db` bajo demanda. Lanza si no está (imagen mal construida)."""
+    import importlib
+    return importlib.import_module("eccsa_db")
+
+
+def get_asistencia_fecha(fecha, user_id=None):
+    """Asistencias ya calculadas de una fecha (de `eccsa_db`)."""
+    return _hub().get_asistencia_fecha(fecha, user_id)
+
+
+def get_all_usuario_turnos():
+    """Asignaciones de turno activas, con el nombre del usuario y del turno."""
+    return _hub().get_all_usuario_turnos()
+
+
+def calcular_y_guardar_asistencias_fecha(fecha=None):
+    """
+    Recalcula y guarda las asistencias de una fecha. Devuelve el desglose por
+    estado (`guardados`, `por_estado`, `sin_turno`, `afirmables`), que es lo
+    que la vista pinta: el número solo no dice si los días fueron afirmables o
+    días en los que el escáner no escaneó.
+    """
+    return _hub().calcular_y_guardar_asistencias_fecha(fecha)
