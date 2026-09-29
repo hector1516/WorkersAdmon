@@ -15,9 +15,10 @@
   es su casa natural.
 - **No cambia el funcionamiento**: nada importa el runner, el `hotsync` no copia
   `.sql` y las pruebas no recorren el repo. El `COPY . .` del Dockerfile los deja
-  en la imagen sin que nada los ejecute. Y dentro del contenedor el runner
-  funciona, porque el entrypoint ya genera las credenciales (`pymssql` y
-  `config_db` están).
+  en la imagen **solo en un rebuild**, y sin que nada los ejecute; con hotsync no
+  se copian (su lista de módulos Python es explícita y no incluye `.sql`), que
+  es lo que pasó en este deploy. No importa: el runner se usa a mano, desde un
+  clon, no desde el contenedor.
 - El registro es la tabla `schema_migrations` **de la base**, no del repo: por
   eso aplicar desde los dos lados no duplica nada. Lo que sí hay que evitar es
   que las dos copias diverjan, y por eso esta es la que manda.
