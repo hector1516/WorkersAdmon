@@ -299,10 +299,16 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
     asistencias = db.get_asistencia_fecha(fecha, uid)
     # Solo usuarios con turno: la lista completa son 40+ nombres y el filtro
     # se usa sobre gente que tiene turno asignado.
+    #
+    # OJO con el nombre de la columna: get_all_usuario_turnos() devuelve
+    # `UsuarioNombre` (el alias del JOIN con HUB_Users), no `NombreUsuario`. Con
+    # el nombre equivocado el comprehension se comía todas las filas y el
+    # filtro de usuario salía VACÍO, sin error ni aviso: se ve bien en las
+    # pruebas si el fake usa el mismo nombre mal escrito que la vista.
     usuarios = sorted(
-        {u["IdUsuario"]: u.get("NombreUsuario") for u in db.get_all_usuario_turnos()
-         if u.get("NombreUsuario")}.items(),
-        key=lambda kv: (kv[1] or "").lower())
+        {(u["IdUsuario"], u.get("UsuarioNombre") or "")
+         for u in db.get_all_usuario_turnos() if u.get("IdUsuario")},
+        key=lambda par: par[1].lower())
 
     cuerpo = _tarjetas([_estado_de(a) for a in asistencias])
     cuerpo += EXPLICACION

@@ -538,8 +538,14 @@ def fake_asistencia_fecha(fecha, user_id=None):
 
 
 def fake_turnos():
-    return [{"IdUsuario": f["IdUsuario"], "IdTurno": 1, "NombreUsuario": f["UsuarioNombre"],
-             "Nombre": "Operativo", "Activo": 1, "FechaDesde": None, "FechaHasta": None}
+    # Alias EXACTOS de get_all_usuario_turnos(): UsuarioNombre (no
+    # NombreUsuario) y TurnoNombre. Si el fake se aparta de la función real, la
+    # vista puede quedar rota y las pruebas en verde.
+    return [{"Id": f["IdUsuario"], "IdUsuario": f["IdUsuario"], "IdTurno": 1,
+             "UsuarioNombre": f["UsuarioNombre"], "Email": "x@ecc-sa.com.mx",
+             "TurnoNombre": "Operativo", "LV_Entrada": _dt.time(9, 0),
+             "LV_Salida": _dt.time(18, 30), "Sab_Entrada": None, "Sab_Salida": None,
+             "FechaDesde": None, "FechaHasta": None, "Activo": 1}
             for f in _ASIS_FILAS]
 
 
@@ -2083,6 +2089,22 @@ class PanelTest(unittest.TestCase):
         _, _, html = self._logged().get("/asistencia")
         ayer = (_dt.date.today() - _dt.timedelta(days=1)).isoformat()
         self.assertIn(ayer, html)
+
+    def test_78_el_filtro_de_usuario_no_sale_vacio(self):
+        """Regresión: la vista pedía `NombreUsuario` y la función devuelve
+        `UsuarioNombre`, así que el comprehension se comía todas las filas y el
+        filtro salía vacío — sin error, sin aviso, y con el fake usando el mismo
+        nombre mal escrito que la vista (por eso los tests no lo cazaban).
+        """
+        c = Client()
+        c.login("det_red@ecc-sa.com.mx", "s3cret")
+        _, _, html = c.get("/asistencia")
+        # Cada usuario con turno tiene que aparecer como opción del filtro.
+        for nombre in ("Admin", "Tarde", "Indeterminado", "Escaner Caido"):
+            self.assertIn(f">{nombre}</option>", html, nombre)
+        # Y el filtro es un GET (consultar no escribe).
+        self.assertIn('name="usuario"', html)
+        self.assertIn('method="get" action="/asistencia"', html)
 
     def test_77_el_dia_sale_en_espanol(self):
         """`strftime("%A")` sale en inglés (el locale del contenedor es C) y un
