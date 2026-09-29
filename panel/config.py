@@ -88,7 +88,7 @@ TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 # Versión del panel (la de la app) y del shell (estampada por
 # tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
 APP_ID = "workersadmon"
-APP_VERSION = "1.2.4"   # "1.2.4" pestaña Asistencia: la hora real como ventana
+APP_VERSION = "1.2.5"   # "1.2.5" el runner de migraciones vive ya en este repo
 
 
 def _shell_version():

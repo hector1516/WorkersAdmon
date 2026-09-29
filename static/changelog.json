@@ -1,7 +1,8 @@
 {
   "app": "workersadmon",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "cambios": [
+    "🗄️ El historial de migraciones de la base ya vive en este repo (antes estaba en el HUB, que se retiró).",
     "🕒 Nueva pestaña Asistencia: entradas y salidas por día, con la ventana en la que ocurrieron.",
     "📏 La hora real se ve como ventana (08:57–09:00 ±3 min), no como un minuto inventado.",
     "🔍 Cuando la ventana cruza la tolerancia sale Indeterminado, en vez de acusar o exonerar sin poder.",

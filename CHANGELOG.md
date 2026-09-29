@@ -4,6 +4,33 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.2.5] - 2026-09-29
+
+### Agregado
+- **`apply_migrations.py` + `migrations/` (47 archivos)**: el runner de
+  migraciones y el historial del esquema, que hasta ahora vivían solo en el repo
+  del HUB (la app Streamlit, retirada hoy). Este repo es el que se mantiene y
+  despliega, y es donde el panel lee las tablas que esas migraciones crearon
+  (`HUB_Users`, `HUB_Config`, `HUB_Telegram*`, `HUB_AsistenciaDiaria`…), así que
+  es su casa natural.
+- **No cambia el funcionamiento**: nada importa el runner, el `hotsync` no copia
+  `.sql` y las pruebas no recorren el repo. El `COPY . .` del Dockerfile los deja
+  en la imagen sin que nada los ejecute. Y dentro del contenedor el runner
+  funciona, porque el entrypoint ya genera las credenciales (`pymssql` y
+  `config_db` están).
+- El registro es la tabla `schema_migrations` **de la base**, no del repo: por
+  eso aplicar desde los dos lados no duplica nada. Lo que sí hay que evitar es
+  que las dos copias diverjan, y por eso esta es la que manda.
+- `migrations/README.md` con las reglas (un archivo por cambio, idempotente,
+  `GO` en línea sola, nada de `;` antes de `ELSE`, sin `TRIM()` en SQL Server
+  2014) y dos avisos: la numeración tiene repetidos, y hay dos migraciones
+  aplicadas en producción cuyo archivo no existe en ningún repo
+  (`0041_dashboard_notas`, `0042_imagen_pantalla`).
+
+Verificado: el runner, desde su nueva casa, resolvió bien su carpeta y
+reportó "Sin migraciones pendientes" contra `ECCSA_Admon_Pruebas` (donde las 47
+ya están aplicadas) — o sea que funciona y no toca nada.
+
 ## [1.2.4] - 2026-09-29
 
 Pestaña **🕒 Asistencia** en el panel. Antes el cálculo y la vista vivían
