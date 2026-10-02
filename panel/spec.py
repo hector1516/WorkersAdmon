@@ -186,6 +186,42 @@ WORKERS_SPEC = {
                  "HUB_RegistroKilometros y HUB_OxxoGasTickets, con dedupe por "
                  "Metrica+ReferenciaId."),
     ],
+    "hubmail_worker": [
+        _f("HUBMAIL_DB_PASSWORD", "Contraseña de MySQL (HUBMAIL)", "secret", "env",
+           ayuda="Base de la caché de correo. Sin esto el worker no arranca bien."),
+        _f("HUBMAIL_ENCRYPTION_KEY", "Clave de cifrado de las cuentas", "secret", "env",
+           ayuda="Clave Fernet con la que HUBMail cifró las contraseñas IMAP. "
+                 "Si está vacía se cae a HUBMAIL_KEY_FILE (archivo del volumen "
+                 "hubmail_data). ⚠️ Si no coincide con la que se usó al cifrar, "
+                 "el worker NO descifra nada y falla: no hay recuperación."),
+        _f("HUBMAIL_DB_SERVER", "Servidor MySQL", "text", "env", default="172.26.90.159"),
+        _f("HUBMAIL_DB_NAME", "Base de datos", "text", "env", default="HUBMAIL"),
+        _f("HUBMAIL_SYNC_ENABLED", "Sincronizar", "bool", "env", default=True,
+           ayuda="En OFF el proceso queda vivo y el panel lo muestra, pero no "
+                 "sincroniza. Es la llave del corte: se apaga un lado, se "
+                 "verifica el otro, y no al revés."),
+        _f("HUBMAIL_SYNC_DRYRUN", "Modo ensayo", "bool", "env", default=False,
+           ayuda="⚠️ Con ON lee IMAP y llena la caché pero NO escribe en el "
+                 "buzón (no drena HUBMAIL_PendingOps ni aplica filtros). "
+                 "Sirve para correr este worker en paralelo al de HUBMail: los "
+                 "dos pueden leer, lo que no puede ser es escribir los dos."),
+        _f("HUBMAIL_SYNC_PERIOD", "Intervalo de sincronización", "number", "env",
+           default=300, min=60, max=86400, unidad="seg",
+           ayuda="Cada cuántos segundos refresca cada cuenta."),
+        _f("HUBMAIL_VAPID_PUBLIC", "Clave VAPID pública", "text", "env",
+           ayuda="Push de correo nuevo."),
+        _f("HUBMAIL_VAPID_PRIVATE", "Clave VAPID privada", "secret", "env",
+           ayuda="Sin esto no hay push, pero la sincronización funciona igual."),
+        _f("HUBMAIL_ATTACHMENTS_DIR", "Carpeta de adjuntos", "text", "env",
+           default="/data/attachments",
+           ayuda="Si la app Mailbox vive en otro contenedor, el volumen debe "
+                 "compartir esta carpeta: es donde quedan los adjuntos."),
+        _f("instancia", "Instancias en el entorno", "const", "const", valor="1 (obligatorio)",
+           ayuda="⚠️ REGLA DURA: solo UNA instancia. El worker toma un GET_LOCK "
+                 "de MySQL ('eccsa_hubmail_sync_worker') y se sale si ya está "
+                 "tomado. Con dos, la cola HUBMAIL_PendingOps se drena dos "
+                 "veces y un correo enviado se guarda dos veces en Enviados."),
+    ],
 }
 
 

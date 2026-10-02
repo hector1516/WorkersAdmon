@@ -4,6 +4,83 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.4.0] - 2026-10-02
+
+### Agregado
+- **`hubmail_worker`: la sincronización de correo sale del backend de HUBMail y
+  entra aquí.** Hasta ahora la app web de correo levantaba un hilo por cuenta
+  (`app/main.py:102`) que sincronizaba IMAP → MySQL, aplicaba la cola
+  `HUBMAIL_PendingOps` y disparaba el push. Se movió el motor completo a
+  `cron_sync_hubmail.py` + el paquete `hubmail_worker/`.
+  Motivo: una app que se reinicia no debe dejar de sincronizar, y desplegar una
+  app no debe arrastrar un ciclo de IMAP de 5 minutos.
+- `PyMySQL` en `requirements.txt`. Es la **única** app del ecosistema que habla
+  MySQL: la caché de correo (`HUBMAIL_*`) vive ahí y no en `ECCSA_Admon`. No es
+  parte del mandato de versiones porque Field y Admon no usan MySQL, así que se
+  pinnea aparte (`==1.1.1`) para que un rebuild no cambie el driver sin avisar.
+- `docker/conf.d.available/hubmail_worker.conf` y su entrada en el panel
+  (Workers → Configuración → **Correo ECCSA**), donde se ven y se cambian las 11
+  variables: las dos obligatorias, las tres llaves de operación y las de
+  credenciales. Ninguna está escrita en el `.conf`.
+- `tests/test_hubmail_worker.py` (15 tests) para las tres guardas que no se
+  anuncian solas: la clave de cifrado, el modo ensayo y las rutas de adjuntos.
+- `tests/test_imap_store.py` (15 tests) alrededor del `UID STORE`, incluido un
+  IMAP mínimo en localhost que registra lo que llega al socket, y una réplica de
+  cómo Python 3.11 arma la línea (para que el test siga sirviendo aunque la
+  máquina corra 3.13/3.14, donde `uid()` ya envuelve el flag por su cuenta).
+- `hotsync.sh`: el worker entra en las tres listas que importan — copia, verificación
+  por hash y reinicio — más la copia del **directorio** `hubmail_worker/`. La
+  lista de copia es explícita a propósito (ver el comentario en el propio
+  script: olvidar un módulo hace que el deploy reporte éxito sin cambiar nada),
+  y este es el caso nuevo porque es un paquete y no un archivo suelto.
+
+### Corregido
+- **`UID STORE` sin paréntesis: marcar como leído fallaba en algunos buzones.**
+  Encontrado leyendo `HUBMAIL_PendingOps` al preparar la migración: 3 ops
+  `failed` con el mismo error, `BAD [UID STORE extra parameters supplied
+  "\Seen"]`, del 2026-09-01 y 2026-09-09, y 5 `seen` atascadas en `pending` desde
+  el 2026-08-26.
+  La causa: `imaplib.uid()` de **Python 3.11** pasa los argumentos a
+  `_command()` sin tocarlos (solo concatena `b' ' + arg`), así que
+  `uid("store", uid, "+FLAGS", flag)` mandaba el flag-list **suelto**:
+  `UID STORE 1474 +FLAGS \Seen`. El RFC 3501 lo exige entre paréntesis.
+  GoDaddy lo toleraba (107 `seen` salieron bien), pero el servidor de la cuenta
+  34 no. Y no se notaba porque la UI refleja el cambio al instante en la caché:
+  el correo se veía marcado mientras el `STORE` contra IMAP nunca ocurría.
+  Ahora los 5 sitios (`set_flag`, `set_flags`, `move_message`, `delete_message`,
+  `delete_messages`) arman la línea explícita y verificada
+  `UID STORE <uid> ±FLAGS.SILENT (\Seen)`, que no depende de la versión de
+  Python. `APPEND` tenía el mismo detalle con sus flags y también se corrigió.
+  Ahora los `STORE` verifican `typ != "OK"`; antes el fallo se perdía.
+  **Con una excepción deliberada:** `move_message` NO lanza si falla el
+  `\Deleted`. El `UID COPY` ya salió bien, así que el mensaje ya está en el
+  destino: lanzar ahí marcaba la op como `failed`, el siguiente ciclo rehacía
+  el COPY completo y dejaba una copia nueva cada 5 minutos, sin límite. Avisa en
+  el log y deja que el sincronizador reconcilie. Los otros cuatro sí lanzan,
+  porque son idempotentes.
+- **La clave de cifrado ya no se puede inventar.** El código original generaba
+  una clave Fernet nueva si no encontraba el archivo, y escribía el resultado.
+  En la API eso es inofensivo; en el worker es rompiente: `decrypt_secret`
+  devolvía `""` para **todas** las cuentas y el proceso fallaba contra IMAP cada
+  5 minutos sin que nada lo delatara. Ahora no hay autogeneración: sin clave no
+  hay descifrado, y `decrypt_secret` **lanza** con un mensaje que dice qué
+  variable falta en vez de devolver vacío.
+- **`HUBMAIL_Attachments.FilePath` guarda una ruta relativa**
+  (`<Cuenta>/<Carpeta>/<UID>/<n>_<nombre>`), no la absoluta del worker. Con la
+  absoluta, la app la buscaba en **su** volumen, no la encontraba,
+  `os.path.isfile` devolvía `False` **sin error**, y los adjuntos salían
+  vacíos. `sync.resolver_adjunto()` resuelve las dos formas, así que lo ya
+  escrito sigue siendo legible.
+
+### Seguridad
+- `hubmail_worker/config.py` **no trae secretos por defecto**. El original de
+  HUBMail traía la contraseña de MySQL, la de SQL Server, el secreto JWT y la
+  clave VAPID privada escritas en el código (`eyccazo`,
+  `cambia-este-secreto-hubmail`): están en el historial de git y además hacían
+  que un despliegue sin variables arrancara "funcionando" contra producción con
+  credenciales equivocadas. Aquí todo secreto viene del entorno, y `_requerido()`
+  avisa en el arranque si falta.
+
 ## [1.3.1] - 2026-09-29
 
 

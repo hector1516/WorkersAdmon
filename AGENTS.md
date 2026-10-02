@@ -10,7 +10,7 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
 | Imagen | `Dockerfile` | python:3.11-slim + freetds + smbclient + supervisor. Playwright **solo** con `--build-arg WITH_PLAYWRIGHT=1` |
 | Arranque | `docker/entrypoint.sh` | genera `secretos_local.py` desde env vars → `/etc/hosts` Fileserver → activa los workers listados en `/data/workers_enabled.txt` → `supervisord` |
 | Programas activos | `docker/conf.d/*.conf` | **hoy solo `status_web`** en la imagen; al habilitar uno, `enable_worker` copia aquí su conf desde `conf.d.available/` |
-| Plantillas | `docker/conf.d.available/*.conf` | Las 14 confs (10 de HUB/mcp + **4 de Field**: `avisos`, `file_indexer`, `legends_cron`, `legends_audit`), **todas habilitadas el 2026-09-26** (lista vigente en `/data/workers_enabled.txt`) |
+| Plantillas | `docker/conf.d.available/*.conf` | Las 15 confs (10 de HUB/mcp + **4 de Field**: `avisos`, `file_indexer`, `legends_cron`, `legends_audit`, + **1 de correo**: `hubmail_worker`), **todas habilitadas desde el 2026-09-26** (lista vigente en `/data/workers_enabled.txt`) |
 | Código Field | `api/` | snapshot de `field/api` (crons + `db.py`/`config.py`/`auth.py`/`routers/`); los conf de Field usan `directory=/app/api` y `environment=TZ="UTC"` |
 | Helpers | `docker/bin/` | `enable_worker`, `disable_worker`, `workers_list` |
 | Panel | `status_server.py` → `panel/` | **Interfaz de control** en `STATUS_PORT` (8080): login HUB, pestañas Workers (activar/desactivar/reiniciar/logs), **Configuración** (`panel/spec.py` + `panel/envconf.py`), **Notificaciones** (`panel/views/notifications.py` + `panel/probes.py`) y **Apps** (`panel/views/apps.py`), `GET /api/status` (JSON) |
@@ -358,8 +358,56 @@ seguir al shell.
 - ~~Activar el primer worker~~ — los **10** están activos desde 2026-09-26.
 - Heartbeats: ningún worker llama aún `worker_heartbeat.heartbeat()` (la columna
   "Última ejecución" queda vacía).
-- Smoke de imports por worker (los 14). La **migración 1-a-1 ya terminó**
-  (2026-09-26): los 14 programas (10 de HUB/mcp + 4 de Field) corren aquí,
-  `hub_python` quedó solo con `streamlit`, `field` con `nginx` + `api`, los
-  `.conf` de workers se eliminaron de `docker/prod/conf.d/` del repo HUB y
-  `-p 8000:8000` se quitó de su `deploy.yml`.
+- Smoke de imports por worker (los 15). La **migración 1-a-1 ya terminó**
+  (2026-09-26): los 15 programas (10 de HUB/mcp + 4 de Field + 1 de correo)
+  corren aquí, `hub_python` quedó solo con `streamlit`, `field` con `nginx` +
+  `api`, los `.conf` de workers se eliminaron de `docker/prod/conf.d/` del repo
+  HUB y `-p 8000:8000` se quitó de su `deploy.yml`.
+
+## Worker de correo (`hubmail_worker`)
+
+Sincroniza las cuentas IMAP a la caché MySQL `HUBMAIL`. **Migrado aquí el
+2026-10-02**: hasta esa fecha era un hilo dentro del backend de HUBMail
+(`app/main.py:102`), es decir, la app web sincronizaba el buzón. Ahora la app
+(HUBMail → luego **Mailbox**) solo lee la caché y encola acciones.
+
+| | |
+|---|---|
+| Código | `cron_sync_hubmail.py` (entrada) + paquete `hubmail_worker/` |
+| Conf | `docker/conf.d.available/hubmail_worker.conf` |
+| BD | **MySQL `HUBMAIL`** (NO SQL Server). Por eso `PyMySQL` está en `requirements.txt` |
+| Ritmo | 5 min por cuenta, un hilo por cuenta, escalonado 5 s al arrancar |
+| Tests | `python tests/test_hubmail_worker.py` (15) |
+
+**Reparto con la app.** La app escribe en MySQL y encola en
+`HUBMAIL_PendingOps`; este worker es el **único** que habla con el buzón y
+drena esa cola (leído/no leído, flag, borrar, mover, cross-move, `APPEND` a
+Enviados). Por eso la app ya no necesita las contraseñas de los buzones: sin el
+worker, la app encola y nada se ejecuta.
+
+**Reglas duras:**
+
+1. **Solo una instancia en todo el entorno.** Toma un `GET_LOCK` de MySQL
+   (`eccsa_hubmail_sync_worker`) y **se sale** si ya está tomado. Con dos, la
+   cola se drena dos veces y un correo enviado se guarda dos veces en Enviados.
+   Es el candado del servidor, no un archivo: sobrevive a un `kill -9`.
+2. **Nunca inventar la clave de cifrado.** Las contraseñas de los buzones están
+   cifradas con Fernet (`hubmail_worker/crypto.py`). La clave viene de
+   `HUBMAIL_ENCRYPTION_KEY` o del archivo `HUBMAIL_KEY_FILE`. El worker **no
+   genera una clave nueva** si no la encuentra — el código original de HUBMail
+   sí lo hacía, y acá eso significaría `decrypt_secret() → ""` para todas las
+   cuentas y un worker que falla en silencio cada 5 minutos. `decrypt_secret`
+   **lanza** en vez de devolver vacío, y los tests lo cubren.
+3. **Corte sin solapar.** Para apagar el worker viejo y encender este, en este
+   orden: (a) `HUBMAIL_SYNC_DRYRUN=1` en el nuevo, para verlo leer sin escribir;
+   (b) apagar el de HUBMail con `HUBMAIL_INLINE_SYNC=0`; (c) quitar el
+   `DRYRUN`. Al revés, o con los dos escribiendo, se duplican operaciones.
+4. **Los adjuntos van con ruta RELATIVA.** `HUBMAIL_Attachments.FilePath` guarda
+   `<AccountID>/<Carpeta>/<UID>/<n>_<nombre>`, no la ruta absoluta. El worker
+   escribe y la app lee, y cada uno resuelve con SU `attachments_dir`; si se
+   guardara la absoluta del worker, `os.path.isfile` daría `False` sin error y
+   los adjuntos saldrían vacíos. `sync.resolver_adjunto()` acepta las dos
+   formas (la absoluta vieja incluida).
+5. **Sin secretos en el `.conf`.** Las variables van por `docker run -e` o por
+   el panel (`/data/worker_env.json`). Las dos obligatorias son
+   `HUBMAIL_DB_PASSWORD` y `HUBMAIL_ENCRYPTION_KEY`.

@@ -186,6 +186,31 @@ CATALOGO = {
             "duplicaba ScoreLog). Desde 2026-09-26 vive SOLO aquí; `field` "
             "corre únicamente nginx + api."),
     },
+    "hubmail_worker": {
+        "desc": "Correo ECCSA: sincroniza IMAP → MySQL",
+        "cadencia": "cada 5 min por cuenta",
+        "app": "Mailbox",
+        "descripcion": (
+            "Mantiene la caché de correo al día: una conexión IMAP por cuenta "
+            "cada 5 min que refresca carpetas, mensajes y adjuntos, aplica "
+            "retención en Spam/Trash y dispara el push si llegó correo nuevo. "
+            "Es el ÚNICO que escribe en el buzón: ejecuta la cola "
+            "HUBMAIL_PendingOps (leído/no leído, flag, borrar, mover, APPEND a "
+            "Enviados) que deja la app Mailbox. Lee MySQL (base HUBMAIL), NO "
+            "SQL Server.\n\n"
+            "⚠️ MIGRADO 2026-10-02 desde el backend de HUBMail, que lo tenía "
+            "como hilo dentro del servidor web (`app/main.py:102`). Razones: una "
+            "app que se reinicia no debe dejar de sincronizar, y desplegar una "
+            "app no debe arrastrar un ciclo de IMAP.\n\n"
+            "⚠️ Solo puede existir 1 instancia en todo el entorno. Se protege con "
+            "GET_LOCK de MySQL ('eccsa_hubmail_sync_worker'): si el candado ya "
+            "está tomado, el proceso se sale. Dos workers a la vez duplicarían "
+            "la cola y harían dos APPEND al mismo correo en Enviados.\n\n"
+            "Llaves de operación: HUBMAIL_SYNC_DRYRUN=1 lo pone en modo ensayo "
+            "(lee IMAP y llena la caché, pero no escribe en el buzón) y "
+            "HUBMAIL_SYNC_ENABLED=0 lo deja vivo sin sincronizar. Se usaron "
+            "para el corte sin solapar los dos workers."),
+    },
 }
 
 PROTECTED = {"status_web"}   # programas que el panel no manipula

@@ -99,9 +99,15 @@ for f in eccsa_db.py eccsa_db_server.py config_db.py telegram_alerts.py \
          pdf_generator.py shared_report_pdf.py numbers_helper.py \
          worker_heartbeat.py network_scanner.py asistencia_core.py \
          notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py \
-         oxxogas_vales_automation.py; do
+         oxxogas_vales_automation.py cron_sync_hubmail.py; do
   [ -f "$ROOT/$f" ] && run docker cp "$ROOT_DOCKER/$f" "$CONTAINER:/app/$f"
 done
+# El worker de correo (hubmail_worker) es un PAQUETE, no un archivo suelto: se
+# copia el directorio entero, igual que panel/ y api/ arriba. Si se olvidara, el
+# entrypoint arrancaría bien pero el `import hubmail_worker.sync` del worker
+# fallaría al primer ciclo y el proceso moriría en loop.
+[ -d "$ROOT/hubmail_worker" ] && \
+  run docker cp "$ROOT_DOCKER/hubmail_worker/." "$CONTAINER:/app/hubmail_worker"
 # Los .conf de supervisor viven en conf.d.available: se copian para que un
 # worker nuevo sea activable sin reconstruir la imagen.
 [ -d "$ROOT/docker/conf.d.available" ] && \
@@ -122,7 +128,8 @@ fallos=0
 for par in panel/panel.css panel/templates.py panel/shell.css ECCSA_SHELL_VERSION \
            eccsa_db.py network_scanner.py asistencia_core.py \
            notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py \
-         oxxogas_vales_automation.py; do
+         oxxogas_vales_automation.py cron_sync_hubmail.py \
+         hubmail_worker/sync.py hubmail_worker/crypto.py hubmail_worker/config.py; do
   [ -f "$ROOT_DOCKER/$par" ] || continue
   a=$(sha256sum "$ROOT_DOCKER/$par" | cut -d' ' -f1)
   b=$(docker exec "$CONTAINER" sha256sum "/app/$par" 2>/dev/null | cut -d' ' -f1)
@@ -161,7 +168,7 @@ else
   # deshabilitado a proposito desde el panel no esta ni en la lista ni en
   # conf.d, o sea que es indistinguible de uno nuevo, y un barrido lo volveria
   # a encender solo. Al agregar un worker nuevo, agregarlo aqui.
-  for w in openwa_worker; do
+  for w in openwa_worker hubmail_worker; do
     say "    habilitando $w (nuevo en conf.d.available)"
     run docker exec "$CONTAINER" /app/docker/bin/enable_worker "$w" || true
   done
@@ -186,6 +193,10 @@ else
   run docker exec "$CONTAINER" supervisorctl restart legends_cron
   run docker exec "$CONTAINER" supervisorctl restart legends_audit
   run docker exec "$CONTAINER" supervisorctl restart file_indexer
+  # El worker de correo tiene su propio ciclo de 5 min y un candado de instancia
+  # única en MySQL: si ya corre, `restart` mata el proceso viejo y arranca el
+  # nuevo, y el candado lo vuelve a tomar sin quedar dos copias ni un hueco.
+  run docker exec "$CONTAINER" supervisorctl restart hubmail_worker || true
 fi
 
 # ── 3. Health check ──────────────────────────────────────────────────────────
