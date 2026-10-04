@@ -66,6 +66,28 @@ def get_govale_credentials():
         conn.close()
 
 
+def _capturar_debug(page, nombre, timeout=5000):
+    """
+    Toma un screenshot de depuracion SIN poder tumbar la operacion.
+
+    Antes estas capturas iban peladas (`page.screenshot(...)`) y la de despues de
+    hacer clic en "Generar Vale" costo un vale real: se cuelga 30s (la pagina de
+    resultado tarda), la excepcion sube y el vale ya creado en Go Vale se
+    reportaba como fallido. Con el error, `generar_vale_sincrono` reverteda la
+    solicitud a PENDIENTE y el worker (que solo mira APROBADO) se olvidaba de
+    ella en silencio.
+
+    5 segundos es suficiente para dejar el archivo y corto para que, si la
+    pagina no responde, no arrastre al resto del proceso.
+    """
+    try:
+        page.screenshot(path=f"/tmp/{nombre}.png", timeout=timeout)
+        return True
+    except Exception as e:
+        print(f"[govale] sin captura {nombre} (no afecta): {str(e)[:90]}")
+        return False
+
+
 def _launch_browser_and_login(user, pwd):
     """Lanza Chromium, navega a Go Vale, intercepta tokens, completa login."""
     from playwright.sync_api import sync_playwright
@@ -128,7 +150,7 @@ def _launch_browser_and_login(user, pwd):
             for inp in all_inputs:
                 print(f"  input: type={inp.get_attribute('type')} placeholder={inp.get_attribute('placeholder')} name={inp.get_attribute('name')} id={inp.get_attribute('id')}")
             # Tomar screenshot para debug
-            page.screenshot(path="/tmp/govale_debug.png")
+            _capturar_debug(page, "govale_debug")
             print("[govale] Screenshot guardado en /tmp/govale_debug.png")
             return browser, context, page, captured_tokens, pw
 
@@ -197,7 +219,7 @@ def _launch_browser_and_login(user, pwd):
                 except Exception:
                     continue
         else:
-            page.screenshot(path="/tmp/govale_debug_pwd.png")
+            _capturar_debug(page, "govale_debug_pwd")
             print("[govale] No se encontró campo de password. Screenshot guardado.")
 
         time.sleep(5)
@@ -382,7 +404,7 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                 print(f"[govale] Contacto no encontrado, usando primero: {contact_options[0].inner_text().strip()}")
         else:
             print(f"[govale] WARNING: Solo {len(triggers2)} mat-selects, contacto no disponible")
-            page.screenshot(path="/tmp/govale_debug_triggers.png")
+            _capturar_debug(page, "govale_debug_triggers")
 
         # 3. Llenar importe
         inputs = page.query_selector_all('input[type="text"]')
@@ -434,7 +456,7 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             return {'error': 'Botón Generar Vale deshabilitado.'}
 
         # 7. Verificar resultado y extraer folio/QR
-        page.screenshot(path="/tmp/govale_result.png")
+        _capturar_debug(page, "govale_result")
         body_text = page.query_selector('body').inner_text() if page.query_selector('body') else ''
         page_url = page.url
 

@@ -80,6 +80,18 @@ class Settings:
     # --- Adjuntos en disco ---
     attachments_dir: str
 
+    # --- Adjuntos en SMB (el destino preferido) ---
+    # Cuando `adjuntos_smb` está activo, los adjuntos van a
+    # \\<smb_server>\<smb_share>\<smb_base>\... en vez de a `attachments_dir`.
+    # El share es el mismo que ya usan pdf_storage_worker y file_indexer, así
+    # que no hay un segundo almacén de archivos en la empresa.
+    adjuntos_smb: bool
+    smb_server: str
+    smb_share: str
+    smb_user: str
+    smb_password: str
+    smb_base: str
+
     # --- Web Push (VAPID) ---
     vapid_public_key: str
     vapid_private_key: str
@@ -116,6 +128,17 @@ def get_settings() -> Settings:
 
         key_file=os.getenv("HUBMAIL_KEY_FILE", "/data/.hubmail_key"),
         attachments_dir=os.getenv("HUBMAIL_ATTACHMENTS_DIR", "/data/attachments"),
+
+        # SMB: por defecto apagado, para que un despliegue nuevo no dependa del
+        # share. Se enciende con HUBMAIL_ADJUNTOS_SMB=1 (o poniendo el share).
+        adjuntos_smb=(os.getenv("HUBMAIL_ADJUNTOS_SMB") or "").strip().lower()
+        in ("1", "true", "yes", "on")
+        or bool((os.getenv("HUBMAIL_SMB_SHARE") or "").strip()),
+        smb_server=os.getenv("HUBMAIL_SMB_SERVER", "10.188.141.15"),
+        smb_share=os.getenv("HUBMAIL_SMB_SHARE", "HUB"),
+        smb_user=os.getenv("HUBMAIL_SMB_USER", "eccsa"),
+        smb_password=os.getenv("HUBMAIL_SMB_PASSWORD", ""),
+        smb_base=os.getenv("HUBMAIL_SMB_BASE", "Mailbox"),
 
         vapid_public_key=_vacio_si_no("HUBMAIL_VAPID_PUBLIC"),
         vapid_private_key=_vacio_si_no("HUBMAIL_VAPID_PRIVATE"),

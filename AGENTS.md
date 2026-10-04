@@ -80,7 +80,10 @@ Telegram**) · migracion `0043_openwa_whatsapp.sql` (`HUB_WhatsappEventos`,
    PIL no las abre, así que `notif_messages._recuperar_jpeg` recorta el JPEG de
    adentro (`ff d8 ff`). Si se vuelve a topar con basura, es que cambió el
    sobre y hay que ajustar ahí, no en el JPEG.
-7. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
+7. En `oxxogas_vales_automation`, **toda captura de pantalla va por
+   `_capturar_debug()`**: peladas, un screenshot lento tumba la generación y el
+   vale se pierde (o se cobra dos veces). Hay una prueba que lo vigila.
+8. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
    adjuntos pesan, asi que se limpia lo cerrado a mas de 30 dias
    (`limpiar_openwa_historial`), nunca lo pendiente.
 

@@ -81,6 +81,29 @@
   credenciales equivocadas. Aquí todo secreto viene del entorno, y `_requerido()`
   avisa en el arranque si falta.
 
+## [1.3.2] - 2026-10-04
+
+### Corregido
+- **Un vale QR se perdía por un screenshot de depuración.** Tras hacer clic en
+  "Generar Vale" se tomaba `page.screenshot(...)` sin ninguna protección. Esa
+  captura se cuelga (la página de resultado tarda y el default de Playwright son
+  30 s), la excepción subía y el vale se reportaba como fallido **aunque ya
+  estuviera creado en Go Vale**. Con el error, el worker revertía la solicitud a
+  `PENDIENTE` y como solo consulta las `APROBADO`, **el vale desaparecía de la
+  cola sin que nadie se enterara**: fue lo que pasó con la solicitud #19
+  (Héctor Peña, TDX-777-B, $500, 04-oct 11:21), que se quedó sin QR y sin
+  folio.
+- Las cuatro capturas de depuración pasan ahora por `_capturar_debug()`, que se
+  traga el error y usa un timeout de 5 s. Una captura es una ayuda, no puede
+  decidir si un vale se generó o no.
+- Hay una prueba que falla si alguien vuelve a escribir un `page.screenshot`
+  pelado, que es como volverá el bug.
+
+### Pendiente de decisión
+- Al fallar después del clic, el vale puede haberse creado en Go Vale sin
+  registrar. **Hay que revisar en Go Vale si el #19 aparece** antes de
+  re-aprobarlo, o se cobraría dos veces.
+
 ## [1.3.1] - 2026-09-29
 
 

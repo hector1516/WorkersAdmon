@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from html import escape
 
+from .almacen import get_almacen
 from .config import settings
 from .crypto import decrypt_secret
 from .db import get_conn
@@ -322,46 +323,66 @@ def _attach_dir_rel(account_id, folder, uid):
     return "/".join([str(account_id), folder, str(uid)])
 
 
-def resolver_adjunto(file_path, base_dir=None):
-    """Resuelve un FilePath de la BD a una ruta existente, o None.
+def normalizar_adjunto(file_path, base_dir=None):
+    """Pasa un FilePath de la BD a la ruta RELATIVA canónica, o None.
 
-    Acepta las dos formas para no romper lo que ya está escrito:
+    Acepta las tres formas que hay en la base:
 
-    * relativa (`12/INBOX/340/0_foto.jpg`) → se une a `base_dir`;
-    * absoluta legacy (`/data/attachments/12/INBOX/...`) → primero se intenta
-      como absoluta y, si no existe, se recorta el prefijo de `attachments_dir`
-      y se intenta como relativa.
+    * relativa ya canónica (`12/INBOX/340/0_foto.jpg`) → se queda igual;
+    * absoluta legacy (`/data/attachments/12/INBOX/...`) → se le quita el
+      prefijo `attachments_dir`. La escribía HUBMail antes de que las rutas
+      fueran relativas, y hay miles de filas así.
 
-    Lo usan el worker y la app; por eso vive acá y no dentro de `_replace_attachments`.
+    Devolver la relativa (y no una ruta local) es lo que permite cambiar el
+    destino —disco o SMB— sin tocar la base: la app siempre termina pidiendo
+    los bytes con `leer_adjunto()`, que no sabe (ni necesita saber) dónde están.
     """
     if not file_path:
         return None
-    base = base_dir or settings.attachments_dir
-    # 1) tal cual (cubre relativas y absolutas ya correctas)
-    if os.path.isabs(file_path) and os.path.isfile(file_path):
+    if not os.path.isabs(file_path):
         return file_path
-    directa = os.path.join(base, file_path)
-    if os.path.isfile(directa):
-        return directa
-    # 2) absoluta legacy escrita con otro attachments_dir: recorta el prefijo
-    #    conocido y prueba de nuevo como relativa.
-    try:
-        if os.path.isabs(file_path) and file_path.startswith(base.rstrip("/") + "/"):
-            recortada = file_path[len(base.rstrip("/")) + 1:]
-            if os.path.isfile(os.path.join(base, recortada)):
-                return os.path.join(base, recortada)
-    except Exception:
-        pass
+    base = (base_dir or settings.attachments_dir).rstrip("/") + "/"
+    if file_path.startswith(base):
+        return file_path[len(base):]
+    # absoluta con otro prefijo (p.ej. un attachments_dir distinto al actual):
+    # se recorta hasta el primer componente numérico, que es el AccountID.
+    partes = file_path.lstrip("/").split("/")
+    for i, parte in enumerate(partes):
+        if parte.isdigit():
+            return "/".join(partes[i:])
     return None
+
+
+def leer_adjunto(file_path, base_dir=None):
+    """Devuelve los BYTES de un adjunto, o None si no está.
+
+    **Esta es la función que debe usar la app**, no un `open()` sobre la ruta:
+    con el destino en SMB no existe tal ruta local. Va al almacén activo, así
+    que funciona igual con disco o con SMB.
+    """
+    rel = normalizar_adjunto(file_path, base_dir)
+    if rel is None:
+        return None
+    return get_almacen().leer(rel)
+
+
+def resolver_adjunto(file_path, base_dir=None):
+    """Ruta LOCAL de un adjunto, o None.
+
+    Solo tiene sentido con el almacén de disco. Se conserva para herramientas y
+    diagnósticos; la app debe usar `leer_adjunto()`.
+    """
+    rel = normalizar_adjunto(file_path, base_dir)
+    if rel is None:
+        return None
+    base = base_dir or settings.attachments_dir
+    directa = os.path.join(base, rel.replace("/", os.sep))
+    return directa if os.path.isfile(directa) else None
 
 
 def _replace_attachments(account_id, folder, uid, items):
     if not items:
         return
-    # Directorio para esta carpeta de mensajes
-    attach_dir = _attach_dir_abs(account_id, folder, uid)
-    os.makedirs(attach_dir, exist_ok=True)
-
     conn = get_conn()
     try:
         cur = conn.cursor()
@@ -370,19 +391,19 @@ def _replace_attachments(account_id, folder, uid, items):
             (account_id, folder, uid),
         )
         rows = []
+        almacen = get_almacen()
         for i, a in enumerate(items):
             fname = _safe(a["name"]) or f"att_{i}"
             # Sanitizar nombre de archivo
             safe_fname = "".join(c if c.isalnum() or c in "._-" else "_" for c in fname)
-            abs_path = os.path.join(attach_dir, f"{i}_{safe_fname}")
-            # Lo que va a la BD es la RELATIVA (ver _attach_dir_rel).
+            # Lo que va a la BD es la RELATIVA (ver _attach_dir_rel). El mismo
+            # texto sirve para el disco y para SMB: lo que cambia es la base
+            # contra la que se resuelve, no la ruta guardada.
             file_path = f"{_attach_dir_rel(account_id, folder, uid)}/{i}_{safe_fname}"
-            # Guardar archivo en disco
             try:
-                with open(abs_path, "wb") as f:
-                    f.write(a["data"])
+                almacen.escribir(file_path, a["data"])
             except Exception as e:
-                print(f"[SYNC] error guardando attachment {abs_path}: {e}", flush=True)
+                print(f"[SYNC] error guardando attachment {file_path}: {e}", flush=True)
                 file_path = ""
             rows.append(
                 (account_id, folder, uid, _safe(a["name"]), _safe(a["content_type"]),
@@ -518,23 +539,20 @@ def _save_att_rows_to_fs(account_id, folder, att_rows):
     for row in att_rows:
         uid = row[2]
         by_uid[uid].append(row)
+    almacen = get_almacen()
     for uid, rows in by_uid.items():
-        attach_dir = _attach_dir_abs(account_id, folder, uid)
-        os.makedirs(attach_dir, exist_ok=True)
         conn = get_conn()
         try:
             cur = conn.cursor()
             for i, row in enumerate(rows):
                 fname = row[3] or f"att_{i}"
                 safe_fname = "".join(c if c.isalnum() or c in "._-" else "_" for c in fname)
-                abs_path = os.path.join(attach_dir, f"{i}_{safe_fname}")
                 # Relativa en la BD, igual que en _replace_attachments.
                 file_path = f"{_attach_dir_rel(account_id, folder, uid)}/{i}_{safe_fname}"
                 try:
-                    with open(abs_path, "wb") as f:
-                        f.write(row[7])  # Data
+                    almacen.escribir(file_path, row[7])   # Data
                 except Exception as e:
-                    print(f"[SYNC] error guardando attachment {abs_path}: {e}", flush=True)
+                    print(f"[SYNC] error guardando attachment {file_path}: {e}", flush=True)
                     file_path = ""
                 cur.execute(
                     "INSERT INTO HUBMAIL_Attachments (AccountID, Folder, UID, Name, ContentType, Cid, Size, FilePath) "
