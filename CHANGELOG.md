@@ -65,10 +65,32 @@
 - **Destinatarios partidos por comas.** `"Pérez, Juan" <j@x.com>` es una
   dirección, no dos; un `split(",")` mandaba basura al servidor remoto.
 
-### Pendiente (no está en este commit)
-- `push.py` (notificaciones WebPush) y `cron_sync_mailbox.py` (el entrypoint).
-- `docker/conf.d.available/mailbox_worker.conf` y su entrada en el panel.
-- La vista de cuentas del panel y el consumo de las migraciones `0048`–`0051`.
+- **`push.py`** — WebPush. El 404/410 del push service se trata como lo que es
+  (la suscripción ya no existe) y la fila se marca `Activo=0` en vez de tractarse
+  como error: si no, la lista crece para siempre y cada correo intenta entregar
+  a endpoints muertos. Un 401/403 NO da de baja la suscripción (esa sí sirve) sino
+  que avisa de que la llave VAPID no coincide con la del service worker: es un
+  error de configuración y no del usuario. El push NO lleva el asunto del
+  correo, solo quién escribe: el asunto se vería en la pantalla de bloqueo del
+  iPhone sin abrir el correo.
+- **`cron_sync_mailbox.py`** — el entrypoint. Tres guardas: `sp_getapplock` para
+  una sola instancia (se sale con código 3, no repite trabajo), `MAILBOX_DRY_RUN`
+  para leer sin escribir durante el corte, y `MAILBOX_SYNC_ENABLED=0` para apagar
+  sin editar código. Un hilo por cuenta con reloj propio — una cuenta caída no
+  puede rezagar a las demás — y el servidor de adjuntos en un hilo aparte, porque
+  `serve_forever` no vuelve y en el principal el loop de sync nunca empezaría.
+- **`docker/conf.d.available/mailbox_worker.conf`**, sin ninguna variable
+  `MAILBOX_*` adentro a propósito: este worker descifra credenciales de correo
+  reales y una clave en un `.conf` versionado queda en el historial de git para
+  siempre.
+
+### Corregido (segunda tanda)
+- **`AttributeError` en el arranque del worker.** `_avisar_arranque` llamaba
+  `settings.aviso_arranque()`, y `aviso_arranque` es una función del módulo, no
+  un método de `Settings`. El proceso moría en el primer segundo de vida, que es
+  la forma más cara de tener un bug de una línea.
+- **`vapid_subject` no existía** en la config y `push.py` lo usa: es el `sub` de
+  los claims VAPID, que RFC 8292 exige que sea `mailto:` o una URL HTTPS.
 
 ## [1.4.0] - 2026-10-02
 

@@ -145,7 +145,7 @@ def sincronizar_cuenta(cuenta: dict) -> dict:
     """
     cid = cuenta["Id"]
     resumen = {"cuenta": cuenta.get("Email"), "nuevos": 0, "carpetas": 0,
-               "operaciones": 0, "enviados": 0, "purgados": 0, "error": ""}
+               "operaciones": 0, "enviados": 0, "purgados": 0, "push": 0, "error": ""}
     inicio = time.time()
     cliente = None
 
@@ -190,6 +190,18 @@ def sincronizar_cuenta(cuenta: dict) -> dict:
                 resumen["purgados"] = _retencion(cuenta)
             except Exception as exc:
                 print(f"[sync] retención de {cuenta['Email']}: {exc}", flush=True)
+
+            # El push va AL FINAL y UNA VEZ por ciclo. Mandarlo por mensaje
+            # satura la pantalla de bloqueo: con 20 correos nuevos en un ciclo, 20
+            # pushes hacen que el usuario apague las notificaciones de la app en
+            # dos días. Un "y 19 más" dice lo mismo y se lee una vez.
+            if resumen["nuevos"] > 0:
+                try:
+                    from .push import avisar_nuevos_de_cuenta
+                    resumen["push"] = avisar_nuevos_de_cuenta(
+                        cuenta, _remitente_de_cuenta(cuenta), "", resumen["nuevos"])
+                except Exception as exc:
+                    print(f"[sync] push de {cuenta['Email']}: {exc}", flush=True)
 
     except Exception as exc:
         resumen["error"] = f"{type(exc).__name__}: {exc}"[:250]
@@ -403,6 +415,21 @@ def _a_una_linea(texto: str, limite: int = 480) -> str:
     if not texto:
         return ""
     return re.sub(r"\s+", " ", texto).strip()[:limite]
+
+
+def _remitente_de_cuenta(cuenta: dict) -> str:
+    """
+    Quién escribió el último correo, para el push.
+
+    El push NO lleva el asunto: eso se vería en la pantalla de bloqueo del
+    iPhone sin abrir el correo. Solo el remitente, que es justo lo que hace falta
+    para decidir si se abre.
+    """
+    fila = una(
+        "SELECT TOP (1) ISNULL(RemitenteNombre, RemitenteEmail) AS R "
+        "FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Eliminado = 0 "
+        "ORDER BY FechaCorreo DESC", (cuenta["Id"],))
+    return ((fila or {}).get("R") or "").strip()
 
 
 def correos_en(texto: str) -> list:

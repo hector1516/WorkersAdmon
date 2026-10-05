@@ -113,6 +113,10 @@ class Settings:
 
     # ── Push ────────────────────────────────────────────────────────────────
     vapid_private_key: str
+    # El `sub` de los claims VAPID: el contacto que el push service muestra si un
+    # usuario pregunta quién le manda notificaciones. Tiene que ser `mailto:` o
+    # una URL HTTPS; RFC 8292 lo exige y los push services lo rechazan.
+    vapid_subject: str
 
     # ── Retención ───────────────────────────────────────────────────────────
     dias_indice: int          # headers sola, hasta acá
@@ -173,6 +177,7 @@ def _cargar() -> Settings:
 
         # ── Push ──────────────────────────────────────────────────────────
         vapid_private_key=_vacio_si_no("MAILBOX_VAPID_PRIVATE") or _vacio_si_no("VAPID_PRIVATE_KEY"),
+        vapid_subject=_vacio_si_no("MAILBOX_VAPID_SUBJECT") or "mailto:admin@ecc-sa.com.mx",
 
         # ── Retención ─────────────────────────────────────────────────────
         dias_indice=_int("MAILBOX_DIAS_INDICE", 365),
