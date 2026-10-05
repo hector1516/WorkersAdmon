@@ -1,0 +1,33 @@
+# Servicio del escaner de red que corre en el HOST (no en el contenedor).
+#
+# Por que en el host: descubrir equipos exige ver la tabla ARP, y un contenedor
+# solo ve a su gateway. El contenedor network_scanner.py sigue siendo el que
+# calcula entradas y salidas; este solo produce los escaneos.
+#
+# Por que un servicio y no un cron: asi systemd reinicia solo si se muere. La
+# version anterior no estaba en ningun sitio (solo en un servidor) y cuando se
+# movio el stack nadie se entero en cinco dias de que nadie/barria.
+#
+# Instalar en el host:
+#   cp deploy/network-scanner-host.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now network-scanner-host
+#   journalctl -u network-scanner-host -f
+
+[Unit]
+Description=Escaner de red del host (produce escaneos para la asistencia)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/network_scanner_host.py
+Restart=always
+RestartSec=30
+# El ciclo ya duerme 180 s entre pasada y pasada; el timeout es por si se cuelga
+# dentro de uno (por ejemplo un DNS que no contesta).
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

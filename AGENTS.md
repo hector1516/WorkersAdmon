@@ -35,6 +35,18 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
   workers (sync de vales) vive ahí; si algún día se quiere limpiar, mover
   `fetch_and_sync_oxxogas_emails` a un módulo sin `views/`.
 
+## Infra fuera del contenedor (Aprende de esto)
+
+Lo que vive **fuera** de un contenedor y no está versionado, se pierde cuando se
+mueve el stack, y el síntoma es que el consumidor sigue "vivo" mientras nadie
+produce. Ya pasó con el escáner: 5 días sin escaneos y el panel mostraba el
+latido del worker como señal de que todo bien.
+
+Regla: **si algo produce datos que el panel consume, va versionado**, aunque
+corra en el host. `network_scanner_host.py` y su `.service` están en el repo por
+eso. Y si un proceso externo puede dejar de generar en silencio, tiene que haber
+un indicador que mire **el dato**, no el latido.
+
 ## Avisos por WhatsApp (OpenWA)
 
 OpenWA es un gateway de WhatsApp (`whatsapp-web.js`) que corre como `openwa-api`
@@ -83,7 +95,14 @@ Telegram**) · migracion `0043_openwa_whatsapp.sql` (`HUB_WhatsappEventos`,
 7. En `oxxogas_vales_automation`, **toda captura de pantalla va por
    `_capturar_debug()`**: peladas, un screenshot lento tumba la generación y el
    vale se pierde (o se cobra dos veces). Hay una prueba que lo vigila.
-8. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
+8. El barrido lo hace `network_scanner_host.py`, que corre **en el HOST**
+   (servicio systemd `network-scanner-host`), no en el contenedor: descubrir
+   equipos exige ver la tabla ARP y un contenedor solo ve a su gateway. Barre con
+   `ping` + `/proc/net/arp` (en WebbApps no hay `arp-scan` ni `pymssql`) y
+   guarda los hallazgos por el contenedor. Si el servicio no está, el worker
+   sigue "vivo" y no falla nunca: por eso la banda de Asistencia avisa cuando el
+   último escaneo real es viejo.
+9. La cola reintenta 3 veces y luego marca `FALLADO` con el motivo. Los
    adjuntos pesan, asi que se limpia lo cerrado a mas de 30 dias
    (`limpiar_openwa_historial`), nunca lo pendiente.
 

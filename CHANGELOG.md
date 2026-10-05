@@ -81,6 +81,38 @@
   credenciales equivocadas. Aquí todo secreto viene del entorno, y `_requerido()`
   avisa en el arranque si falta.
 
+## [1.3.3] - 2026-10-04
+
+### Corregido
+- **El escáner de red llevaba 5 días sin producir nada** (último escaneo del
+  30-sep). El worker seguía vivo y el panel mostraba su "último ciclo" como si
+  todo estuviera bien, así que no había forma de notarlo desde la pantalla: el
+  estado en sitio/fuera era de otra época. La causa era que el que **hace** el
+  barrido (`network_scanner_host.py`) vivía fuera del contenedor y **nunca se
+  versionó en este repo**; al mover el stack a WebbApps murió con el servidor
+  viejo y nadie lo reemplazó.
+- `network_scanner_host.py` entra al repo, reescrito para funcionar en WebbApps:
+  el host es Debian y no tiene `arp-scan` ni `pymssql`, así que usa `ping` +
+  `/proc/net/arp` y delega el guardado al contenedor (que sí tiene `pymssql`).
+  Cubre lo que al anterior le faltaba: descarta entradas de ARP a medio llenar y
+  MACs multicast, y resuelve hostnames con presupuesto de tiempo (un DNS lento
+  cuelgaba el ciclo).
+- Se instala como servicio systemd (`network-scanner-host.service`) con
+  `Restart=always`, para que si se muere se levante solo y quede rastro en el log.
+- **La banda de la pestaña Asistencia** muestra el último escaneo **real** y
+  avisa en rojo cuando lleva más de 10 min sin registrar equipos, diciendo que la
+  asistencia no es confiable. Antes no había forma de distinguir "el worker está
+  vivo" de "entró alguien al que no le llegan datos".
+- `network_scanner.py` ya no mete `/workspace/hub_repo` ni `/workspace/HUB` al
+  `sys.path`. En una máquina con el HUB clonado al lado, esas rutas hacían que el
+  HUB **sombreara los módulos de este repo**: las pruebas del escáner acababan
+  approvesbando el `network_scanner_host.py` equivocado sin avisar.
+
+### Nota
+- Los hostnames vuelven vacíos: no hay DNS inverso en la red y `/etc/hosts` no
+  tiene la LAN (los nombres viejos venían de otra fuente que no se conserva). El
+  MAC es lo que usa la asistencia, así que no la afecta.
+
 ## [1.3.2] - 2026-10-04
 
 ### Corregido

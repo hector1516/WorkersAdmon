@@ -846,6 +846,31 @@ def _hub():
     return importlib.import_module("eccsa_db")
 
 
+def get_ultimo_escaneo():
+    """
+    Ultimo escaneo REAL de la red: cuando fue y cuantos equipos traia.
+
+    Esto es distinto del latido del worker, que solo dice que el proceso sigue
+    vivo. Durante cinco dias el worker estuvo "sano" sin que nadie escaneara, y
+    el panel mostraba su ultimo ciclo como si todo bien: el estado en sitio /
+    fuera no era confiable y no habia forma de verlo desde la pantalla.
+    """
+    try:
+        filas = _rows("SELECT MAX(FechaScan) AS Ultimo, COUNT(DISTINCT MACAddress) AS Equipos "
+                      "FROM HUB_NetworkScanResults WHERE FechaScan >= DATEADD(hour, -1, GETDATE())")
+        r = filas[0] if filas else {}
+        ultimo = r.get("Ultimo")
+        equipos = r.get("Equipos") or 0
+        if not ultimo:
+            # Sin escaneos en la ultima hora: se va mas atras para poder
+            # decir "hace cuanto esta parado" en vez de solo "no hay datos".
+            filas = _rows("SELECT MAX(FechaScan) AS Ultimo FROM HUB_NetworkScanResults")
+            ultimo = filas[0].get("Ultimo") if filas else None
+        return {"ultimo": ultimo, "equipos": equipos}
+    except Exception:
+        return {"ultimo": None, "equipos": 0}
+
+
 def get_asistencia_fecha(fecha, user_id=None):
     """Asistencias ya calculadas de una fecha (de `eccsa_db`)."""
     return _hub().get_asistencia_fecha(fecha, user_id)

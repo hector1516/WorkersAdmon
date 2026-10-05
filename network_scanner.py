@@ -17,7 +17,13 @@ import os
 import time
 import datetime
 
-for p in ("/app", "/workspace/hub_repo", "/workspace/HUB", "/", ""):
+# Rutas donde puede estar `eccsa_db`. "/app" es el contenedor. Las del HUB
+# viejo ("/workspace/hub_repo", "/workspace/HUB") se quitaron a proposito:
+# existen en maquinas donde el repo del HUB esta clonado junto a este, y meterlas
+# al principio del sys.path hacia que ese HUB **sombree los modulos de este
+# repo** (p.ej. su network_scanner_host.py, que es otro archivo distinto). No
+# hizo falta: este worker solo depende de eccsa_db, que esta junto a el.
+for p in ("/app", os.path.dirname(os.path.abspath(__file__))):
     if p and os.path.isdir(p) and p not in sys.path:
         sys.path.insert(0, p)
 

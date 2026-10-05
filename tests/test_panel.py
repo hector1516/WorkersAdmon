@@ -417,6 +417,14 @@ _WA = {
 }
 
 db.get_openwa_config = lambda: dict(_WA["config"])
+
+# El escaner del host: la banda de la asistencia se pinta con esto. Se usa una
+# fecha reciente para que la prueba vea el caso "todo bien"; los casos raros
+# (escaneo viejo, nunca hubo) se prueban contra _banda_escaneo directamente.
+import datetime as _dt
+db.get_ultimo_escaneo = lambda: {
+    "ultimo": _dt.datetime.now() - _dt.timedelta(minutes=3),
+    "equipos": 12}
 db.get_openwa_eventos = lambda: [dict(e) for e in _WA["eventos"]]
 db.get_openwa_historial = lambda limite=100, estado=None: [dict(h) for h in _WA["historial"]]
 
@@ -1240,6 +1248,27 @@ class PanelTest(unittest.TestCase):
         self.assertIn("err=", loc)
         self.assertIn("No hay", loc)
         self.assertEqual(enviados, [])
+
+    def test_38_banda_del_escaner(self):
+        import datetime
+        from panel.views import asistencia as av
+        # Escaneo reciente: todo bien
+        ok = av._banda_escaneo({"ultimo": datetime.datetime.now()
+                                - datetime.timedelta(minutes=2), "equipos": 12})
+        self.assertIn("Último escaneo hace 2 min", ok)
+        # Escaneo viejo: tiene que avisar que la asistencia no es confiable
+        viejo = av._banda_escaneo({"ultimo": datetime.datetime.now()
+                                   - datetime.timedelta(minutes=190), "equipos": 9})
+        self.assertIn("190 min", viejo)
+        self.assertIn("no es confiable", viejo)
+        # Nunca hubo escaneos
+        nunca = av._banda_escaneo({"ultimo": None, "equipos": 0})
+        self.assertIn("no ha registrado nada", nunca)
+        # Y la banda aparece en la pagina de asistencia
+        c = self._logged()
+        code, _, html = c.get("/asistencia")
+        self.assertEqual(code, 200)
+        self.assertIn("Último escaneo", html)
 
     def test_29_evento_y_destinatarios(self):
         c = self._logged()

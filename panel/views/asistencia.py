@@ -143,6 +143,41 @@ def _contar(estados):
     return n
 
 
+# Si no hay escaneos desde mas de esto, la asistencia no se puede fiar. El
+# intervalo del escaner es 180 s, asi que 10 min son tres ciclos perdidos: mas
+# alla de ahi algo esta roto, no es dispersion.
+MINUTOS_ESCANER_VIEJO = 10
+
+
+def _banda_escaneo(info):
+    """
+    Banda con la salud del escaner: cuando fue el ultimo escaneo REAL.
+
+    Es la diferencia entre "el worker esta vivo" (que no dice nada de si hay
+    datos) y "hace cuanto nadie ha visto un equipo en la red", que es lo que de
+    verdad invalida el estado en sitio / fuera.
+    """
+    ultimo = (info or {}).get("ultimo")
+    equipos = (info or {}).get("equipos") or 0
+    if not ultimo:
+        return ('<div class="panel"><div class="empty" style="text-align:left">'
+                '\U0001f6a8 <b>El escáner no ha registrado nada.</b> '
+                'Si el worker sigue vivo, el que no está barredno es el '
+                'productor de escaneos (en el host): revísalo antes de '
+                'fiarte de la asistencia.</div></div>')
+
+    minutos = max(0, int((datetime.datetime.now() - ultimo).total_seconds() // 60))
+    if minutos >= MINUTOS_ESCANER_VIEJO:
+        return (f'<div class="panel"><div class="empty" style="text-align:left">'
+                f'\U0001f6a8 <b>El escáner lleva {minutos} min sin registrar '
+                f'equipos</b> (el último fue {ultimo:%H:%M:%S}). El worker puede '
+                f'estar vivo y aun así no entrarle nada: <b>la asistencia de este '
+                f'momento no es confiable</b>.</div></div>')
+    return (f'<div class="panel"><div class="empty" style="text-align:left">'
+            f'\U0001f5e8\ufe0f Último escaneo hace {minutos} min '
+            f'({ultimo:%H:%M:%S}, {equipos} equipo(s) en la red).</div></div>')
+
+
 def _tarjetas(estados):
     n = _contar(estados)
     afirmables = n.get("CALCULADA", 0) + n.get("TARDE", 0) + n.get("AUSENTE", 0)
@@ -311,6 +346,9 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
         key=lambda par: par[1].lower())
 
     cuerpo = _tarjetas([_estado_de(a) for a in asistencias])
+    # Primero lo que invalida todo lo de abajo: si el escaner esta parado, los
+    # estados de "en sitio / fuera" son de otra epoca y hay que decirlo.
+    cuerpo += _banda_escaneo(db.get_ultimo_escaneo())
     cuerpo += EXPLICACION
     cuerpo += _filtro(fecha, usuarios, uid)
     cuerpo += _tabla(fecha, asistencias)
