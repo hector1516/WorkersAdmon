@@ -462,13 +462,35 @@ def aplicar_operaciones(cliente: IMAPClient, cuenta: dict) -> int:
 
     aplicadas = 0
     for op in pendientes:
+        tipo = (op["Operacion"] or "").lower()
+
+        # Las operaciones de CUENTA se resuelven antes de buscar el mensaje:
+        # crear una carpeta llega con IdMensaje NULL, así que el SELECT de abajo
+        # no encontraría nada y la marcaría como ERROR sin llegar a intentarlo.
+        if tipo == "crear_carpeta":
+            try:
+                creada = cliente.create_folder(op["Valor"])
+                # Se registra aunque esté VACÍA. Si no, la carpeta existe en el
+                # correo del usuario pero no aparece en las pestañas hasta que
+                # alguien le mueva un mensaje, y para moverle algo hay que ver
+                # la carpeta: no se puede usar lo que no aparece.
+                _registrar_carpeta(op["IdCuenta"], creada, sistema=0)
+                _cerrar_operacion(op["Id"], "APLICADA", "")
+                aplicadas += 1
+            except IMAPError as exc:
+                _reintentar_operacion(op, exc)
+            continue
+
+        if not op["IdMensaje"]:
+            _cerrar_operacion(op["Id"], "ERROR", "operación sin mensaje")
+            continue
+
         mensaje = una("SELECT UID, Carpeta FROM HUB_MailboxMensajes WHERE Id = %s",
                       (op["IdMensaje"],))
         if not mensaje:
             _cerrar_operacion(op["Id"], "ERROR", "el mensaje ya no está en el índice")
             continue
 
-        tipo = (op["Operacion"] or "").lower()
         try:
             if tipo not in ("seen", "flag", "delete", "move"):
                 _cerrar_operacion(op["Id"], "ERROR", f"operación desconocida: {tipo}")
@@ -494,6 +516,22 @@ def aplicar_operaciones(cliente: IMAPClient, cuenta: dict) -> int:
             _reintentar_operacion(op, exc)
 
     return aplicadas
+
+
+def _registrar_carpeta(cuenta_id: int, nombre: str, sistema: int = 0):
+    """Registra la carpeta en el catálogo, si no está. Nunca falla la sync."""
+    if not nombre:
+        return
+    try:
+        ejecuta("IF NOT EXISTS (SELECT 1 FROM HUB_MailboxCarpetas "
+                "WHERE IdCuenta = %s AND Nombre = %s) "
+                "INSERT INTO HUB_MailboxCarpetas (IdCuenta, Nombre, DelSistema) "
+                "VALUES (%s, %s, %s)",
+                (cuenta_id, nombre, cuenta_id, nombre, 1 if sistema else 0))
+    except Exception:
+        # La tabla puede no existir todavía (migración sin aplicar). Perder el
+        # catálogo de carpetas no puede tumbar la sincronización.
+        pass
 
 
 def _cerrar_operacion(op_id: int, estado: str, error: str):

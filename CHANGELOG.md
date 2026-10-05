@@ -4,6 +4,22 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.5.3] - 2026-10-06
+
+### Agregado
+- **`create_folder()`** (`imap_client.py`): crea la carpeta en IMAP con
+  `CREATE`, traduce el nombre a **modified UTF-7** —lo que exige IMAP para
+  acentos, o «Facturación 2026» se guarda como `Facturaci&APg-n 2026`— y
+  devuelve **el nombre que reporta el servidor**, no el que pidió el usuario.
+  Indexar por el nombre pedido deja las pestañas apuntando a una carpeta que no
+  existe cuando hay acentos.
+- El worker procesa la operación de cuenta **`crear_carpeta`** y registra la
+  carpeta en `HUB_MailboxCarpetas`, **aunque esté vacía**: si no, la carpeta
+  existe en el correo del usuario y no aparece en la app hasta que alguien le
+  mueva un mensaje.
+- `_registrar_carpeta()` no puede tumbar la sincronización si la tabla todavía
+  no existe: perder el catálogo de carpetas es tolerable, tumbar el worker no.
+
 ## [1.5.2] - 2026-10-06
 
 ### Corregido

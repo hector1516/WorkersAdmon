@@ -375,6 +375,38 @@ class IMAPClient:
         if typ != "OK":
             raise IMAPError(f"STORE {flag} falló en el UID {uid}")
 
+    def create_folder(self, nombre: str) -> str:
+        """
+        Crea la carpeta en IMAP y devuelve el nombre tal como lo usa IMAP.
+
+        El nombre se traduce a modified UTF-7 (`&` + base64) porque es lo que
+        exige IMAP para acentos: una carpeta que se llame «Facturación 2026» se
+        guarda como `Facturaci&APg-n 2026`. Si se mandara el texto tal cual,
+        Gmail la crea pero después no se puede volver a abrir con ese nombre.
+
+        Se devuelve el nombre EXACTO que reporta el servidor (`c.create()`
+        responde con la ruta creada) y no el que pidió el usuario, porque son
+        distintos cuando hay acentos, y la app indexa por lo que dice el
+        servidor. Indexar por el nombre pedido dejaría las pestañas apuntando a
+        una carpeta que no existe.
+
+        NO hace falta detectar si existe: IMAP responde con el error del
+        servidor y eso llega al usuario como el error real, que es más útil que
+        un "ya existe" inventado que puede ser falso (la carpeta puede existir
+        en el servidor y no en nuestro índice).
+        """
+        c = self.connect()
+        codificada = _q(_utf7_encode(nombre))
+        typ, respuesta = c.create(codificada)
+        if typ != "OK":
+            raise IMAPError(f"IMAP CREATE falló: {respuesta}")
+
+        # `c.create()` devuelve bytes con la ruta entre comillas: b'INBOX.Facturaci&APg-n'
+        texto = respuesta.decode(errors="replace") if isinstance(respuesta, bytes) else str(respuesta)
+        creado = texto.strip().strip('"').strip("'")
+        # IMAP separa con '.'; el nombre que se usa en la app es el último nivel.
+        return creado.split(".")[-1] if creado else nombre
+
     def move_message(self, uid: int, destino: str) -> Optional[int]:
         """Mueve a otra carpeta con UID COPY + borrar el original.
 
