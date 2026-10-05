@@ -83,6 +83,8 @@
 
 ## [1.3.3] - 2026-10-04
 
+> Registro completo del periodo en `docs/BITACORA-2026-09-29_10-04.md`.
+
 ### Corregido
 - **El escáner de red llevaba 5 días sin producir nada** (último escaneo del
   30-sep). El worker seguía vivo y el panel mostraba su "último ciclo" como si

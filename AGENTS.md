@@ -35,6 +35,11 @@ página de estado de los mismos. **Independiente de `field`, `admon` y `HUB`.**
   workers (sync de vales) vive ahí; si algún día se quiere limpiar, mover
   `fetch_and_sync_oxxogas_emails` a un módulo sin `views/`.
 
+> Bitácora del 29-sep al 04-oct (retirada del HUB, avisos por WhatsApp con
+> OpenWA, el vale perdido, el escáner 5 días ciego y el cambio de servidor):
+> **`docs/BITACORA-2026-09-29_10-04.md`**. Para los síntomas y soluciones de las fallas
+> de siempre: `docs/TROUBLESHOOTING.md`.
+
 ## Infra fuera del contenedor (Aprende de esto)
 
 Lo que vive **fuera** de un contenedor y no está versionado, se pierde cuando se

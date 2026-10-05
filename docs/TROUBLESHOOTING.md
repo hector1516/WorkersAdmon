@@ -288,3 +288,106 @@ llegaran los datos.
 
 Regla: **un registro pendiente se ve, siempre**, con su marca. Si puede haber
 uno en cola, la lista tiene que incluirlo.
+
+---
+
+## 9. El worker está vivo pero NO hay datos (y el panel no lo dice)
+
+**Síntoma:** el consumidor (`network_scanner.py`) dice `RUNNING`, el panel muestra
+su "último ciclo" reciente, y sin embargo **el último escaneo real es de hace
+días**. En la asistencia, "en sitio / fuera" describe otra época y no se nota.
+
+**Por qué pasa:** el latido del worker solo dice que el proceso sigue vivo. Lo
+que puede faltar es el **productor**: quien escribe los datos. Si ese productor vive
+fuera del contenedor y no está versionado, se pierde al cambiar de servidor y nadie
+lo nota, porque el consumidor no falla nunca: solo no recibe nada.
+
+**Cómo diagnosticarlo (el consumidor NO sirve para esto):**
+
+```sql
+-- el dato real: cuándo entró un equipo por última vez
+SELECT MAX(FechaScan) FROM HUB_NetworkScanResults;
+```
+
+Si eso está viejo y el worker está `RUNNING`, el problema es el productor.
+
+**Síntoma lateral:** `supervisorctl status` dice `ERROR (no such process)` para un
+worker nuevo. El `hotsync` copia los `.conf` a `conf.d.available`, pero supervisor
+lee `/etc/supervisor/conf.d`, que solo puebla el entrypoint al arrancar. **No hay
+que esperar un rebuild**: `enable_worker <nombre>` (además lo mete en la lista del
+volumen, para que sobreviva al siguiente rebuild).
+
+**Regla:** si algo produce datos que el panel consume, va versionado aunque corra
+en el host. Y el indicador tiene que mirar **el dato**, no el latido.
+
+---
+
+## 10. Un depurador tumba la operación que depura
+
+**Síntoma:** una operación sí funciona (el vale se generó, el vale llegó) pero el
+sistema la reporta como fallida y la revierte.
+
+```
+[govale] Click en Generar Vale
+[govale] Excepción: Page.screenshot: Timeout 30000ms exceeded.
+```
+
+**Por qué:** un `page.screenshot(...)` sin proteger, **después** del clic que hace
+el trabajo. La captura se cuelga, la excepción sube y el resultado se pierde, con
+el agravante de que la acción **ya se ejecutó**: reintentar cobra dos veces.
+
+**Agravante:** al fallar, el código revierte el estado a `PENDIENTE`, y como el
+worker solo consulta `APROBADO`, **el registro desaparece de la cola sin aviso**.
+
+**Regla:** capturas, logs y screenshots van siempre en un ayudante que se traga el
+error. Son ayudas, no deciden si la operación se completó. Y cuando el fallo
+ocurre *después* del clic, reintentar a ciegas es peor que quedarse quieto:
+reconciliar a mano.
+
+---
+
+## 11. Un número con dos lecturas posibles: no adivinar
+
+**Síntoma:** un número de 11 dígitos que empieza con `1`. ¿Es el formato antiguo
+de México (`1 55 1234 5678`) o uno de EUA (`+1 415 555 2671`)? Son los mismos
+dígitos.
+
+**Por qué importa:** adivinar produce un número **con formato válido que no es de
+nadie**, así que el mensaje se pierde en silencio y nadie se entera. Rechazarlo se
+ve en la interfaz y se corrige escribiendo el código de país.
+
+**Regla:** cuando la interpretación no se puede determinar, **rechazar y avisar**, no
+elegir. Lo mismo con cualquier dato que venga de dos fuentes.
+
+---
+
+## 12. Un dato que se usa para concluir, pero que no significa lo que uno cree
+
+**Síntoma:** "el saldo de Go Vale no bajó, entonces el vale no se generó". **Falso.**
+
+**Realidad:** el saldo de la cuenta **no baja al generar un vale, solo al
+consumirlo**. La señal correcta es la asignación por empresa: si al generar un vale
+se le descuentan $500 del saldo asignado de la empresa, el vale sí se creó.
+
+**Regla:** antes de concluir con un dato, comprobar **qué significa** y si tiene
+el mismo valor en los dos momentos que comparas. Un dashboard con el mismo número
+puede significar dos cosas distintas según el estado del sistema.
+
+---
+
+## 13. Rutas legacy en el `sys.path` que sombrean el repo
+
+**Síntoma:** una prueba pasa cuando se ejecuta sola y falla en la suite completa,
+con un error de que al módulo "le falta un atributo" que sí existe en el archivo.
+
+**Causa:** otro módulo mete una ruta vieja al principio del `sys.path`
+(clásico: un `for p in (...)` con `sys.path.insert(0, p)` sobre rutas viejas).
+En una máquina donde ese checkout existe, **gana sobre el repo**: el `import` trae
+el archivo de otro lado y las pruebas aprueban lo que no es.
+
+**Cómo encontrarlo:** imprimir `modulo.__file__` en la prueba que falla.
+
+**Regla:** en los tests, importar por ruta explícita y **afirmar el archivo** que
+se cargó. En el código, quitar rutas legacy del `sys.path`: si un directorio tiene
+copias de tus módulos, el que gana el import es el que se puso de primero.
+
