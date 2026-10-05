@@ -4,6 +4,29 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.5.1] - 2026-10-06
+
+### Corregido
+- **`NameError: name 'Optional' is not defined` al arrancar en el contenedor.**
+  `imap_client.py` usaba `Optional[datetime]` en la firma de `_parse_fecha` sin
+  importar `typing`. Parece inocuo porque en **Python 3.14 las anotaciones se
+  difieren** (PEP 649) y el nombre nunca se resuelve —y la máquina de desarrollo
+  corre 3.14—, pero el contenedor corre **3.11**, donde sí se evalúan. El worker
+  moría al arrancar, y **425 tests pasaban en local**.
+
+  Es el peor orden posible: la suite en verde y el servicio caído. La lección
+  concreta es que **probar con la versión del contenedor** (`python3.11 -m
+  unittest discover -s tests` da los mismos 425 en verde, y habría cazado esto).
+
+  Al revisar los demás módulos con el mismo criterio (usar `Optional`/`List`/`Dict`
+  sin importar `typing`) solo apareció este.
+
+### Agregado
+- Desplegado: `mailbox_worker` activo en `workersadmon`, volumen `mailbox_data`
+  compartido con la app, streaming en `:8201` y las 13 cuentas de HUBMail
+  validadas contra sus servidores IMAP reales (12 `ACTIVA`, 1 con la contraseña
+  cambiada en origen).
+
 ## [1.5.0] - 2026-10-05
 
 ### Agregado

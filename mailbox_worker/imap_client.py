@@ -30,6 +30,14 @@ cuentas que se dan de alta en Mailbox son de servidores que lo soportan, y
 aceptar conexión en claro sería una puerta abierta que nadie necesita.
 """
 
+# `typing` se importa por `Optional` y parece innecesario: en Python 3.14 las
+# anotaciones se difieren (PEP 649) y `_parse_fecha(valor) -> Optional[datetime]`
+# no necesita el nombre resuelto. En 3.11 —que es la versión del contenedor— SÍ se
+# evalúan, y el worker moría al arrancar con
+# `NameError: name 'Optional' is not defined`.
+#
+# Se descubrió al arrancar en el servidor, después de que 425 tests passersan en
+# local: la máquina de desarrollo corre 3.14 y el contenedor 3.11.
 import base64
 import codecs
 import email
@@ -40,6 +48,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from email.header import decode_header, make_header
 from html import escape as html_escape
+from typing import Optional
 
 
 class IMAPError(Exception):
