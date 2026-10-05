@@ -478,7 +478,18 @@ class IMAPClient:
         """
         c = self.connect()
         try:
-            typ, data = c.uid("fetch", str(uid), "(RFC822.TEXT)")
+            # `BODY.PEEK[TEXT]`, NO `RFC822.TEXT`.
+            #
+            # `RFC822.TEXT` pone el flag \Seen en el buzón REAL. Sincronizar el
+            # buzón de 12 personas marcaría sus correos como leídos en Gmail /
+            # Hostinger sin que nadie los haya abierto: es un efecto secundario
+            # en el correo de otra persona, no en nuestra copia.
+            #
+            # Pasó: las 419 primeras_SYNC dejaron los 419 mensajes con `Visto = 1`,
+            # y en el buzón de `hector.pena@ecc-sa.com.mx` y `robot@…` esos 407
+            # correos dejaron de estar sin leer. `PEEK` es la palabra que existe
+            # justo para esto, y ya se usaba en `fetch_parte`.
+            typ, data = c.uid("fetch", str(uid), "(BODY.PEEK[TEXT])")
         except Exception:
             return ""
         if typ != "OK":
@@ -486,7 +497,7 @@ class IMAPClient:
         crudo = _primer_literal(data)
         if not crudo:
             return ""
-        # RFC822.TEXT viene en el charset declarado en el Content-Type.
+        # El texto viene en el charset declarado en el Content-Type.
         for cod in (charset, "utf-8", "latin-1"):
             try:
                 return crudo.decode(cod, errors="replace")

@@ -4,6 +4,21 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.5.2] - 2026-10-06
+
+### Corregido
+- **`BODY.PEEK[TEXT]` en vez de `RFC822.TEXT`: sincronizar marcaba los correos
+  como leídos EN EL BUZÓN REAL.** `RFC822.TEXT` pone el flag `\Seen` en el
+  servidor de correo, así que la **primera** sincronización dejó los 419 mensajes
+  con `Visto = 1` y, en los buzones de `hector.pena@ecc-sa.com.mx` y
+  `robot@ecc-sa.com.mx`, dejó de estar sin leer 407 correos que nadie había
+  abierto. Es un efecto secundario en el correo de otra persona, no en nuestra
+  copia, y no se puede deshacer: IMAP no recuerda qué estaba sin leer antes.
+
+  `PEEK` es exactamente para esto, y ya se usaba en `fetch_parte`. El mismo
+  criterio que ya está documentado en el cliente ("el worker no debe marcar como
+  leído un mensaje que el usuario solo descargó") faltaba aquí.
+
 ## [1.5.1] - 2026-10-06
 
 ### Corregido
