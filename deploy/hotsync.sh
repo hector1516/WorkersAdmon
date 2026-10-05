@@ -99,7 +99,8 @@ for f in eccsa_db.py eccsa_db_server.py config_db.py telegram_alerts.py \
          pdf_generator.py shared_report_pdf.py numbers_helper.py \
          worker_heartbeat.py network_scanner.py asistencia_core.py \
          notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py \
-         oxxogas_vales_automation.py cron_sync_hubmail.py; do
+         oxxogas_vales_automation.py cron_sync_hubmail.py \
+         cron_sync_mailbox.py; do
   [ -f "$ROOT/$f" ] && run docker cp "$ROOT_DOCKER/$f" "$CONTAINER:/app/$f"
 done
 # El worker de correo (hubmail_worker) es un PAQUETE, no un archivo suelto: se
@@ -108,6 +109,12 @@ done
 # fallaría al primer ciclo y el proceso moriría en loop.
 [ -d "$ROOT/hubmail_worker" ] && \
   run docker cp "$ROOT_DOCKER/hubmail_worker/." "$CONTAINER:/app/hubmail_worker"
+# mailbox_worker es el reemplazo de hubmail_worker (mismo patron: PAQUETE entero,
+# no archivos sueltos). Sin esta linea el entrypoint de mailbox_worker arrancaria
+# bien y fallaria al PRIMER import, con el proceso en loop y el deploy reportando
+# exito.
+[ -d "$ROOT/mailbox_worker" ] && \
+  run docker cp "$ROOT_DOCKER/mailbox_worker/." "$CONTAINER:/app/mailbox_worker"
 # Los .conf de supervisor viven en conf.d.available: se copian para que un
 # worker nuevo sea activable sin reconstruir la imagen.
 [ -d "$ROOT/docker/conf.d.available" ] && \
@@ -129,7 +136,9 @@ for par in panel/panel.css panel/templates.py panel/shell.css ECCSA_SHELL_VERSIO
            eccsa_db.py network_scanner.py asistencia_core.py \
            notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py \
          oxxogas_vales_automation.py cron_sync_hubmail.py \
-         hubmail_worker/sync.py hubmail_worker/crypto.py hubmail_worker/config.py; do
+         hubmail_worker/sync.py hubmail_worker/crypto.py hubmail_worker/config.py \
+         cron_sync_mailbox.py mailbox_worker/sync.py mailbox_worker/stream.py \
+         mailbox_worker/smtp.py mailbox_worker/filtros.py mailbox_worker/config.py; do
   [ -f "$ROOT_DOCKER/$par" ] || continue
   a=$(sha256sum "$ROOT_DOCKER/$par" | cut -d' ' -f1)
   b=$(docker exec "$CONTAINER" sha256sum "/app/$par" 2>/dev/null | cut -d' ' -f1)
@@ -197,6 +206,7 @@ else
   # única en MySQL: si ya corre, `restart` mata el proceso viejo y arranca el
   # nuevo, y el candado lo vuelve a tomar sin quedar dos copias ni un hueco.
   run docker exec "$CONTAINER" supervisorctl restart hubmail_worker || true
+  run docker exec "$CONTAINER" supervisorctl restart mailbox_worker || true
 fi
 
 # ── 3. Health check ──────────────────────────────────────────────────────────

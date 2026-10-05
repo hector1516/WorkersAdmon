@@ -4,6 +4,72 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.5.0] - 2026-10-05
+
+### Agregado
+- **`mailbox_worker/`: el motor de sincronización de la PWA ECCSA_Mailbox.**
+  Reemplaza a `hubmail_worker` (que queda intacto hasta el corte) y reescribe el
+  modelo de adjuntos: los adjuntos **no se descargan**. Del sync solo sale el
+  índice (cabeceras + `BODYSTRUCTURE`, que es el manifiesto sin los bytes); los
+  bytes se piden por HTTP cuando el usuario abre el archivo, en rangos de
+  256 KB, así que un adjunto de 300 MB pasa por el proceso sin que la memoria
+  dependa del tamaño. El motivo es concreto: `BODY[]` bajaba los adjuntos
+  piggyback con cada correo nuevo, y una bandeja con un correo de 8 MB se
+  descargaba entera cada 5 minutos.
+  Módulos, todos con docstring explicando la decisión de diseño:
+  - `imap_client.py` (23 tests) — port del cliente viejo más lo que el streaming
+    necesita: `BODY.PEEK[parte]`, rangos `<offset.count>`, XOAUTH2, parser de
+    `BODYSTRUCTURE` y ahora `fetch_encabezados` y `cuerpo_html`.
+  - `almacen.py` — cuerpos HTML en gzip en el volumen compartido y cache de
+    adjuntos que es un **coalescador, no un almacén** (6 h / 2 GB): cinco
+    personas abriendo el mismo PDF hacen un solo fetch a IMAP.
+  - `stream.py` (19 tests) — el único camino de un byte al dispositivo.
+  - `smtp.py` (48 tests) — construcción MIME con firma resuelta.
+  - `filtros.py` — reglas por usuario y auto-responder con sus tres guardas.
+  - `sync.py`, `crypto.py`, `config.py`, `db.py` — el ciclo y sus piezas.
+- **`tests/test_mailbox_smtp.py` (48)** y **`tests/test_mailbox_stream.py` (19)**.
+  No son tests de cobertura: cada caso fija un modo de falla concreto, y varios
+  los accompanan del "por qué".
+- `hotsync.sh`: `mailbox_worker` entra en las cuatro listas que importan
+  (copia, verificación por hash, reinicio). La de verificación compara los
+  hashes de los módulos que de verdad importan, porque un `docker cp` puede
+  salir con código 0 sin haber escrito nada y el deploy se reportaba igual como
+  "actualizado" — un deploy que miente es peor que uno que falla.
+
+### Corregido
+- **`Content-ID` de la firma: el correo llegaba con el logo en blanco.** La
+  firma se guarda en HTML con `cid:logo`, y si el `Content-ID` de la parte MIME
+  no coincide exactamente con ese `cid:`, la imagen **viaja en el correo pero no
+  se ve**. No hay error, no hay log, no hay queja inmediata: el usuario asume que
+  el que lo mandó no puso su logo.
+- **`ValueError: Cannot convert alternative to related` (Python).** Un correo con
+  texto plano, HTML e imágenes de firma necesita `multipart/related` →
+  `multipart/alternative` → `text/*`, con las imágenes colgando del `related`
+  (RFC 2046: `alternative` solo lleva texto). La API de azúcar de `email` no
+  puede construir eso y lanza; el MIME se arma con `MIMEMultipart` a mano.
+- **Correo solo con HTML se veía EN BLANCO en el Outlook de escritorio.** El
+  `TextoSnapshot` vacío producía un mensaje sin parte `text/plain`. Ahora el
+  texto plano se deriva del HTML (`_html_a_texto`, que borra `script`/`style`/CSS
+  completos) cuando no existe.
+- **Remitente visible perdido en Exchange/Outlook.** `user@dominio (Nombre)` se
+  parseaba con el nombre vacío y la lista mostraba el email crudo en todas las
+  filas.
+- **Tope de inline que no se aplicaba.** El guard de `_MAX_INLINE` estaba escrito
+  pero la condición que debía activarlo fijaba `cantidad=0`, que en ese código
+  significa "servirlo todo": el opposite de lo buscado. Un `cid` malicioso
+  apuntando a un adjunto de 300 MB habría provocado el OOM del worker, y
+  con él se caerían todas las cuentas, porque comparten proceso. Ahora el tamaño
+  se comprueba contra el índice **antes** de pedir los bytes.
+- **`getaddresses` desempaquetado como par.** Devuelve una lista de pares; con dos
+  destinatarios devolvía tuplas equivocadas y con uno lanzaba `ValueError`.
+- **Destinatarios partidos por comas.** `"Pérez, Juan" <j@x.com>` es una
+  dirección, no dos; un `split(",")` mandaba basura al servidor remoto.
+
+### Pendiente (no está en este commit)
+- `push.py` (notificaciones WebPush) y `cron_sync_mailbox.py` (el entrypoint).
+- `docker/conf.d.available/mailbox_worker.conf` y su entrada en el panel.
+- La vista de cuentas del panel y el consumo de las migraciones `0048`–`0051`.
+
 ## [1.4.0] - 2026-10-02
 
 ### Agregado

@@ -88,7 +88,7 @@ TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 # Versión del panel (la de la app) y del shell (estampada por
 # tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
 APP_ID = "workersadmon"
-APP_VERSION = "1.4.0"   # "1.4.0" el worker de correo (hubmail_worker) salio de HUBMail y entra aqui
+APP_VERSION = "1.5.0"   # "1.5.0" llega mailbox_worker, el motor de la PWA ECCSA_Mailbox
 
 
 def _shell_version():
