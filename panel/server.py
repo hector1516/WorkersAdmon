@@ -759,7 +759,11 @@ class Handler(BaseHTTPRequestHandler):
             "servidor_smtp": txt("servidor_smtp"),
             "puerto_smtp": num("puerto_smtp", 587),
             "tipo_auth": txt("tipo_auth", "PASSWORD"),
-            "ubicacion": txt("ubicacion"),
+            # Carpeta de IMAP, no una ubicación de oficina. La columna se
+            # llama CarpetaRaiz y no existe "Ubicacion": se descubrió porque el
+            # INSERT falló contra el esquema real, con los tests en verde porque
+            # todos simulan la base.
+            "carpeta_raiz": txt("carpeta_raiz", "INBOX") or "INBOX",
             "icono": txt("icono", "📮") or "📮",
             "color": txt("color", "#FF6B00") or "#FF6B00",
             "ventana_dias": num("ventana_dias", 90),

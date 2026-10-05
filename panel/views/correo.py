@@ -144,9 +144,10 @@ def _formulario(csrf, cuenta=None):
     </div>
 
     <div class="field">
-      <label for="co-ubic">Ubicación</label>
-      <input id="co-ubic" name="ubicacion" class="input" maxlength="160"
-             value="{v('Ubicacion')}" placeholder="CD de Mérida">
+      <label for="co-carpeta">Carpeta de entrada</label>
+      <input id="co-carpeta" name="carpeta_raiz" class="input" maxlength="200"
+             value="{v('CarpetaRaiz', 'INBOX')}" placeholder="INBOX">
+      <p class="hint">En Gmail es <code>INBOX</code>; en un Exchange, la carpeta del buzón.</p>
     </div>
 
     <div class="field">

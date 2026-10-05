@@ -49,7 +49,7 @@ def listar_cuentas():
     """
     return _rows(
         "SELECT c.Id, c.Alias, c.Email, c.ServidorIMAP, c.PuertoIMAP, "
-        "       c.ServidorSMTP, c.PuertoSMTP, c.TipoAuth, c.Estado, c.Ubicacion, "
+        "       c.ServidorSMTP, c.PuertoSMTP, c.TipoAuth, c.Estado, c.CarpetaRaiz, "
         "       c.Icono, c.Color, c.UltimoSync, c.UltimoError, c.VentanaDias, "
         "       c.MaxMensajes, "
         "       (SELECT COUNT(*) FROM HUB_MailboxCuentasLinks l "
@@ -64,7 +64,7 @@ def obtener_cuenta(id_cuenta):
     """Una cuenta por id. Igual que `listar_cuentas`, sin la credencial."""
     filas = _rows(
         "SELECT Id, Alias, Email, ServidorIMAP, PuertoIMAP, ServidorSMTP, "
-        "       PuertoSMTP, TipoAuth, Estado, Ubicacion, Icono, Color, "
+        "       PuertoSMTP, TipoAuth, Estado, CarpetaRaiz, UsarSSL, Icono, Color, "
         "       VentanaDias, MaxMensajes, UltimoSync, UltimoError "
         "FROM HUB_MailboxCuentas WHERE Id = %s", (int(id_cuenta),))
     return filas[0] if filas else None
@@ -87,13 +87,15 @@ def crear_cuenta(datos: dict, contrasena: str) -> int:
     _execute(
         "INSERT INTO HUB_MailboxCuentas "
         "(Alias, Email, ServidorIMAP, PuertoIMAP, ServidorSMTP, PuertoSMTP, "
-        " TipoAuth, CredencialCifrada, Estado, Ubicacion, Icono, Color, "
+        " TipoAuth, CredencialCifrada, Estado, CarpetaRaiz, UsarSSL, Icono, Color, "
         " VentanaDias, MaxMensajes) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'PENDIENTE', %s, %s, %s, %s, %s)",
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'PENDIENTE', %s, %s, %s, %s, %s, %s)",
         (datos["alias"], datos["email"], datos["servidor_imap"],
          int(datos["puerto_imap"]), datos["servidor_smtp"], int(datos["puerto_smtp"]),
          datos.get("tipo_auth", "PASSWORD"), encrypt_credencial(contrasena),
-         datos.get("ubicacion", ""), datos.get("icono", "📮"),
+         datos.get("carpeta_raiz", "INBOX"),
+         1 if int(datos["puerto_imap"]) == 993 else 0,
+         datos.get("icono", "📮"),
          datos.get("color", "#FF6B00"), int(datos.get("ventana_dias", 90)),
          int(datos.get("max_mensajes", 5000))))
     filas = _rows("SELECT MAX(Id) AS Id FROM HUB_MailboxCuentas")
@@ -113,7 +115,7 @@ def actualizar_cuenta(id_cuenta: int, datos: dict, contrasena: str = ""):
     simples = {
         "alias": "Alias", "email": "Email", "servidor_imap": "ServidorIMAP",
         "servidor_smtp": "ServidorSMTP", "tipo_auth": "TipoAuth",
-        "ubicacion": "Ubicacion", "icono": "Icono", "color": "Color",
+        "carpeta_raiz": "CarpetaRaiz", "icono": "Icono", "color": "Color",
     }
     for clave, columna in simples.items():
         if clave in datos and datos[clave] is not None:

@@ -2522,6 +2522,90 @@ class CorreoViewTest(unittest.TestCase):
             self.assertNotIn("CredencialCifrada", s,
                              "un SELECT pide la credencial cifrada: no debe pasar")
 
+    def test_91_las_columnas_del_panel_existen_de_verdad(self):
+        """
+        Cada columna que nombra `panel/db_correo.py` tiene que existir.
+
+        Este test existe por un bug concreto: `db_correo.py` escribía la columna
+        `Ubicacion`, que no existe — la carpeta de IMAP se llama `CarpetaRaiz`.
+        Los 102 tests pasaban, porque TODOS simulan la base: el nombre equivocado
+        no se nota hasta que alguien da de alta una cuenta de verdad y el INSERT
+        contesta "invalid column name".
+
+        La lista de columnas sale de las migraciones de Mailbox (0048 y 0051) y hay
+        que regenerarla si esas migraciones cambian. Un panel sin base de datos en
+        los tests necesita esa lista pegada: es el precio de no tener SQL Server
+        en el CI, y es barato comparado con una columna inventada.
+        """
+        import ast as _ast
+        import io as _io
+        import re as _re
+        import tokenize as _tok
+        columnas_reales = {
+            "HUB_MailboxCuentas": {
+                "Id", "Alias", "Email", "Icono", "Color", "ServidorIMAP",
+                "PuertoIMAP", "ServidorSMTP", "PuertoSMTP", "TipoAuth",
+                "CredencialCifrada", "UsarSSL", "CarpetaRaiz", "Estado",
+                "UltimoError", "UltimoSync", "VentanaDias", "MaxMensajes",
+                "CuotaAdjuntosMB", "Creado", "Actualizado"},
+            "HUB_MailboxCuentasLinks": {"Id", "IdCuenta", "IdUsuario", "Creado"},
+            "HUB_MailboxFirmas": {"Id", "IdUsuario", "Nombre", "Html",
+                                  "TextoPlano", "Predeterminada", "Creado"},
+            "HUB_MailboxFirmaCuentas": {"IdFirma", "IdCuenta"},
+            "HUB_MailboxFirmaImagenes": {"Id", "IdFirma", "Nombre", "ContentType",
+                                         "Bytes", "Cid", "Token", "Clave", "Alto",
+                                         "Ancho", "Creado"},
+            "HUB_MailboxSuscripciones": {"Id", "IdUsuario", "Endpoint",
+                                         "EndpointHash", "P256dhKey", "AuthKey",
+                                         "Plataforma", "Creado", "UltimoUso", "Activo"},
+            "HUB_MailboxReglas": {"Id", "IdUsuario", "Prioridad", "Campo",
+                                  "Operador", "Valor", "Accion", "Etiqueta", "Activa",
+                                  "Creado", "UltimaEjecucion", "VecesEjecutada"},
+            "HUB_MailboxMensajes": {
+                "Id", "IdCuenta", "UID", "MessageId", "Carpeta",
+                "RemitenteNombre", "RemitenteEmail", "ParaTexto", "CcTexto",
+                "Asunto", "Extracto", "FechaCorreo", "FechaIngesta", "Visto",
+                "Marcado", "Respondido", "TieneAdjuntos", "NumAdjuntos",
+                "ClaveCuerpo", "BytesCuerpo", "CuerpoGuardado", "CuerpoTruncado",
+                "Eliminado", "Etiqueta"},
+        }
+        # El SQL se saca de los LITERALES DE CADENA, no del archivo crudo. Con el
+        # archivo crudo el `INSERT` no casa: después del nombre de tabla viene un
+        # `"` porque la sentencia está partida en varias cadenas pegadas, así que
+        # el patrón `INSERT INTO tabla (` nunca aparece y el test revisa CERO
+        # columnas. Un test que no comprueba nada pasa siempre, y ese fue el
+        # primer intento de este test.
+        crudo = (Path(REPO) / "panel" / "db_correo.py").read_bytes()
+        pedazos = []
+        for tok in _tok.tokenize(_io.BytesIO(crudo).readline):
+            if tok.type != _tok.STRING:
+                continue
+            try:
+                v = _ast.literal_eval(tok.string)
+                if isinstance(v, str):
+                    pedazos.append(v)
+            except Exception:
+                continue
+        fuente = _re.sub(r"\s+", " ", " ".join(pedazos))
+
+        tablas = set(_re.findall(r"HUB_Mailbox\w+", fuente))
+        self.assertTrue(tablas, "no se encontró ninguna tabla: el test no sirve")
+        for tabla in sorted(tablas):
+            self.assertIn(tabla, columnas_reales,
+                          f"{tabla} no está en el mapa del test: agregarla con sus "
+                          f"columnas reales, o no se revisa")
+
+        # Los INSERT son los que se revisan: su lista de columnas es explícita.
+        for m in _re.finditer(
+                r"INSERT\s+INTO\s+(HUB_Mailbox\w+)\s*\(([^)]*)\)", fuente, _re.I):
+            tabla = m.group(1)
+            for col in m.group(2).split(","):
+                col = col.strip().strip("[]")
+                if not col or " " in col:
+                    continue
+                self.assertIn(col, columnas_reales[tabla],
+                              f"la columna «{col}» no existe en {tabla}")
+
     def test_90_el_worker_si_la_lee_pero_el_panel_no(self):
         """El worker SÍ la pide: es el único que abre IMAP."""
         fuente = (Path(REPO) / "mailbox_worker" / "sync.py").read_text(encoding="utf-8")
