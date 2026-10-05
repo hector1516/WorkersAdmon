@@ -19,6 +19,8 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
   GET  /notificaciones                 → pestaña Notificaciones (Fase C)
   POST /notificaciones/<bloque>[/...]  → guarda / prueba (telegram|push|correo|ia)
   GET  /apps                           → pestaña Apps (catálogo por app)
+  GET  /correo                       → pestaña Correo (cuentas de Mailbox)
+  POST /correo                       → alta / edición / asignar / pausar / borrar
   GET  /asistencia                    → pestaña Asistencia (por día, con ventana)
   POST /asistencia                    → calcular y guardar la asistencia del día
   POST /apps                           → alta / editar / borrar / guardar valores
@@ -39,6 +41,7 @@ from .lugar import lugar_de_handler
 from .views import apps as apps_view
 from .views import asistencia as asis_view
 from .views import config as config_view
+from .views import correo as correo_view
 from .views import home as home_view
 from .views import notifications as notif_view
 from .views import workers as workers_view
@@ -339,6 +342,26 @@ class Handler(BaseHTTPRequestHandler):
                 vista_tg=query.get("tg", [""])[0] or "conexion",
                 vista_wa=query.get("wa", [""])[0] or "conexion"))
 
+        if path == "/correo":
+            user, done = self._require()
+            if done:
+                return
+            # El permiso es AccesoUsuarios y no AccesoMailbox a propósito: esta
+            # vista escribe credenciales de correo reales y decide a quién se le
+            # da acceso a ellas. AccesoMailbox es el permiso de USUAR el buzón,
+            # y una persona con ese permiso no debe poder crear cuentas ni ver
+            # con qué usuario se escriben.
+            if not auth.has_perm(user, "AccesoUsuarios"):
+                return self._html(forbidden_page(
+                    "La pestaña Correo requiere el permiso AccesoUsuarios en el "
+                    "HUB. Pídeselo al administrador."), 403)
+            ok, err = self._flash(query)
+            editar = query.get("editar", [""])[0]
+            return self._html(correo_view.render(
+                user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                **self._shell_ctx(),
+                editando=int(editar) if editar.isdigit() else None))
+
         if path == "/asistencia":
             user, done = self._require()
             if done:
@@ -414,6 +437,9 @@ class Handler(BaseHTTPRequestHandler):
             rest = path[len("/configuracion/"):]
             name, _, action = rest.partition("/")
             return self._config_action(user, name, action, form)
+
+        if path == "/correo":
+            return self._correo_action(user, form)
 
         if path == "/asistencia":
             return self._asistencia_action(user, form)
@@ -594,6 +620,152 @@ class Handler(BaseHTTPRequestHandler):
         return handler(user, form)
 
     # ── Apps (Fase D) ──────────────────────────────────────────────────────
+    class _CorreoError(Exception):
+        """Dato inválido del formulario de cuentas. El mensaje va al usuario."""
+
+    def _correo_action(self, user, form):
+        """
+        POST de la pestaña Correo. Los botones se distinguen por su `accion`.
+
+        Todas las acciones revalidan el permiso: el handler de GET lo revisa para
+        mostrar la vista, pero entre que se ve y se pulsa el botón el permiso pudo
+        habérsele quitado. Revisar solo en el GET deja una ventana en la que un
+        usuario sin permiso todavía puede escribir.
+
+        El CSRF ya lo validó el handler antes de llegar acá.
+        """
+        if not auth.has_perm(user, "AccesoUsuarios"):
+            return self._html(forbidden_page(
+                "La pestaña Correo requiere el permiso AccesoUsuarios."), 403)
+
+        from . import db_correo as correo_db
+
+        accion = form.get("accion", [""])[0]
+        id_cuenta = form.get("id_cuenta", [""])[0]
+        try:
+            id_cuenta = int(id_cuenta)
+        except (TypeError, ValueError):
+            id_cuenta = 0
+
+        if accion == "crear":
+            try:
+                datos = self._datos_cuenta(form)
+            except self._CorreoError as exc:
+                return self._redirect("/correo?err=" + urllib.parse.quote(str(exc)))
+            faltan = [k for k in ("alias", "email", "servidor_imap",
+                                  "servidor_smtp") if not datos.get(k)]
+            if faltan:
+                return self._redirect(
+                    "/correo?err=" + urllib.parse.quote(
+                        "Falta: " + ", ".join(faltan)))
+            correo_db.crear_cuenta(datos, form.get("password", [""])[0])
+            db.log_activity(user.get("email"), "Correo",
+                            f"alta de cuenta {datos['email']}")
+            return self._redirect(
+                "/correo?ok=" + urllib.parse.quote(
+                    f"Cuenta creada. Queda PENDIENTE hasta que el worker la "
+                    f"valide (hasta 5 minutos)."))
+
+        if accion == "editar":
+            if not id_cuenta:
+                return self._redirect("/correo?err=No se sabe qué cuenta editar")
+            try:
+                datos = self._datos_cuenta(form)
+            except self._CorreoError as exc:
+                return self._redirect("/correo?err=" + urllib.parse.quote(str(exc)))
+            correo_db.actualizar_cuenta(
+                id_cuenta, datos, form.get("password", [""])[0])
+            db.log_activity(user.get("email"), "Correo",
+                            f"edición de cuenta #{id_cuenta}")
+            return self._redirect(
+                "/correo?ok=" + urllib.parse.quote(
+                    "Cuenta actualizada. Si cambió el servidor o la contraseña, "
+                    "vuelve a PENDIENTE hasta que el worker la valide."))
+
+        if accion == "estado":
+            estado = form.get("estado", [""])[0]
+            try:
+                correo_db.cambiar_estado(id_cuenta, estado)
+                db.log_activity(user.get("email"), "Correo",
+                                f"cuenta #{id_cuenta} -> {estado}")
+                return self._redirect(
+                    "/correo?ok=" + urllib.parse.quote(f"Cuenta: {estado}"))
+            except ValueError as exc:
+                return self._redirect("/correo?err=" + urllib.parse.quote(str(exc)))
+
+        if accion == "asignar":
+            marcados = {int(x) for x in form.get("usuarios", []) if str(x).isdigit()}
+            # El conjunto COMPLETO, no solo los marcados: si el formulario llega
+            # con una persona desmarcada, hay que QUITAR la asignación. Con un
+            # "solo agrega" esa persona nunca podría perder el acceso.
+            actuales = set(correo_db.usuarios_con_cuenta(id_cuenta))
+            for uid in actuales - marcados:
+                correo_db.asignar(id_cuenta, uid, False)
+            for uid in marcados - actuales:
+                correo_db.asignar(id_cuenta, uid, True)
+            db.log_activity(
+                user.get("email"), "Correo",
+                f"asignación de la cuenta #{id_cuenta}: {len(marcados)} usuario(s)")
+            return self._redirect(
+                "/correo?ok=" + urllib.parse.quote(
+                    f"Asignación guardada ({len(marcados)} usuario(s))."))
+
+        if accion == "borrar":
+            cuenta = correo_db.obtener_cuenta(id_cuenta)
+            if not cuenta:
+                return self._redirect("/correo?err=Esa cuenta ya no existe")
+            correo_db.borrar_cuenta(id_cuenta)
+            db.log_activity(user.get("email"), "Correo",
+                            f"BORRÓ la cuenta {cuenta.get('Email')}")
+            return self._redirect(
+                "/correo?ok=" + urllib.parse.quote(
+                    f"Cuenta {cuenta.get('Email')} borrada, con su índice de "
+                    f"mensajes."))
+
+        return self._redirect("/correo?err=Acción desconocida")
+
+    def _datos_cuenta(self, form):
+        """
+        El form → el dict que espera `panel.db_correo`.
+
+        Los enteros se convierten aquí y no allá, para que un campo vacío o con
+        letras produzca un error con NOMBRE DE CAMPO y no un `ValueError` de
+        `int()` sin contexto, que es el error más inútil de depurar de un
+        formulario.
+
+        Lanza `_CorreoError` con un mensaje que sí se puede mostrar. Devolver un
+        dict con una clave `_error` sería peor: el llamador tendría que acordarse
+        de revisarla, y si no se revisa el error sale como un `KeyError` de
+        `datos['alias']`, que no dice nada del puerto que estaba mal.
+        """
+        def txt(k, dflt=""):
+            return (form.get(k, [dflt])[0] or dflt).strip()
+
+        def num(k, dflt):
+            crudo = txt(k)
+            if not crudo:
+                return dflt
+            try:
+                return int(crudo)
+            except ValueError:
+                raise self._CorreoError(
+                    f"El campo «{k}» debe ser un número, no «{crudo}»")
+
+        return {
+            "alias": txt("alias"),
+            "email": txt("email"),
+            "servidor_imap": txt("servidor_imap"),
+            "puerto_imap": num("puerto_imap", 993),
+            "servidor_smtp": txt("servidor_smtp"),
+            "puerto_smtp": num("puerto_smtp", 587),
+            "tipo_auth": txt("tipo_auth", "PASSWORD"),
+            "ubicacion": txt("ubicacion"),
+            "icono": txt("icono", "📮") or "📮",
+            "color": txt("color", "#FF6B00") or "#FF6B00",
+            "ventana_dias": num("ventana_dias", 90),
+            "max_mensajes": num("max_mensajes", 5000),
+        }
+
     def _asistencia_action(self, user, form):
         """
         POST de la pestaña Asistencia. Es POST (y no GET) porque escribir en

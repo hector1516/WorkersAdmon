@@ -145,6 +145,9 @@ TABS = [
      "enabled": True, "perm": "AccesoDeteccionRed", "modulo": "Asistencia",
      "desc": "Entradas y salidas por día, con la ventana en la que "
              "ocurrieron."},
+    {"id": "correo", "label": "✉️ Correo", "href": "/correo",
+     "enabled": True, "perm": "AccesoUsuarios", "modulo": "Correo",
+     "desc": "Cuentas de correo de Mailbox: alta, asignación y estado."},
 ]
 
 

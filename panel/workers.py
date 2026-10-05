@@ -211,6 +211,39 @@ CATALOGO = {
             "HUBMAIL_SYNC_ENABLED=0 lo deja vivo sin sincronizar. Se usaron "
             "para el corte sin solapar los dos workers."),
     },
+    "mailbox_worker": {
+        "desc": "Mailbox: sincroniza IMAP → SQL Server y transmite adjuntos",
+        "cadencia": "cada 5 min por cuenta",
+        "app": "Mailbox",
+        "descripcion": (
+            "El motor de la PWA ECCSA_Mailbox. Es el ÚNICO que habla IMAP y "
+            "SMTP: la app nunca abre un socket de correo ni ve una credencial, "
+            "escribe filas y este worker las ejecuta.\n\n"
+            "**Los adjuntos no se descargan.** Del ciclo de sincronización solo "
+            "sale el índice (cabeceras y BODYSTRUCTURE, que es el manifiesto sin "
+            "los bytes). Los bytes se piden por HTTP al servidor interno de "
+            "adjuntos (:8201) cuando el usuario abre el archivo, en rangos de "
+            "256 KB, así que un adjunto de 300 MB pasa por el proceso sin que la "
+            "memoria dependa del tamaño. Antes, BODY[] bajaba los adjuntos con "
+            "cada correo nuevo: una bandeja con un correo de 8 MB se descargaba "
+            "entera cada 5 minutos.\n\n"
+            "**El cache de adjuntos es un coalescador, no un almacén**: cinco "
+            "personas abriendo el mismo PDF hacen un solo fetch a IMAP. Vive 6 h "
+            "y se autolimita por tamaño.\n\n"
+            "⚠️ Solo puede existir 1 instancia en todo el entorno. Se protege con "
+            "sp_getapplock de SQL Server ('mailbox_worker_sync'): si el candado ya "
+            "está tomado, el proceso se sale con código 3. Dos workers a la vez "
+            "drenarían la misma cola de envío y el cliente recibiría correos "
+            "duplicados.\n\n"
+            "Llaves de operación: MAILBOX_DRY_RUN=1 lo pone en modo ensayo (lee "
+            "IMAP y llena el índice, pero no escribe en el buzón) y "
+            "MAILBOX_SYNC_ENABLED=0 lo deja vivo sin sincronizar. Conviven con "
+            "`hubmail_worker` durante el corte: los dos pueden leer, lo que no "
+            "puede ser es escribir los dos.\n\n"
+            "⚠️ MAILBOX_DATOS_DIR tiene que ser el MISMO volumen montado en la "
+            "app de Mailbox. Si no, el worker sincroniza perfecto y el usuario no "
+            "ve ningún correo, sin error en ninguna parte."),
+    },
 }
 
 PROTECTED = {"status_web"}   # programas que el panel no manipula

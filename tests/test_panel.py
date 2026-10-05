@@ -2379,5 +2379,155 @@ class PanelTest(unittest.TestCase):
         self.assertIn("Calcular y guardar", html)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pestaña Correo (cuentas de Mailbox)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_CUENTAS_FAKE = [
+    {"Id": 1, "Alias": "Ventas", "Email": "ventas@ecc-sa.com.mx",
+     "ServidorIMAP": "imap.gmail.com", "PuertoIMAP": 993,
+     "ServidorSMTP": "smtp.gmail.com", "PuertoSMTP": 587, "TipoAuth": "PASSWORD",
+     "Estado": "ACTIVA", "Ubicacion": "Mérida", "Icono": "📮", "Color": "#FF6B00",
+     "UltimoSync": _dt.datetime(2026, 10, 5, 8, 30), "UltimoError": None,
+     "VentanaDias": 90, "MaxMensajes": 5000, "CuantosUsan": 2, "NoLeidos": 7},
+    {"Id": 2, "Alias": "Soporte", "Email": "soporte@ecc-sa.com.mx",
+     "ServidorIMAP": "imap.gmail.com", "PuertoIMAP": 993,
+     "ServidorSMTP": "smtp.gmail.com", "PuertoSMTP": 587, "TipoAuth": "PASSWORD",
+     "Estado": "ERROR", "Ubicacion": "", "Icono": "🛠️", "Color": "#EF4444",
+     "UltimoSync": None, "UltimoError": "Invalid credentials",
+     "VentanaDias": 90, "MaxMensajes": 5000, "CuantosUsan": 0, "NoLeidos": 0},
+]
+_USUARIOS_FAKE = [
+    {"Id": 7, "Nombre": "Juan Pérez", "Email": "juan@ecc-sa.com.mx"},
+    {"Id": 9, "Nombre": "Ana", "Email": "ana@ecc-sa.com.mx"},
+]
+
+
+class CorreoViewTest(unittest.TestCase):
+    """La vista de cuentas.
+
+    Lo que se prueba es lo que NO se ve si la vista está mal: que la credencial
+    nunca llegue al HTML, que el error del worker salga escapado, y que los
+    estados se distingan. Una vista de administración se juzga por lo que
+    ![FILA_LEGIBLE]no![FILA_LEGIBLE] filtra, y eso es más difícil de tener bien
+    que lo que parece.
+    """
+
+    def _render(self, cuentas=None, **kw):
+        """
+        Renderiza la vista con la base simulada.
+
+        Las CUATRO funciones se parchean siempre, no solo las que el test necesita:
+        dejar una sin parchear hace que el test reviente con un error de conexión
+        de pymssql en vez de decir qué estaba probando. Un test que falla por la
+        razón equivocada no sirve para nada.
+        """
+        import panel.db_correo as _dbc
+        import panel.views.correo as _vista
+        cuentas = _CUENTAS_FAKE if cuentas is None else cuentas
+        orig = (_dbc.listar_cuentas, _dbc.usuarios_activos,
+                _dbc.usuarios_con_cuenta, _dbc.obtener_cuenta)
+        _dbc.listar_cuentas = lambda: [dict(c) for c in cuentas]
+        _dbc.usuarios_activos = lambda: list(_USUARIOS_FAKE)
+        _dbc.usuarios_con_cuenta = lambda i: [7] if int(i) == 1 else []
+        _dbc.obtener_cuenta = lambda i: next(
+            (dict(c) for c in cuentas if c["Id"] == int(i)), None)
+        try:
+            return _vista.render({"nombre": "X", "perms": {}}, csrf="tok123",
+                                 **kw)
+        finally:
+            (_dbc.listar_cuentas, _dbc.usuarios_activos,
+             _dbc.usuarios_con_cuenta, _dbc.obtener_cuenta) = orig
+
+    def test_80_lista_y_estados(self):
+        html = self._render()
+        self.assertIn("Ventas", html)
+        self.assertIn("Soporte", html)
+        self.assertIn("Activa", html)
+        self.assertIn("Error", html)
+        # Los contadores que salen de la base
+        self.assertIn("2 usuario(s)", html)
+        self.assertIn("7 sin leer", html)
+
+    def test_81_el_error_del_worker_se_muestra(self):
+        """Un ERROR sin motivo es indistinguible de 'no me llegan correos'."""
+        html = self._render()
+        self.assertIn("Último error", html)
+        self.assertIn("Invalid credentials", html)
+
+    def test_82_el_error_va_escapado(self):
+        """
+        El texto del error viene de la base, o sea de fuera. Si un atacante logra
+        controlar el servidor de correo de alguien y escribe ahi, un
+        `<img onerror=...>` se ejecutaria en el navegador de quien administra.
+        """
+        mal = [dict(_CUENTAS_FAKE[0],
+                    UltimoError='<img src=x onerror="alert(1)">')]
+        html = self._render(cuentas=mal)
+        # Lo que se busca es el `<img` CRUDO. El HTML escapado contiene los
+        # caracteres "onerror=" como texto inerte, y eso es lo correcto: buscarelo
+        # daría un falso negativo sobre un escape que funciona bien.
+        self.assertNotIn("<img src=x", html, "el error se insertó sin escapar")
+        self.assertIn("&lt;img", html, "el error no aparece siquiera, escapado")
+
+    def test_83_credencial_nunca_en_el_html(self):
+        html = self._render()
+        self.assertNotIn("CredencialCifrada", html)
+        # El formulario de alta pide la contraseña como campo EN BLANCO: es de
+        # alta, no de edición. En edición debe decir "sin cambios".
+        self.assertIn('type="password"', html)
+
+    def test_84_sin_editar_abajo_abajo(self):
+        html = self._render()
+        self.assertIn("Nueva cuenta de correo", html)
+        self.assertNotIn("Editar cuenta", html)
+
+    def test_85_editar_muestra_solo_ese_form(self):
+        html = self._render(editando=1)
+        self.assertIn("Editar cuenta", html)
+        self.assertNotIn("Nueva cuenta de correo", html)
+        self.assertIn("Ventas", html)
+
+    def test_86_editar_una_cuenta_inexistente_lo_dice(self):
+        html = self._render(editando=999)
+        self.assertIn("ya no existe", html)
+
+    def test_87_asignacion_marca_a_quien_tiene(self):
+        html = self._render()
+        self.assertIn("value=\"7\" checked", html)   # Juan la tiene
+        self.assertIn("value=\"9\"", html)           # Ana no
+
+    def test_88_la_pestana_existe_y_pide_permiso(self):
+        import panel.config as _cfg
+        tabs = [t for t in _cfg.TABS if t["id"] == "correo"]
+        self.assertEqual(len(tabs), 1, "la pestaña correo no está en TABS")
+        self.assertEqual(tabs[0]["href"], "/correo")
+        # AccesoUsuarios y NO AccesoMailbox: esta vista escribe credenciales
+        # reales. Quien puede USAR un buzón no debe poder crear cuentas.
+        self.assertEqual(tabs[0]["perm"], "AccesoUsuarios")
+
+    def test_89_la_credencial_no_se_pide_en_ningun_select(self):
+        """El invariante del módulo, verificado sobre el código fuente.
+
+        Es un test de fuente y no de comportamiento a propósito: no hay forma de
+        que el HTML exponga una credencial que la función nunca pide, así que lo
+        que hay que vigilar es que la consulta siga sin pedirla.
+        """
+        import re as _re
+        ruta = Path(REPO) / "panel" / "db_correo.py"
+        fuente = ruta.read_text(encoding="utf-8")
+        selects = _re.findall(r"SELECT[\s\S]*?FROM", fuente, _re.I)
+        self.assertTrue(selects, "no se encontró ningún SELECT: el test no sirve")
+        for s in selects:
+            self.assertNotIn("CredencialCifrada", s,
+                             "un SELECT pide la credencial cifrada: no debe pasar")
+
+    def test_90_el_worker_si_la_lee_pero_el_panel_no(self):
+        """El worker SÍ la pide: es el único que abre IMAP."""
+        fuente = (Path(REPO) / "mailbox_worker" / "sync.py").read_text(encoding="utf-8")
+        self.assertIn("CredencialCifrada", fuente,
+                      "el worker debe leer la credencial: es quien sincroniza")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

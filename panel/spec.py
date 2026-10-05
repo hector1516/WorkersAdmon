@@ -186,6 +186,88 @@ WORKERS_SPEC = {
                  "HUB_RegistroKilometros y HUB_OxxoGasTickets, con dedupe por "
                  "Metrica+ReferenciaId."),
     ],
+    # El worker de ECCSA_Mailbox. Las OBLIGATORIAS van arriba, y el orden importa:
+    # el panel muestra los campos en este orden y lo primero que se lee es lo que
+    # hay que rellenar.
+    "mailbox_worker": [
+        _f("HUB_DB_PASSWORD", "Contraseña de SQL Server", "secret", "env",
+           ayuda="La de ECCSA_Admon, la MISMA que usa el resto del panel. Sin "
+                 "esto el worker no arranca y dice por qué en el log."),
+        _f("MAILBOX_ENCRYPTION_KEY", "Clave de cifrado de las cuentas", "secret", "env",
+           ayuda="Clave Fernet con la que el panel cifró las credenciales IMAP. "
+                 "Si está vacía se cae a MAILBOX_KEY_FILE. ⚠️ Si no coincide con "
+                 "la que se usó al cifrar, decrypt_secret LANZA: no hay "
+                 "recuperación y todas las cuentas quedan como ERROR."),
+        _f("MAILBOX_STREAM_TOKEN", "Token del servidor de adjuntos", "secret", "env",
+           ayuda="Secreto compartido con la app. Sin esto el servidor de adjuntos "
+                 "responde 401 a todo: la sincronización funciona pero NINGÚN "
+                 "adjunto se puede descargar."),
+        _f("HUB_DB_SERVER", "Servidor SQL Server", "text", "env",
+           default="10.188.141.15"),
+        _f("HUB_DB_DATABASE", "Base de datos", "text", "env", default="ECCSA_Admon",
+           ayuda="⚠️ NO apuntes a ECCSA_Admon_Pruebas en producción: el worker "
+                 "escribe mensajes y movería datos de prueba al buzón real."),
+        _f("MAILBOX_SYNC_ENABLED", "Sincronizar", "bool", "env", default=True,
+           ayuda="En OFF el proceso queda vivo y el panel lo muestra, pero no "
+                 "sincroniza. Es la llave del corte: se apaga MAILBOX_SYNC_ENABLED "
+                 "aquí, HUBMAIL_SYNC_ENABLED en el worker viejo, y se verifica."),
+        _f("MAILBOX_DRY_RUN", "Modo ensayo", "bool", "env", default=False,
+           ayuda="⚠️ Con ON lee IMAP y llena el índice pero NO escribe en el buzón "
+                 "(no drena la cola de envío, no mueve mensajes ni envía). Los dos "
+                 "workers pueden LEER a la vez; lo que no puede ser es escribir "
+                 "los dos."),
+        _f("MAILBOX_SYNC_PERIOD", "Intervalo de sincronización", "number", "env",
+           default=300, min=60, max=86400, unidad="seg",
+           ayuda="Cada cuántos segundos refresca cada cuenta."),
+        _f("MAILBOX_CONCURRENCIA", "Cuentas en paralelo", "number", "env",
+           default=4, min=1, max=20,
+           ayuda="Un hilo por cuenta con reloj propio, para que una cuenta caída "
+                 "no rezague a las demás."),
+        _f("MAILBOX_ESCALONAR", "Escalonado del arranque", "number", "env",
+           default=5, min=0, max=60, unidad="seg",
+           ayuda="Espera entre conexiones IMAP al arrancar. No es decorativo: N "
+                 "cuentas abriendo N conexiones en el mismo segundo se caen entre "
+                 "ellas en Gmail, que tiene tope por cuenta."),
+        _f("MAILBOX_DATOS_DIR", "Carpeta de datos", "text", "env",
+           default="/data/mailbox",
+           ayuda="Volumen COMPARTIDO con la app de Mailbox (cuerpos de los correos "
+                 "e imágenes de firma). Si el volumen no está en los dos "
+                 "contenedores, el worker sincroniza perfecto y el usuario no ve "
+                 "ningún correo, sin error en ninguna parte."),
+        _f("MAILBOX_VAPID_PRIVATE", "Clave VAPID privada", "secret", "env",
+           ayuda="⚠️ Tiene que ser la MISMA que la de la app. Si no coincide, el "
+                 "navegador rechaza cada push con un error que no menciona la "
+                 "llave. Sin esto no hay push, pero la sincronización funciona."),
+        _f("MAILBOX_DIAS_INDICE", "Retención del índice (días)", "number", "env",
+           default=365, min=30, max=1095,
+           ayuda="Después de esto se borra el mensaje entero. Antes sigue "
+                 "listándose (para buscar) aunque el cuerpo ya se purgó."),
+        _f("MAILBOX_HORAS_CUERPO", "Retención del cuerpo (horas)", "number", "env",
+           default=2160, min=24, max=17520,
+           ayuda="90 días. Pasado esto el cuerpo se borra de disco pero el "
+                 "mensaje sigue en el índice y la vista dice que ya se purgó."),
+        _f("MAILBOX_CACHE_MAX_MB", "Cache de adjuntos (MB)", "number", "env",
+           default=2048, min=128, max=10240,
+           ayuda="Es un COALESCADOR, no un almacén: cinco personas abriendo el "
+                 "mismo PDF hacen un solo fetch a IMAP. Vive 6 h y se autolimita."),
+        _f("MAILBOX_CACHE_TTL_H", "Vida de la cache (horas)", "number", "env",
+           default=6, min=1, max=168),
+        _f("MAILBOX_INLINE_MAX_KB", "Tope de imagen inline (KB)", "number", "env",
+           default=256, min=16, max=2048,
+           ayuda="Límite duro de una imagen inline servida de una vez. Existe "
+                 "porque un cid malicioso apuntando a un adjunto grande sería un "
+                 "OOM del worker, y con él caerían TODAS las cuentas."),
+        _f("MAILBOX_IMAP_TIMEOUT", "Timeout IMAP (seg)", "number", "env",
+           default=30, min=5, max=120,
+           ayuda="Un servidor de correo que no responde más que esto no bloquea "
+                 "el ciclo entero."),
+        _f("instancia", "Instancias en el entorno", "const", "const",
+           valor="1 (obligatorio)",
+           ayuda="⚠️ REGLA DURA: solo UNA instancia. El worker toma un "
+                 "sp_getapplock de SQL Server ('mailbox_worker_sync') y se sale "
+                 "con código 3 si ya está tomado. Con dos, la cola de envío se "
+                 "drena dos veces y el cliente recibe correos duplicados."),
+    ],
     "hubmail_worker": [
         _f("HUBMAIL_DB_PASSWORD", "Contraseña de MySQL (HUBMAIL)", "secret", "env",
            ayuda="Base de la caché de correo. Sin esto el worker no arranca bien."),
