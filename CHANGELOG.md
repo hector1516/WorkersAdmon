@@ -4,7 +4,21 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
-## [1.5.3] - 2026-10-06
+## [1.5.4] - 2026-10-06
+
+### Agregado
+- **Acción de regla `SPAM`** (`filtros.py`): mueve el mensaje a la carpeta de
+  spam del buzón con IMAP MOVE. Es lo único que se puede hacer desde la cuenta,
+  porque la carpeta de spam del proveedor no se escribe por IMAP.
+- La carpeta de spam se resuelve **una vez por ciclo** con candidatos en español
+  e inglés (`spam`, `junk`, `junk e-mail`, `correo no deseado`, `no deseado`,
+  `desechados`): el buzón de Hostinger está en español y el de Gmail en inglés.
+- **No cae a un nombre inventado.** Si `_carpeta_por_nombre` no encuentra
+  ninguna, la regla no se aplica y queda el aviso en el log. Crear una carpeta
+  fantasma sería peor: el usuario no la ve en su cliente de correo y el mensaje
+  desaparece de ECCSA sin explicación.
+
+
 
 ### Agregado
 - **`create_folder()`** (`imap_client.py`): crea la carpeta en IMAP con

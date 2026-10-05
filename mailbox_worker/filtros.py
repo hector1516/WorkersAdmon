@@ -150,7 +150,8 @@ def _carpeta_por_nombre(cliente, candidatos) -> str:
     return candidatos[0]
 
 
-def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str) -> bool:
+def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
+                   destino_spam: str = "") -> bool:
     """
     Ejecuta la acción de la regla. Devuelve True si se aplicó.
 
@@ -184,6 +185,20 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str) ->
             # No se borra la fila: queda con `Eliminado=1` para que la app lo
             # muestre tachado y el usuario pueda deshacer antes de la retención.
             ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s WHERE Id = %s",
+                    (destino, mid))
+            return True
+
+        if accion == "SPAM":
+            # El destino lo resuelve el llamador una vez por ciclo (destino_spam)
+            # y se pasa por `destino`. Mover a spam es un MOVE real, no un
+            # flag: el mensaje sale de Entrada y aparece en la carpeta de spam
+            # del proveedor, que es donde el usuario lo va a buscar.
+            if not destino:
+                print(f"[filtros] regla {regla.get('Id')}: SPAM sin carpeta de destino")
+                return False
+            cliente.select_folder(carpeta)
+            cliente.move_message(uid, destino)
+            ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
                     (destino, mid))
             return True
 
@@ -262,12 +277,26 @@ def aplicar_reglas_de_cuenta(cliente, cuenta: dict, ids_nuevos=None) -> dict:
         # que caiga a papelera que una regla que falle todos los días.
         destino = _carpeta_por_nombre(cliente, ("archivados", "archive", "papelera", "trash"))
 
+    # La carpeta de spam se resuelve aparte y NO cae a un nombre inventado: si
+    # el proveedor no tiene carpeta de spam, mover ahí crearía una carpeta
+    # fantasma que el usuario no ve en su cliente y el correo "desaparecería"
+    # de ECCSA. Preferimos que la regla no se aplique y seavise en el log.
+    #
+    # Los candidatos son en español e inglés porque el buzón de Hostinger está
+    # en español ("Correo no deseado") y el de Gmail en inglés ("Spam").
+    destino_spam = ""
+    if any((r.get("Accion") or "").upper() == "SPAM" for r in reglas):
+        destino_spam = _carpeta_por_nombre(cliente, (
+            "spam", "junk", "junk e-mail", "correo no deseado", "no deseado",
+            "desechados", "spam/quarantine",
+        ))
+
     for mensaje in candidatos:
         resumen["evaluados"] += 1
         for regla in reglas:
             if not coincide(mensaje, regla):
                 continue
-            if aplicar_accion(cliente, cuenta, mensaje, regla, destino):
+            if aplicar_accion(cliente, cuenta, mensaje, regla, destino, destino_spam):
                 resumen["aplicadas"] += 1
                 _marcar_regla(regla)
             # Solo ETIQUETAR deja seguir evaluando: las demás mueven el mensaje
