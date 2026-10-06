@@ -4,6 +4,41 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.7.0] - 2026-10-06
+
+### Agregado
+- **El despachador entrega también las colas de Field.** `cron_avisos_push.py`
+  recorre `AVISOS_APPS` (por omisión `admon,field`) en el mismo bucle, en vez de
+  un proceso por app: un proceso más serían una segunda entrada de supervisor, un
+  segundo log y un segundo heartbeat para lo que es el MISMO bucle. `AVISOS_APP`
+  sigue funcionando para quien quiera una sola app. **Los detectores NO se
+  comparten**: son de Admon (leen tablas de Admon y encolan para destinatarios de
+  Admon), así que corren una sola vez, con `AVISOS_APP_DETECTORES`.
+- **Aviso de vale generado** (`oxxogas_vales_automation.py`): cuando Playwright
+  confirma el folio en Go Vale, se encola `VALE_GENERADO` (`App='field'`) para
+  `HUB_SolicitudVales.IdSolicitante`, que es quien lo pidió. Solo cuando hay
+  folio: sin él el vale sigue `APROBADO` y se reintenta, así que todavía no hay
+  nada que entregar.
+
+### Corregido
+- **El `App` ahora llega hasta el envío, no solo hasta la cola.** Antes
+  `_correos_de()` tenía `App = 'admon'` hardcodeado y
+  `get_push_subscriptions_by_emails()` leía `HUB_PushSubscriptions` (la tabla
+  VIEJA, por `UserEmail`, sin columna `App`). Una fila de la cola de Field buscaba
+  los equipos de Admon, no encontraba ninguno y quedaba en `FALLADO` con el
+  detalle "sin dispositivos que acepten": **el aviso se perdía entero sin un solo
+  error.** Ahora ambas funções reciben `app` y filtran por
+  `HUB_PushSuscripciones.App`.
+- **El `tag` de los avisos lleva el app** (`field-reporte_firmado` en vez de
+  `admon-…`): si un mismo tipo existiera en dos apps, el aviso de una taparía al
+  de la otra.
+
+### Pruebas
+- 5 pruebas nuevas en `tests/test_avisos.py` (`TestDespachoPorApp`): que
+  `_correos_de()` y `despachar()` usen el `App` que se les pasa, que el resumen
+  salga por su app, y que sin equipos la fila quede `FALLADO` y no `ENVIADO`.
+  Suite completa: **503 en verde**.
+
 ## [1.6.0] - 2026-10-06
 
 ### Agregado

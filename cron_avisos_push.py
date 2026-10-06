@@ -61,7 +61,21 @@ except Exception:
     def heartbeat(worker, detail="", count=None):
         return False
 
-APP = os.environ.get("AVISOS_APP", nd.APP_ADMON)
+APP = os.environ.get("AVISOS_APP", "")
+
+# Apps cuya cola entrega este worker. Por qué una lista y no un proceso por app:
+# Un segundo proceso sería una segunda entrada de supervisor, un segundo log y un
+# segundo heartbeat para lo que es el MISMO bucle; iterar es un bucle con dos
+# consultas más. `AVISOS_APP` sigue funcionando (una app) para que un conf
+# viejo de supervisor se comporte igual que antes.
+#
+# El DESPACHO sí corre para todas las apps. Los detectores son de Admon:
+# leen tablas de Admon y encolan para destinatarios de Admon. Correrlos con
+# app="field" encolaría filas de Field con destinatarios de Admon, que es peor
+# que no detectar nada.
+APPS = [a.strip() for a in os.environ.get(
+    "AVISOS_APPS", "admon,field" if not APP else APP).split(",") if a.strip()]
+APP_DETECTORES = os.environ.get("AVISOS_APP_DETECTORES", "admon")
 
 # Cada cuánto se da un turno. Cinco minutos es de sobra para cinco consultas con
 # índice, y hace que el atraso máximo de un aviso sea de cinco minutos.
@@ -77,17 +91,20 @@ def _log(mensaje):
 
 def turno():
     """Un turno completo. Devuelve una línea con lo que hizo, para el log."""
-    detectados = nd.detectar(app=APP)
+    detectados = nd.detectar(app=APP_DETECTORES)
     total = sum(v for v in detectados.values())
     if total:
         partes = ", ".join(f"{k.lower()}={v}" for k, v in detectados.items() if v)
         _log(f"encolados: {partes}")
-    resumen = nd.despachar(app=APP)
-    return resumen
+    # Un turno de envío por app. El texto se arma con todas para que el log
+    # diga qué pasó con cada una y no solo con la última.
+    partes = [nd.despachar(app=a) for a in APPS]
+    return "; ".join(f"[{a}] {t}" for a, t in zip(APPS, partes))
 
 
 def main():
-    _log(f"worker de avisos push iniciado (app={APP}, ciclo={AVISOS_CICLO_SEG}s)")
+    _log(f"worker de avisos push iniciado (apps={','.join(APPS)}, "
+         f"detectores={APP_DETECTORES}, ciclo={AVISOS_CICLO_SEG}s)")
     vuelta = 0
     while True:
         try:

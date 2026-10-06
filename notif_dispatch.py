@@ -750,17 +750,17 @@ def enviar_resumen(app=APP_ADMON):
 
     enviados = 0
     for id_usuario, propias in por_usuario.items():
-        correos = _correos_de([id_usuario])
+        correos = _correos_de([id_usuario], app=app)
         if not correos:
             marcar([f["Id"] for f in propias], "ENVIADO", "sin suscripcion activa")
             continue
         n = len(propias)
         plural = "s" if n != 1 else ""
         titulo = f"🔔 Tienes {n} aviso{plural}"
-        extra = {"tag": f"admon-digest-{id_usuario}", "url": "/",
+        extra = {"tag": f"{app}-digest-{id_usuario}", "url": "/",
                  "badge_count": n}
         ok, _fallo = db.send_push_notification_to_users(titulo, _texto_resumen(propias),
-                                                        correos, extra=extra)
+                                                        correos, extra=extra, app=app)
         if ok > 0:
             enviados += 1
             marcar([f["Id"] for f in propias], "ENVIADO")
@@ -769,8 +769,14 @@ def enviar_resumen(app=APP_ADMON):
     return enviados
 
 
-def _correos_de(ids_usuario):
-    """Correos de los usuarios indicados que tienen suscripción para esta app."""
+def _correos_de(ids_usuario, app=APP_ADMON):
+    """Correos de los usuarios indicados que tienen suscripción para ESTA app.
+
+    El `App` del filtro no es un detalle: las suscripciones son POR APP (columna
+    `HUB_PushSuscripciones.App`). Con el app hardcodeado a Admon, una fila de la
+    cola de Field buscaba los equipos de Admon, no encontraba ninguno y se
+    marcaba FALLADO sin haber enviado nada: el aviso se perdía sin error visible.
+    """
     if not ids_usuario:
         return []
     lista = ",".join(str(int(i)) for i in ids_usuario)
@@ -779,7 +785,7 @@ def _correos_de(ids_usuario):
         f"INNER JOIN HUB_PushSuscripciones s ON s.IdUsuario = u.Id "
         f"WHERE u.Id IN ({lista}) AND u.Activo = 1 AND s.Activo = 1 AND s.App = %s "
         f"AND ISNULL(u.Email, '') <> ''",
-        (APP_ADMON,),
+        (app,),
     )
     return [f["Email"] for f in filas]
 
@@ -826,11 +832,14 @@ def despachar(app=APP_ADMON):
     enviados = 0
     for f in pendientes(app=app):
         extra = {
-            "tag": f"admon-{f['Tipo'].lower()}",
+            # El tag lleva el app: agrupa por tipo SIN mezclar apps. Si un mismo
+            # tipo existiera en dos, el aviso de una taparía al de la otra.
+            "tag": f"{app}-{f['Tipo'].lower()}",
             "url": f.get("Url") or "/",
         }
         ok, _fallo = db.send_push_notification_to_users(
-            f["Titulo"], f["Mensaje"], _correos_de([f["IdUsuario"]]), extra=extra)
+            f["Titulo"], f["Mensaje"], _correos_de([f["IdUsuario"]], app=app),
+            extra=extra, app=app)
         if ok > 0:
             enviados += 1
             marcar([f["Id"]], "ENVIADO")

@@ -20,6 +20,7 @@ import os
 import sys
 import types
 import unittest
+import unittest.mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -124,10 +125,16 @@ def _reset():
 _llamadas_envio = []
 
 
-def _envia_fake(titulo, mensaje, correos, extra=None):
-    """Sustituto del envío real: anota la llamada y dice que llegó a uno."""
+def _envia_fake(titulo, mensaje, correos, extra=None, app=None):
+    """Sustituto del envío real: anota la llamada y dice que llegó a uno.
+
+    `app` existe porque el despacho ahora lo pasa: sin él, el doble firmaría una
+    firma distinta de la de producción y las pruebas no comprobarían nada de lo
+    que importa (que el aviso salga por los equipos de SU app).
+    """
     _llamadas_envio.append({"titulo": titulo, "mensaje": mensaje,
-                            "correos": list(correos or []), "extra": extra or {}})
+                            "correos": list(correos or []), "extra": extra or {},
+                            "app": app})
     return (1, 0) if correos else (0, 1)
 
 
@@ -584,6 +591,92 @@ class TestFormaDelSQL(unittest.TestCase):
             sql, params = _cursor.ejecutadas[-1]
             self._comprueba(sql, params)
 
+
+
+# ── Field: el despachador tiene que entregar por APP ──────────────────────────
+#
+# El fallo que esto cubre es silencioso, que es la peor clase: una fila de la
+# cola de Field se buscaba en los equipos de Admon, no encontraba ninguno y
+# quedaba en FALLADO "sin dispositivos que acepten" sin que nadie supiera que
+# el aviso nunca salió. Además el `tag` llevaba "admon-" fijo, así que un mismo
+# tipo en dos apps se pisaba.
+class TestDespachoPorApp(unittest.TestCase):
+
+    def setUp(self):
+        _reset()
+        # _reset() no vacía la lista de envíos (otras pruebas la consultan tal
+        # cual); aquí hace falta empezar de cero para no contar lo que mandó la
+        # prueba anterior.
+        del _llamadas_envio[:]
+
+    def test_correos_de_filtra_por_la_app_que_se_le_pide(self):
+        _cursor.respuestas = {"HUB_PushSuscripciones": [{"Email": "hector@ecc-sa.com.mx"}]}
+        nd._correos_de([2], app="field")
+        sql, params = _cursor.ejecutadas[-1]
+        self.assertIn("s.App = %s", sql)
+        self.assertEqual(params, ("field",))
+        self.assertIn("HUB_PushSuscripciones", sql)
+
+    def test_correos_de_marcaadores_y_argumentos_calzan(self):
+        import re
+        nd._correos_de([2], app="field")
+        sql, params = _cursor.ejecutadas[-1]
+        self.assertEqual(len(re.findall(r"%s", sql)), len(params))
+
+    def test_despachar_de_field_pasa_la_app_al_envio(self):
+        # Fila pendiente de Field para el usuario 2.
+        _cursor.respuestas = {
+            "HUB_AvisosCola": {"Id": 99, "App": "field", "Tipo": "REPORTE_FIRMADO",
+                               "IdUsuario": 2, "Titulo": "✍️ Reporte firmado",
+                               "Mensaje": "Ya está firmado.", "Url": "/reportes/7"},
+            "HUB_PushSuscripciones": {"Email": "hector@ecc-sa.com.mx"},
+        }
+        with unittest.mock.patch.object(nd, "dentro_de_horario", return_value=True), \
+             unittest.mock.patch.object(nd, "resumen_activo", return_value=False), \
+             unittest.mock.patch.object(nd, "cfg_get", return_value=""):
+            nd.despachar(app="field")
+        self.assertEqual(len(_llamadas_envio), 1, "no se intentó enviar nada")
+        self.assertEqual(_llamadas_envio[0]["app"], "field",
+                         "el envío no se hizo por la app de field: el aviso "
+                         "buscaría los equipos de otra app")
+        self.assertEqual(_llamadas_envio[0]["extra"]["tag"], "field-reporte_firmado")
+
+    def test_el_resumen_also_se_envia_por_su_app(self):
+        _cursor.respuestas = {
+            "HUB_AvisosCola": {"Id": 5, "App": "field", "Tipo": "VALE_GENERADO",
+                               "IdUsuario": 2, "Titulo": "⛽ Vale listo",
+                               "Mensaje": "Ya puedes pagarlo.", "Url": "/vales"},
+            "HUB_PushSuscripciones": {"Email": "hector@ecc-sa.com.mx"},
+        }
+        n = nd.enviar_resumen(app="field")
+        self.assertEqual(n, 1)
+        self.assertEqual(_llamadas_envio[0]["app"], "field")
+        self.assertTrue(_llamadas_envio[0]["extra"]["tag"].startswith("field-"))
+
+    def test_sin_equipos_de_esa_app_no_marca_enviado(self):
+        # Sin patron para HUB_PushSuscripciones a proposito: este usuario no
+        # tiene ningun equipo con Field instalado.
+        _cursor.respuestas = {
+            "HUB_AvisosCola": {"Id": 7, "App": "field", "Tipo": "VALE_GENERADO",
+                               "IdUsuario": 2, "Titulo": "t", "Mensaje": "m",
+                               "Url": "/vales"},
+        }
+        with unittest.mock.patch.object(nd, "dentro_de_horario", return_value=True), \
+             unittest.mock.patch.object(nd, "resumen_activo", return_value=False), \
+             unittest.mock.patch.object(nd, "cfg_get", return_value=""):
+            nd.despachar(app="field")
+        # El envío se intenta con la lista de correos VACÍA (así se ve que
+        # buscó equipos y no los encontró) y la fila queda FALLADA, no ENVIADA:
+        # marcar ENVIADO algo que no salió es cómo se pierde un aviso en silencio.
+        self.assertEqual(len(_llamadas_envio), 1)
+        self.assertEqual(_llamadas_envio[0]["correos"], [])
+        self.assertEqual(_llamadas_envio[0]["app"], "field")
+        # El estado va como PARÁMETRO (no dentro del SQL), así que se comprueba
+        # en los argumentos: es el mismo cuidado de marcadores que ya tiene la
+        # clase TestFormaDelSQL.
+        sql, params = _cursor.ejecutadas[-1]
+        self.assertIn("UPDATE HUB_AvisosCola SET Estado = %s", sql)
+        self.assertEqual(params[0], "FALLADO")
 
 
 if __name__ == "__main__":

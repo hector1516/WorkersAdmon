@@ -3731,19 +3731,40 @@ def get_users_with_subscriptions_and_cars():
         print(f"get_users_with_subscriptions_and_cars error: {e}")
         return []
 
-def get_push_subscriptions_by_emails(emails):
-    """Return push subscriptions for specific user emails."""
+def get_push_subscriptions_by_emails(emails, app=None):
+    """Suscripciones push de los usuarios con esos correos.
+
+    `app` = 'admon' | 'field' | ... : busca en HUB_PushSuscripciones, que TIENE
+    columna App. Sin `app` se usa la tabla VIEJA (HUB_PushSubscriptions, por
+    UserEmail), que es la que sigue escribiendo `mcp_server` y no sirve para una
+    app más: no tiene de dónde sacar el IdUsuario ni qué app es.
+
+    Por qué importa el filtro: sin columna App, el aviso de una app cae dentro
+    del service worker de otra. La gente ve avisos que no le corresponden,
+    sospecha que la app está mal y apaga los permisos.
+    """
     if not emails:
         return []
     try:
         with get_connection() as conn:
             with conn.cursor(as_dict=True) as cur:
                 placeholders = ",".join("%s" for _ in emails)
-                cur.execute(f"""
-                    SELECT UserEmail, Endpoint, P256dhKey, AuthKey
-                    FROM HUB_PushSubscriptions
-                    WHERE UserEmail IN ({placeholders})
-                """, list(emails))
+                if app:
+                    # LTRIM(RTRIM()) y no TRIM(): TRIM no existe en SQL 2014.
+                    cur.execute(f"""
+                        SELECT u.Email AS UserEmail, s.Endpoint,
+                               s.P256dhKey, s.AuthKey, s.App
+                        FROM HUB_PushSuscripciones s
+                        JOIN HUB_Users u ON u.Id = s.IdUsuario
+                        WHERE s.App = %s AND s.Activo = 1 AND u.Activo = 1
+                          AND LTRIM(RTRIM(u.Email)) IN ({placeholders})
+                    """, [app] + list(emails))
+                else:
+                    cur.execute(f"""
+                        SELECT UserEmail, Endpoint, P256dhKey, AuthKey
+                        FROM HUB_PushSubscriptions
+                        WHERE UserEmail IN ({placeholders})
+                    """, list(emails))
                 return cur.fetchall()
     except Exception as e:
         print(f"get_push_subscriptions_by_emails error: {e}")
@@ -3865,8 +3886,12 @@ def send_push_notification(titulo, mensaje, extra=None):
 
     return sent, failed
 
-def send_push_notification_to_users(titulo, mensaje, user_emails, extra=None):
+def send_push_notification_to_users(titulo, mensaje, user_emails, extra=None, app=None):
     """Send a push notification to specific users by email list.
+
+    `app` es la app destino ('admon', 'field'): decide de qué tabla se toman
+    las suscripciones (ver get_push_subscriptions_by_emails). Sin `app` se usa
+    el camino viejo, que es el que escribe `mcp_server`.
 
     `extra` son campos adicionales del payload; ver `send_push_notification`.
     """
@@ -3882,7 +3907,7 @@ def send_push_notification_to_users(titulo, mensaje, user_emails, extra=None):
         print("VAPID keys not configured")
         return 0, 0
 
-    subs = get_push_subscriptions_by_emails(user_emails)
+    subs = get_push_subscriptions_by_emails(user_emails, app=app)
     if not subs:
         return 0, 0
 

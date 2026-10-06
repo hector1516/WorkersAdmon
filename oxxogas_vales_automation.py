@@ -302,6 +302,54 @@ def login_and_get_token(user=None, pwd=None):
             pass
 
 
+def _avisar_vale_generado(sol, folio_oxxogas):
+    """Encola el aviso push de "tu vale ya está" para quien lo pidió.
+
+    `sol` es la fila normalizada de HUB_SolicitudVales que ya se leyó al
+    empezar (IDSOLICITANTE, DESCRIPCION, PLACA, SOLICITANTE).
+
+    Se escribe en HUB_AvisosCola con App='field' y lo manda el despachador
+    central, no este worker: el aviso tiene que salir por el mismo camino que
+    los demás (horario laboral, resumen, log único). Además, si se mandara
+    desde aquí, el push saldría con las claves de este worker y no con las que
+    el usuario tiene suscritas.
+
+    Se manda aunque el solicitante sea el mismo que pidió el vale: aquí el
+    "solicitante" es quien lo pidió, y lo que se le avisa es que YA SE PUEDE
+    pagar, que es exactamente lo que estaba esperando.
+    """
+    import eccsa_db as db
+    id_usuario = sol.get('IDSOLICITANTE')
+    if not id_usuario:
+        return False
+    descripcion = (sol.get('DESCRIPCION') or '').strip()
+    quien = (sol.get('SOLICITANTE') or '').strip()
+    conn = db.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO HUB_AvisosCola "
+                "(App, Tipo, IdUsuario, Estado, EsResumen, Titulo, Mensaje, Url, Creado) "
+                "VALUES (%s, %s, %s, 'PENDIENTE', 0, %s, %s, %s, GETDATE())",
+                ('field', 'VALE_GENERADO', int(id_usuario),
+                 '⛽ Tu vale de gasolina está listo',
+                 (f"{descripcion or 'Vale de gasolina'} · folio {folio_oxxogas}. "
+                  f"Ya puedes pagarlo en OxxoGas con el QR.").strip()[:1000],
+                 '/vales'),
+            )
+        conn.commit()
+    except Exception as exc:
+        # El índice único es (IdUsuario, Tipo, Creado): dos inserts del mismo
+        # usuario en el mismo segundo son el MISMO aviso, no dos.
+        texto = str(exc).lower()
+        if 'duplicate' in texto or '2627' in texto:
+            return True
+        raise
+    print(f"[govale] aviso encolado para el usuario {id_usuario}"
+          f"{' (' + quien + ')' if quien else ''}", flush=True)
+    return True
+
+
 def crear_vale(solicitud_id, user=None, pwd=None):
     """Crea un vale navegando la UI de Go Vale con Playwright (Angular Material).
     Usa la tabla de mapeo HUB_OxxoGas_Mapeo para empresa/contacto.
@@ -545,6 +593,21 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                           f"qr={'sí' if qr_code else 'no (el listado de Go Vale no lo muestra)'}")
             finally:
                 conn.close()
+
+            # Aviso push a QUIEN PEDIÓ el vale (App='field'): el técnico que lo
+            # pidió desde el celular es quien necesita enterarse de que ya tiene
+            # QR, y es el único al que le interesa.
+            #
+            # Va por la cola del despachador y no directo: así respeta el
+            # horario laboral y queda en el log único de avisos. Y solo si de
+            # verdad hay vale: si Go Vale lo creó pero no se pudo leer el folio,
+            # el vale sigue APROBADO y se va a reintentar, así que todavía no
+            # hay nada que entregar.
+            if folio_oxxogas and sol.get('IDSOLICITANTE'):
+                try:
+                    _avisar_vale_generado(sol, folio_oxxogas)
+                except Exception as exc:
+                    print(f"[govale] no se pudo avisar el vale: {exc}")
 
             return {'success': True, 'data': {
                 'message': ('Vale generado exitosamente' if folio_oxxogas

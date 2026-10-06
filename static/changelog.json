@@ -1,7 +1,9 @@
 {
   "app": "workersadmon",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "cambios": [
+    "🔔 El despachador de avisos ya entrega también a Field, no solo a Admon.",
+    "⛽ Cuando tu vale de gasolina ya tiene folio en Go Vale, te llega el aviso a ti.",
     "📣 Nuevo módulo Avisos: enciendes y apagas los avisos push y ves a quién le llega cada uno.",
     "🔔 Los avisos se filtran por los permisos de cada usuario: nadie recibe avisos de un módulo que no puede abrir.",
     "🕘 Fuera de lunes a viernes de 9:00 a 18:30 nada suena: lo que se acumula sale junto al día siguiente, en un solo resumen.",
