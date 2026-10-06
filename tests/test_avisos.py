@@ -527,5 +527,64 @@ class TestNormalizarVapidPrivada(unittest.TestCase):
 
 
 
+class TestFormaDelSQL(unittest.TestCase):
+    """
+    La forma de la sentencia, no su resultado.
+
+    Pasó en producción: `pendientes()` armaba el TOP con `%d` y la sentencia
+    también llevaba el `%s` del app. Un solo operador `%` sobre los dos
+    marcadores se come los dos argumentos, y el worker falló en el primer turno
+    con "not enough arguments for format string". El doble de los tests de arriba
+    no aplica el formato, así que esto NO se veía; el heartbeat sí.
+
+    Por eso aquí se comprueba que el número de marcadores que se pasan es el que
+    la sentencia declara, que es la regla que pymssql aplica de verdad.
+    """
+
+    def setUp(self):
+        _reset()
+
+    def _comprueba(self, sql, params):
+        """Como lo hace DB-Lib: los marcadores tienen que calzar con los args."""
+        import re
+        marcadores = len(re.findall(r"%s", sql))
+        self.assertEqual(
+            marcadores, len(params),
+            f"la sentencia declara {marcadores} marcador(es) y se pasan "
+            f"{len(params)} argumento(s): {sql}")
+
+    def test_pendientes_tiene_un_marcador_y_un_argumento(self):
+        nd.pendientes(app="admon")
+        sql, params = _cursor.ejecutadas[-1]
+        self._comprueba(sql, params)
+        self.assertIn("App = %s", sql)
+        self.assertIn("HUB_AvisosCola", sql)
+
+    def test_pendientes_el_top_va_como_numero_y_no_como_marcador(self):
+        nd.pendientes(app="admon", limite=250)
+        sql, _ = _cursor.ejecutadas[-1]
+        self.assertIn("TOP (250)", sql)
+        self.assertNotIn("%d", sql)
+        self.assertNotIn("TOP %", sql)
+
+    def test_el_limite_se_escapa_a_entero(self):
+        # Un limite que venga de fuera como texto no debe poder inyectar SQL ni
+        # romper la sentencia.
+        nd.pendientes(app="admon", limite="50")
+        sql, params = _cursor.ejecutadas[-1]
+        self.assertIn("TOP (50)", sql)
+        self._comprueba(sql, params)
+
+    def test_limite_negativo_o_basura_no_rompe(self):
+        for malo in (-5, "abc", None):
+            try:
+                nd.pendientes(app="admon", limite=malo)
+            except (ValueError, TypeError):
+                continue          # que rechace el valor está bien
+            sql, params = _cursor.ejecutadas[-1]
+            self._comprueba(sql, params)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

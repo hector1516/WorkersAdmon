@@ -41,6 +41,14 @@
   tenga en la mano: el `INSERT` de la cola entraba y el marcador "ya avisado" se
   perdía, así que el siguiente ciclo volvía a avisar lo mismo.
 
+- **`pendientes()` falló en el primer turno de producción** con "not enough
+  arguments for format string": armaba el `TOP` con `%d` y la sentencia también
+  llevaba el `%s` de `App`, y un solo operador `%` se come los dos argumentos a
+  la vez. El `TOP` va ahora concatenado como `TOP (N)`. Lo detectó el heartbeat,
+  no las pruebas: el doble de los tests no aplica el formato. Hay una clase
+  (`TestFormaDelSQL`) que comprueba que los marcadores que declara la sentencia
+  son los argumentos que se pasan, que es la regla que DB-Lib sí aplica.
+
 ### Decisiones
 - **El reparto se hace al ENCOLAR, no al enviar.** Si alguien pierde el permiso de
   Cotizaciones un minuto después de que se firmó algo, no debe enterarse por un

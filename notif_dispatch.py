@@ -406,13 +406,15 @@ def encolar(tipo, actor, ref, extra="", url=None, solo_ids=None, app=APP_ADMON,
 
 
 def pendientes(app=APP_ADMON, limite=500):
-    return _filas(
-        "SELECT TOP %d Id, App, Tipo, IdUsuario, Titulo, Mensaje, Url "
-        "FROM HUB_AvisosCola "
-        "WHERE App = %s AND Estado = 'PENDIENTE' "
-        "ORDER BY Creado ASC" % int(limite),
-        (app,),
+    # El TOP va concatenado y NO con %d: la sentencia también lleva un %s (el
+    # de `App`), y un solo operador `%` sobre los dos marcadores se come los dos
+    # argumentos a la vez. Puesto como `TOP (N)` no hay formato que aplicar.
+    sql = (
+        "SELECT TOP (" + str(int(limite)) + ") Id, App, Tipo, IdUsuario, "
+        "Titulo, Mensaje, Url FROM HUB_AvisosCola "
+        "WHERE App = %s AND Estado = 'PENDIENTE' ORDER BY Creado ASC"
     )
+    return _filas(sql, (app,))
 
 
 def marcar(ids, estado, detalle=None):
