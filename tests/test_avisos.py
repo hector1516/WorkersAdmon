@@ -70,6 +70,21 @@ class _FakeCursor(dict):
         return False
 
 
+class _FakeCursorTupla(_FakeCursor):
+    """Cursor NORMAL (sin `as_dict`): sus filas llegan como tuplas.
+
+    Es el caso del detector de kilómetros, que abre su propio cursor para tener
+    `rowcount` en los upserts. Con este cursor, `cfg_get` reventaba con
+    "'tuple' object has no attribute 'get'" en cada ciclo y el aviso de
+    kilómetros no se mandaba nunca.
+    """
+    def fetchone(self):
+        fila = super().fetchone()
+        if fila is None:
+            return None
+        return tuple(fila.values())
+
+
 class _FakeConn:
     def __init__(self, cursor):
         self._cursor = cursor
@@ -421,6 +436,23 @@ class TestHorariosDesdeConfig(unittest.TestCase):
         for v in ("0", "false", "no", "off"):
             _cursor.respuestas = {"avisos_push_kilometros": {"v": v}}
             self.assertFalse(nd.tipo_activo(_cursor, "KILOMETROS"), v)
+
+    def test_cfg_get_acepta_fila_tupla(self):
+        # El detector de kilómetros abre el cursor SIN as_dict y por eso la fila
+        # le llega como tupla: este test es el que evita que ese camino se
+        # vuelva a romper en silencio (falló en producción el 2026-10-06).
+        cur = _FakeCursorTupla({"avisos_push_kilometros": {"v": "0"}})
+        self.assertEqual(nd.cfg_get(cur, "avisos_push_kilometros"), "0")
+
+    def test_tipo_activo_acepta_fila_tupla(self):
+        cur = _FakeCursorTupla({"avisos_push_kilometros": {"v": "0"}})
+        self.assertFalse(nd.tipo_activo(cur, "KILOMETROS"))
+        cur = _FakeCursorTupla({"avisos_push_kilometros": {"v": "1"}})
+        self.assertTrue(nd.tipo_activo(cur, "KILOMETROS"))
+
+    def test_cfg_get_sin_fila_usa_el_defecto(self):
+        # Ni dict ni tupla: la clave no existe en HUB_Config.
+        self.assertEqual(nd.cfg_get(_FakeCursorTupla(), "no_existe", "def"), "def")
 
     def test_valor_vacio_cae_al_defecto(self):
         # Vaciar la casilla NO apaga el aviso: cae al valor por defecto (que es

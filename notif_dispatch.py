@@ -194,10 +194,23 @@ def proximo_envio(momento, inicio):
 
 
 def cfg_get(cur, clave, defecto=""):
+    """Lee un valor de HUB_Config.
+
+    La fila llega como dict si quien llama abrió el cursor con `as_dict=True` y
+    como tupla si lo abrió normal, así que aquí NO se puede suponer una de las
+    dos formas: el detector de kilómetros abre su propio cursor (necesita el
+    `rowcount` de los upserts) y por eso le llegaba tupla y reventaba cada ciclo
+    con "'tuple' object has no attribute 'get'", dejando el aviso de kilómetros
+    sin mandar nunca. Normalizar en este punto evita que el error dependa de
+    quién llama, que es como estaba.
+    """
     cur.execute("SELECT CAST(Valor AS VARCHAR(MAX)) AS v FROM HUB_Config WHERE Clave = %s",
                 (clave,))
     fila = cur.fetchone()
-    return (fila.get("v") if fila else None) or defecto
+    if not fila:
+        return defecto
+    valor = fila.get("v") if hasattr(fila, "get") else fila[0]
+    return valor or defecto
 
 
 def cfg_set(cur, clave, valor):
