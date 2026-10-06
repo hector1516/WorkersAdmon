@@ -49,6 +49,12 @@
   (`TestFormaDelSQL`) que comprueba que los marcadores que declara la sentencia
   son los argumentos que se pasan, que es la regla que DB-Lib sí aplica.
 
+### Documentación
+- **`shell/docs/PUSH.md`** (repo ECCSA-Shell, re-vendorizado acá): el contrato
+  de los avisos al teléfono, para que otra app pueda repetirlos sin reconstruir
+  el conocimiento desde cero. Incluye la parte de iOS, que es la que más cuesta
+  y la que no da ningún error visible.
+
 ### Decisiones
 - **El reparto se hace al ENCOLAR, no al enviar.** Si alguien pierde el permiso de
   Cotizaciones un minuto después de que se firmó algo, no debe enterarse por un

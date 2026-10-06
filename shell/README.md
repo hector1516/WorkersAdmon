@@ -2,7 +2,7 @@
 
 **Design system y app shell compartidos de las apps ECCSA.**
 Fuente única de: tokens, CSS del shell, banner común, contrato del endpoint de
-estado y la receta para crear apps nuevas.
+estado, contrato de las notificaciones push y la receta para crear apps nuevas.
 
 Apps que lo consumen: **Field**, **Dashboard** (el kiosco de la oficina),
 **Admon** (`AdmonApp`) y **WorkersAdmon**.
@@ -24,6 +24,7 @@ Apps que lo consumen: **Field**, **Dashboard** (el kiosco de la oficina),
 | `banner/actions.py.html` | La misma barra para apps sin build, con enlaces en vez de manejadores. |
 | `banner/changelog.py.html` | El mismo modal para apps sin build, con la lógica en un script chico. |
 | `docs/CONTRATO.md` | Contrato del banner: `GET /api/shell/state`, markup, textos, colores y la regla de ubicación. |
+| `docs/PUSH.md` | Contrato de los **avisos al teléfono**: las tres condiciones de iOS, la tabla de suscripciones con `App`, el payload, los handlers del service worker, los endpoints y la receta para añadir push a una app nueva. |
 | `docs/CREAR-APP.md` | Receta de 6 pasos para una app nueva. |
 | `tools/build_shell.py` | Genera `dist/` desde `tokens.css` + `src/`. |
 | `tools/sync_shell.py` | Copia el CSS **y los artefactos del banner** a cada app, y estampa `ECCSA_SHELL_VERSION`. `--check` sale 1 si divergen. |

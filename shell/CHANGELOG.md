@@ -1,5 +1,26 @@
 # Historial de cambios — ECCSA-Shell
 
+## Sin publicar
+
+### Agregado
+- **`docs/PUSH.md`**: contrato de las notificaciones al teléfono. Las tres
+  condiciones de iOS que el navegador no avisa, por qué las suscripciones
+  necesitan columna `App`, el formato de la clave VAPID y el fallo silencioso que
+  causa si no es el correcto, el payload (y por qué va `badge_count` en vez de
+  `badge`), los handlers del service worker, los cinco endpoints, la receta para
+  añadir push a una app nueva, un checklist y una tabla de los errores ya
+  pagados. Es lo que hay que leer antes de implementar push en otra app.
+
+  Sin cambio de `VERSION`: es documentación, no toca tokens ni componentes, así
+  que no hay nada que re-vendorizar en las apps.
+
+### Corregido
+- `docs/VERSIONES.md` decía que las suscripciones push viven en
+  `HUB_PushSubscriptions`. Ya no: la tabla que usan las apps es
+  `HUB_PushSuscripciones`, que **lleva columna `App`** precisamente para que un
+  aviso de una app no aparezca dentro de otra.
+
+
 ## [1.1.1] - 2026-09-27
 
 Cambio interno, **sin efecto visual**: los valores que el CSS tenía escritos a

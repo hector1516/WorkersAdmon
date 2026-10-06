@@ -126,6 +126,11 @@ el contenedor).
 
 ## Avisos push (`notif_dispatch.py` + `cron_avisos_push.py`)
 
+> **El contrato completo está en `shell/docs/PUSH.md`** (repo ECCSA-Shell):
+> las tres condiciones de iOS, el payload, los handlers del service worker, los
+> endpoints y la receta para meter push en otra app. Lo de aquí es solo cómo lo
+> usa ESTE contenedor.
+
 El canal push de las PWA. La decisión está en `notif_dispatch.py` (biblioteca
 sin bucle, probada sin BD) y el turno en `cron_avisos_push.py` (programa
 `avisos_push`). Los cinco eventos salen de datos que **otra** app escribió: el

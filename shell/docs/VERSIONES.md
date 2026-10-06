@@ -13,9 +13,9 @@ Las apps apuntan a la **misma base** (`ECCSA_Admon`) y comparten código:
 |---|---|
 | `pymssql` | todas leen/escriben las mismas tablas |
 | `reportlab` + `Pillow` | PDFs y PNG de QR que se ven igual en Field, Admon y el panel |
-| `pywebpush` + `py-vapid` | las claves VAPID viven en `HUB_Config` y las suscripciones en `HUB_PushSubscriptions`: todas envían push a los mismos celulares |
+| `pywebpush` + `py-vapid` | las claves VAPID en `HUB_PushConfig` (y en `HUB_Config` para Mailbox) y las suscripciones en `HUB_PushSuscripciones`, que **lleva columna `App`** para que un aviso de una app no aparezca en otra. Ver [`PUSH.md`](PUSH.md). |
 | `webauthn` + `pyjwt` | passkeys con RP raíz `ecc-sa.com.mx` compartidas entre Field y Admon |
-| `fastapi` + `pydantic` | Admon y el worker de Field (`avisos`) usan el mismo `routers/push.py` |
+| `fastapi` + `pydantic` | Admon y los workers de Field en WorkersAdmon comparten `api/` |
 
 Con versiones distintas/passaba esto: Field generaba PDFs con reportlab 4.4.0 y
 el panel con 5.0.1 → el mismo documento se veía distinto según dónde se abriera,
