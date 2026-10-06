@@ -47,6 +47,17 @@ _EMAIL_RE = re.compile(r"[^\s<>,;]+@[^\s<>,;]+\.[A-Za-z]{2,}")
 # 40 mil mensajes sin leer.
 _LOTE = 200
 
+# Cada cuántos ciclos se vuelve a preguntar al buzón qué carpetas tiene.
+_RELISTAR_CADA = 6           # con el ciclo de 300 s, ~30 minutos
+
+# Máximos mensajes NUEVOS que se traen por carpeta y por ciclo. Un número de
+# budget, no un tope por carpeta: así una carpeta con 50 mil mensajes nunca
+# bloquea al worker, va vaciándose de a poco entre ciclos.
+_PRESUPUESTO_CICLO = 600
+
+# Veces que se ha sincronizado cada cuenta, en memoria del proceso.
+_CICLOS: dict = {}
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Cuentas
@@ -161,7 +172,28 @@ def sincronizar_cuenta(cuenta: dict) -> dict:
         # mismos 200 mensajes en cada ciclo siguiente.
         nuevos_ids = []
 
-        for carpeta in _carpetas(cuenta):
+        # UN `LIST` por ciclo y por cuenta. Es lo que hace aparecer las carpetas
+        # que el usuario crea en Gmail/Hostinger. Va ANTES del bucle de sync:
+        # si el listado cambia la lista de carpetas, este ciclo ya las incluye y
+        # no hace falta esperar al siguiente para verlas como pestañas.
+        #
+        # Solo cada `_RELISTAR_CADA` ciclos. Un `LIST` es barato pero no gratis,
+        # y el nombre de una carpeta no cambia cada 5 minutos.
+        # El contador vive en el MÓDULO, no en el dict de la cuenta: ese dict se
+        # relee de la base en cada ciclo, así que un contador guardado ahí se
+        # reiniciaría a 1 siempre y nunca llegaría al umbral. Al reiniciar el
+        # worker vuelve a 0, que es justo lo que se quiere: tras un redeploy se
+        # pregunta de inmediato qué carpetas hay.
+        _CICLOS[cuenta["Id"]] = _CICLOS.get(cuenta["Id"], 0) + 1
+        ciclo_num = _CICLOS[cuenta["Id"]]
+        if ciclo_num == 1 or ciclo_num % _RELISTAR_CADA == 0:
+            cuantas = descubrir_carpetas(cliente, cuenta)
+            if cuantas:
+                print(f"[sync] {cuenta['Email']}: {cuantas} carpetas en el buzón "
+                      f"(listado #{ciclo_num})", flush=True)
+
+        pendientes = _carpetas(cuenta)
+        for carpeta in _priorizar(pendientes, cuenta):
             try:
                 ids, cuantos = _sincronizar_carpeta(cliente, cuenta, carpeta)
                 nuevos_ids.extend(ids)
@@ -171,6 +203,16 @@ def sincronizar_cuenta(cuenta: dict) -> dict:
                 # Una carpeta mal (borrada en el servidor, renombrada) no debe
                 # tumbar la cuenta entera.
                 print(f"[sync] {cuenta['Email']} / {carpeta}: {exc}", flush=True)
+            if resumen["nuevos"] >= _PRESUPUESTO_CICLO:
+                # Se acabó el presupuesto del ciclo. Las carpetas que queden
+                # siguen en la cola del siguiente: nadie se salta nada, solo se
+                # reparte el trabajo. Sin esto, encender 15 carpetas en una
+                # cuenta con años de correo deja al worker horas sin cerrar el
+                # ciclo y el resto de las cuentas se atrasa.
+                print(f"[sync] {cuenta['Email']}: presupuesto del ciclo "
+                      f"({_PRESUPUESTO_CICLO}) alcanzado, el resto va al "
+                      f"próximo ciclo", flush=True)
+                break
 
         if not settings.dry_run:
             from .filtros import aplicar_reglas_de_cuenta
@@ -224,20 +266,161 @@ def sincronizar_cuenta(cuenta: dict) -> dict:
     return resumen
 
 
+# Carpetas del sistema: existen en todos los buzones y ninguna se lee desde la
+# app de correo. Se detectan por los FLAGS que declara el servidor (`\Trash`,
+# `\Junk`, `\Drafts`), NO por el nombre: en Gmail se llaman "[Gmail]/Spam" y en
+# Hostinger "Correo no deseado", y una lista de nombres sería medio diccionario
+# que además falla en español, en inglés y en lo que invente el siguiente
+# proveedor.
+_FLAG_SISTEMA = ("\\trash", "\\junk", "\\spam", "\\drafts", "\\archive", "\\all")
+
+
+def es_carpeta_sistema(nombre: str, flags: str) -> bool:
+    r"""
+    ¿Es una carpeta del sistema, según lo que declara el servidor?
+
+    Además de los flags, se reconoce INBOX y Sent por nombre porque son las dos
+    que el usuario sí lee y por tanto sí se sincronizan siempre.
+
+    `\Archive` y `\All` se tratan como del sistema a propósito: "Todos los
+    mensajes" de Gmail tiene años de historial y sincronizarlo son millones de
+    filas. Si el usuario lo quiere, se enciende desde la app.
+    """
+    f = (flags or "").lower()
+    if nombre.upper() in ("INBOX", "SENT"):
+        return False
+    if any(marca in f for marca in _FLAG_SISTEMA):
+        return True
+    return False
+
+
+def descubrir_carpetas(cliente, cuenta: dict) -> int:
+    """
+    Registra las carpetas REALES del buzon en el catalogo.
+
+    Esto es lo que hace que "Newsletters" o "Clientes" aparezcan como pestañas:
+    el usuario las crea en Gmail, no en esta app, y si nadie pregunta al
+    servidor qué carpetas existen, ECCSA no se entera.
+
+    Se hace un `LIST` (barato, un round trip) y se actualiza el catálogo con
+    UPSERT: lo que no se hace es `STATUS` por carpeta, porque son N round trips y
+    `STATUS` de una carpeta no aporta nada que el próximo ciclo no vuelva a
+    decir. El contador sin leer sale del propio índice una vez que la carpeta se
+    sincroniza.
+    """
+    cid = cuenta["Id"]
+    try:
+        carpetas = cliente.list_folders()
+    except Exception as exc:
+        print(f"[sync] {cuenta['Email']}: LIST falló ({exc})", flush=True)
+        return 0
+
+    for nombre, flags in carpetas:
+        sistema = es_carpeta_sistema(nombre, flags)
+        try:
+            # UPSERT. `DelSistema` se recalcula en cada listado porque una
+            # carpeta que el usuario renombró deja de ser la de papelera, y
+            # `Sincronizar` NO se toca: es la decisión del usuario y un LIST no
+            # tiene por qué sobrescribirla.
+            #
+            # Una carpeta NUEVA entra con `Sincronizar = 0`: aparece como
+            # pestaña, se ve cuántos correos tiene, y el usuario decide si entra.
+            #
+            # Encenderla sola sería un desastre de Costs: la cuenta 4 tiene 646
+            # carpetas y `robot@` tiene "INBOX/IT" con 3 800 mensajes. Con la
+            # ventana de 90 días, la primera vuelta de una carpeta grande NO se
+            # termina, y como el trabajo se reparte con un presupuesto, esa
+            # carpeta se reprocesa eternamente sin avanzar. Con el default
+            # apagado el usuario enciende las tres o cuatro que usa, que es lo
+            # que va a usar.
+            ejecuta(
+                "IF EXISTS (SELECT 1 FROM HUB_MailboxCarpetas "
+                "            WHERE IdCuenta = %s AND Nombre = %s) "
+                "   UPDATE HUB_MailboxCarpetas SET DelSistema = %s, UltimaListado = GETDATE() "
+                "    WHERE IdCuenta = %s AND Nombre = %s; "
+                "ELSE INSERT INTO HUB_MailboxCarpetas (IdCuenta, Nombre, DelSistema, Sincronizar, UltimaListado) "
+                "     VALUES (%s, %s, %s, 0, GETDATE());",
+                (cid, nombre, 1 if sistema else 0, cid, nombre,
+                 cid, nombre, 1 if sistema else 0))
+        except Exception as exc:
+            print(f"[sync] {cuenta['Email']}/{nombre}: catálogo ({exc})", flush=True)
+
+    # `STATUS` de las carpetas del catálogo: cuántos mensajes hay en el buzón y
+    # cuántos sin leer. NO descarga contenido, es un comando por carpeta.
+    #
+    # Solo para las carpetas que el usuario tiene a la vista: preguntar por la
+    # papelera y por "Todos los mensajes" son round trips que no cambian nada de
+    # lo que la app muestra.
+    try:
+        visibles = [f["Nombre"] for f in filas(
+            "SELECT Nombre FROM HUB_MailboxCarpetas "
+            "WHERE IdCuenta = %s AND DelSistema = 0", (cid,))]
+    except Exception:
+        visibles = [n for n, _f in carpetas]
+
+    for nombre in visibles:
+        try:
+            st = cliente.status_folder(nombre)
+            if st:
+                ejecuta("UPDATE HUB_MailboxCarpetas SET TotalEnBuzon = %s, "
+                        "NoLeidosEnBuzon = %s WHERE IdCuenta = %s AND Nombre = %s",
+                        (st.get("total"), st.get("no_leidos"), cid, nombre))
+        except Exception as exc:
+            # Una carpeta que disappeared del buzón no puede tumbar el listado.
+            print(f"[sync] {cuenta['Email']}/{nombre}: STATUS ({exc})", flush=True)
+
+    return len(carpetas)
+
+
+def _priorizar(carpetas: list, cuenta: dict) -> list:
+    """
+    Ordena las carpetas para que el trabajo importante no espere.
+
+    La carpeta raíz primero, y después las que MENOS mensajes indexados tenga:
+    es una cola de Constructor. Con presupuesto por ciclo, si las carpetas
+    grandes van siempre de últimas, "Newsletters" con 300 mensajes nunca se
+    sincroniza porque cada ciclo se agota el presupuesto en "Todos los mensajes".
+    """
+    raiz = cuenta.get("CarpetaRaiz") or "INBOX"
+
+    def tamano(nombre):
+        if nombre == raiz:
+            return -1                      # la raíz, siempre primera
+        fila = una("SELECT COUNT(*) AS Total FROM HUB_MailboxMensajes "
+                   "WHERE IdCuenta = %s AND Carpeta = %s", (cuenta["Id"], nombre))
+        return int(fila["Total"]) if fila else 0
+
+    try:
+        return sorted(carpetas, key=tamano)
+    except Exception:
+        return carpetas
+
+
 def _carpetas(cuenta: dict) -> list:
-    """
-    Las carpetas que se sincronizan.
+    r"""
+    Las carpetas que se sincronizan en este ciclo.
 
-    Solo la de entrada y la de enviados. El resto (papelera, archivo, borradores)
-    NO se sincronizan de forma explícita: no son datos que el usuario lea desde
-    esta app y cada carpeta extra es un round trip por ciclo. Los mensajes que
-    se ARCHIVAN desde la app llegan por la cola de operaciones, no por sync.
+    Antes era una sola: la raíz. Ahora son las marcadas `Sincronizar = 1` en el
+    catálogo, que es donde el usuario decide cuáles traen.
 
-    La carpeta raíz sale del panel (Gmail cuelga las etiquetas de INBOX, así que
-    para Gmail es INBOX; para un Exchange sería la carpeta del buzón).
+    La raíz va SIEMPRE, aunque alguien la apagara por error: es la carpeta de la
+    que no se puede depender de que esté en ningún lado.
     """
-    base = [cuenta.get("CarpetaRaiz") or "INBOX"]
-    return base
+    raiz = cuenta.get("CarpetaRaiz") or "INBOX"
+    try:
+        marcadas = [f["Nombre"] for f in filas(
+            "SELECT Nombre FROM HUB_MailboxCarpetas "
+            "WHERE IdCuenta = %s AND Sincronizar = 1 ORDER BY Nombre",
+            (cuenta["Id"],))]
+    except Exception as exc:
+        print(f"[sync] {cuenta['Id']}: catálogo no disponible ({exc})", flush=True)
+        marcadas = []
+
+    carpetas = []
+    for nombre in [raiz] + marcadas:
+        if nombre not in carpetas:
+            carpetas.append(nombre)
+    return carpetas
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

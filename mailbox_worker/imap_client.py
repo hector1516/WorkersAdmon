@@ -302,6 +302,33 @@ class IMAPClient:
             out.append((nombre, flags))
         return out
 
+    def status_folder(self, carpeta: str) -> dict:
+        """
+        `STATUS` de una carpeta: cuántos mensajes hay y cuántos sin leer.
+
+        NO descarga el contenido. Es un comando de una línea por carpeta que
+        responde con dos números, y es lo que permite pintar las pestañas con su
+        contador real sin sincronizar una sola línea de correo.
+
+        Un `STATUS` por carpeta: 20 carpetas son 20 round trips. Se mide aparte de
+        `LIST` porque son cosas distintas y conviene poder apagar una sin la otra.
+        """
+        c = self.connect()
+        codificada = _q(_utf7_encode(carpeta))
+        typ, datos = c.status(codificada, "(MESSAGES UNSEEN)")
+        if typ != "OK" or not datos or not datos[0]:
+            return {}
+        linea = datos[0]
+        if isinstance(linea, bytes):
+            linea = linea.decode(errors="replace")
+        m_total = re.search(r"MESSAGES\s+(\d+)", linea, re.I)
+        m_unseen = re.search(r"UNSEEN\s+(\d+)", linea, re.I)
+        if m_total:
+            total = int(m_total.group(1))
+        if m_unseen:
+            no_leidos = int(m_unseen.group(1))
+        return {"total": total, "no_leidos": no_leidos}
+
     def select_folder(self, carpeta: str):
         """Selecciona la carpeta. Deja la conexión ABIERTA a propósito: el sync
         hace un solo SELECT por ciclo y después todos los FETCH sobre la misma

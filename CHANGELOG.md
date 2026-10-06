@@ -4,6 +4,38 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.6.0] - 2026-10-06
+
+### Agregado
+- **Descubrimiento de carpetas**: un `LIST` del buzón por ciclo (cada 6, no en
+  cada uno) llena `HUB_MailboxCarpetas`. Es lo que hace que las carpetas que el
+  usuario crea en Gmail/Hostinger aparezcan como pestañas en ECCSA: hasta ahora
+  el worker solo sincronizaba la carpeta raíz y el resto de la organización era
+  invisible.
+- **`status_folder()`** (`imap_client.py`): `STATUS MESSAGES UNSEEN` de una
+  carpeta. **No descarga contenido**, así que las pestañas muestran el contador
+  real del buzón de carpetas que todavía no se han sincronizado. Es lo que hace
+  manejable decidir si se enciende una carpeta con 4000 mensajes.
+- **`es_carpeta_sistema(nombre, flags)`**: clasifica por los **FLAGS del
+  servidor**, no por el nombre. En Gmail se llaman `[Gmail]/Spam` y en Hostinger
+  `Correo no deseado`; una lista de nombres sería medio diccionario que además
+  falla en español, en inglés y en lo que invente el siguiente proveedor.
+- **`_priorizar(carpetas, cuenta)`**: la raíz primero y después las que MENOS
+  mensajes indexados tengan. Cola de Constructor. Sin esto, con las carpetas
+  grandes siempre de últimas, una carpeta de 300 mensajes nunca se sincroniza
+  porque cada ciclo agota el presupuesto en la de 4000.
+- **Presupuesto de 600 mensajes nuevos por carpeta y ciclo**: encender 15 carpetas
+  no puede dejar al worker horas sin cerrar el ciclo ni atrasar el resto de las
+  cuentas. Lo que no se alcanza queda para el siguiente.
+
+### Corregido
+- **Una carpeta nueva entra APAGADA, no encendida.** Con el default en 1, el
+  primer listado encendió 75 carpetas en la cuenta de Héctor y 25 en `robot@`,
+  que tiene `INBOX/IT` con 3 800 mensajes e `INBOX/Onedrive` con 4 203.
+- **El contador de ciclos vive en el módulo.** Estaba en el dict de la cuenta,
+  que se relee de la base en cada ciclo: se reiniciaba a 1 y nunca llegaba al
+  umbral, así que el `LIST` se hacía en todos los ciclos en vez de cada 6.
+
 ## [1.5.4] - 2026-10-06
 
 ### Agregado
