@@ -398,7 +398,15 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         print(f"[govale] Keys disponibles: {list(mapeo.keys())}")
         return {'error': 'No se encontró ContactoOxxoGas en mapeo'}
     
-    concepto = f"Vale QR - {sol['PLACA']} - {sol['DESCRIPCION']}"
+    # El concepto ya no lleva SIEMPRE descripción: desde el 2026-10-06 la app
+    # Field pide solo el vehículo (la empresa, el servicio y los kilómetros se
+    # llenan al registrar el ticket) y guarda la descripción genérica
+    # "Vale de gasolina". Se arma igual por si viene vacía o nula, en vez de
+    # dejar un "Vale QR - PLACA - " con guion colgando o un "None" en Go Vale.
+    descripcion_vale = (sol.get('DESCRIPCION') or '').strip()
+    concepto = f"Vale QR - {sol['PLACA']}"
+    if descripcion_vale:
+        concepto += f" - {descripcion_vale}"
     monto = float(sol['MONTOUNIT'])
     cantidad = int(sol['CANTIDAD'])
 

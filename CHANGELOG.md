@@ -6,6 +6,14 @@
 
 ## [1.7.0] - 2026-10-06
 
+### Corregido
+- **El concepto de Go Vale ya no exige descripción.** La app Field dejó de
+  pedirla (desde el 2026-10-06 pedir un vale es solo elegir el vehículo), así que
+  `crear_vale()` la armaba con la vacía: `Vale QR - PLACA - `, con el guion
+  colgando, o con un `None` si venía nula. Ahora solo agrega la descripción si
+  viene con texto. El resto de la generación (navegación, selección de empresa y
+  contacto, importe y cantidad) queda igual.
+
 ### Agregado
 - **El despachador entrega también las colas de Field.** `cron_avisos_push.py`
   recorre `AVISOS_APPS` (por omisión `admon,field`) en el mismo bucle, en vez de
