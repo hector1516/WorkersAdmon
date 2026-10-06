@@ -100,7 +100,8 @@ for f in eccsa_db.py eccsa_db_server.py config_db.py telegram_alerts.py \
          worker_heartbeat.py network_scanner.py asistencia_core.py \
          notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py \
          oxxogas_vales_automation.py cron_sync_hubmail.py \
-         cron_sync_mailbox.py; do
+         cron_sync_mailbox.py \
+         notif_dispatch.py cron_avisos_push.py; do
   [ -f "$ROOT/$f" ] && run docker cp "$ROOT_DOCKER/$f" "$CONTAINER:/app/$f"
 done
 # El worker de correo (hubmail_worker) es un PAQUETE, no un archivo suelto: se
@@ -138,7 +139,8 @@ for par in panel/panel.css panel/templates.py panel/shell.css ECCSA_SHELL_VERSIO
          oxxogas_vales_automation.py cron_sync_hubmail.py \
          hubmail_worker/sync.py hubmail_worker/crypto.py hubmail_worker/config.py \
          cron_sync_mailbox.py mailbox_worker/sync.py mailbox_worker/stream.py \
-         mailbox_worker/smtp.py mailbox_worker/filtros.py mailbox_worker/config.py; do
+         mailbox_worker/smtp.py mailbox_worker/filtros.py mailbox_worker/config.py \
+         notif_dispatch.py cron_avisos_push.py panel/views/avisos.py; do
   [ -f "$ROOT_DOCKER/$par" ] || continue
   a=$(sha256sum "$ROOT_DOCKER/$par" | cut -d' ' -f1)
   b=$(docker exec "$CONTAINER" sha256sum "/app/$par" 2>/dev/null | cut -d' ' -f1)
@@ -177,7 +179,7 @@ else
   # deshabilitado a proposito desde el panel no esta ni en la lista ni en
   # conf.d, o sea que es indistinguible de uno nuevo, y un barrido lo volveria
   # a encender solo. Al agregar un worker nuevo, agregarlo aqui.
-  for w in openwa_worker hubmail_worker; do
+  for w in openwa_worker hubmail_worker avisos_push; do
     say "    habilitando $w (nuevo en conf.d.available)"
     run docker exec "$CONTAINER" /app/docker/bin/enable_worker "$w" || true
   done
@@ -198,7 +200,11 @@ else
   run docker exec "$CONTAINER" supervisorctl restart pdf_storage_worker
   run docker exec "$CONTAINER" supervisorctl restart network_scanner_worker
   run docker exec "$CONTAINER" supervisorctl restart bing_worker
-  run docker exec "$CONTAINER" supervisorctl restart avisos
+  # `avisos_push` sustituye a `avisos` (que consultaba una columna inexistente y
+  # no mandaba nada). `avisos` se apaga a mano con disable_worker, no desde
+  # aqui: este script no deshabilita workers, y hacerlo en cada hotsync
+  # apagaría uno que alguien haya vuelto a encender desde el panel.
+  run docker exec "$CONTAINER" supervisorctl restart avisos_push
   run docker exec "$CONTAINER" supervisorctl restart legends_cron
   run docker exec "$CONTAINER" supervisorctl restart legends_audit
   run docker exec "$CONTAINER" supervisorctl restart file_indexer
