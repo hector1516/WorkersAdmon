@@ -88,7 +88,7 @@ TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 # Versión del panel (la de la app) y del shell (estampada por
 # tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
 APP_ID = "workersadmon"
-APP_VERSION = "1.5.1"   # "1.5.1" mailbox_worker desplegado y contas validadas
+APP_VERSION = "1.6.0"   # 1.6.0 agrega el módulo "📣 Avisos" (avisos push por app)
 
 
 def _shell_version():
@@ -108,6 +108,9 @@ PANEL_PERMISSION = "AccesoConfiguracion"   # permiso requerido para entrar al pa
 PANEL_PERMISSIONS = {           # permisos por pestaña (fases B y C)
     "notificaciones": ["AccesoTelegram", "AccesoConfigurarCorreo", "AccesoConfigAI"],
     "apps": ["AccesoAppConfig"],
+    # Avisos cambia QUÉ se avisa y a QUIÉN: ambas cosas salen de la
+    # configuración de las apps, así que comparte su permiso.
+    "avisos": ["AccesoAppConfig"],
 }
 
 # Límite de intentos de login por IP (anti fuerza bruta)
@@ -145,6 +148,10 @@ TABS = [
      "enabled": True, "perm": "AccesoDeteccionRed", "modulo": "Asistencia",
      "desc": "Entradas y salidas por día, con la ventana en la que "
              "ocurrieron."},
+    {"id": "avisos", "label": "📣 Avisos", "href": "/avisos", "enabled": True,
+     "perm": "AccesoAppConfig", "modulo": "Avisos",
+     "desc": "Avisos push a los usuarios: cuáles estan encendidos, a quien "
+             "le llega y en que horario."},
     {"id": "correo", "label": "✉️ Correo", "href": "/correo",
      "enabled": True, "perm": "AccesoUsuarios", "modulo": "Correo",
      "desc": "Cuentas de correo de Mailbox: alta, asignación y estado."},

@@ -7,6 +7,49 @@
 ## [1.6.0] - 2026-10-06
 
 ### Agregado
+- **Módulo "📣 Avisos"** (`panel/views/avisos.py`): tarjeta nueva en la home y
+  pantalla con los cinco tipos de aviso, su interruptor, a cuántas personas le
+  llegarían ahora mismo y el horario de jornada. Requiere `AccesoAppConfig`.
+- **`notif_dispatch.py`**: la lógica de avisos, sin bucle y sin base de datos
+  para poder probarla. Destinatarios, horario, resumen y los cinco detectores de
+  evento.
+- **`cron_avisos_push.py`** (programa `avisos_push`): un turno cada 5 minutos que
+  detecta y despacha. Heartbeat en cada vuelta, incluso sin novedades: un worker
+  que no reporta se ve igual que uno trabado.
+- **`HUB_PushSuscripciones`** (migración `0056`): suscripciones push **con columna
+  `App`**. `HUB_PushSubscriptions` no la tiene, y por eso una suscripción de Admon
+  era indistinguible de una de Field: el aviso de una app llegaba dentro del
+  service worker de la otra. Se dejó la vieja intacta porque la escribe
+  `mcp_server`.
+- **`HUB_AvisosCola`** (migración `0056`): la cola interna que permite el
+  horario y el resumen. **Sin interfaz ni endpoint**: el usuario pidió que Admon
+  no tenga historial de avisos, y esto es estado interno del worker.
+- **`eccsa_db._normalizar_vapid_privada()`**: convierte una clave VAPID que haya
+  quedado en PEM o DER a los 32 bytes crudos que `pywebpush` sí entiende. Se
+  encontró una así en la base de pruebas; con esa, TODOS los push fallan con un
+  error que no dice nada.
+
+### Corregido
+- **El worker `avisos` no mandaba NADA y su log decía lo contrario.**
+  `api/routers/push.py` consulta la columna `userId` sobre `HUB_PushSubscriptions`,
+  que está indexada por `UserEmail`; el error se tragaba dentro de
+  `send_push_notification` y el contador subía igual. Cada lunes a las 8AM se
+  registraban "3 push enviados" con cero entregas. Queda documentado como
+  obsoleto en el catálogo del panel y sustituido por `avisos_push`.
+- **Una conexión por ciclo en los detectores.** `eccsa_db.get_connection()`
+  devuelve una conexión cacheada por hilo y cerrarla la invalida para quien la
+  tenga en la mano: el `INSERT` de la cola entraba y el marcador "ya avisado" se
+  perdía, así que el siguiente ciclo volvía a avisar lo mismo.
+
+### Decisiones
+- **El reparto se hace al ENCOLAR, no al enviar.** Si alguien pierde el permiso de
+  Cotizaciones un minuto después de que se firmó algo, no debe enterarse por un
+  aviso que llevaba diez minutos esperando a las 9 de la mañana.
+- **El resumen es por usuario**, no uno global: el que solo tiene permiso de
+  Cotizaciones no necesita saber que se registró un kilometer.
+- **Kilómetros es un aviso por VEHÍCULO y semana, no por evento**, y se salta al
+  que ya registró algo (es el comportamiento del cron que ya existía).
+
 - **Descubrimiento de carpetas**: un `LIST` del buzón por ciclo (cada 6, no en
   cada uno) llena `HUB_MailboxCarpetas`. Es lo que hace que las carpetas que el
   usuario crea en Gmail/Hostinger aparezcan como pestañas en ECCSA: hasta ahora

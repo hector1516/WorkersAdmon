@@ -44,6 +44,7 @@ from .views import config as config_view
 from .views import correo as correo_view
 from .views import home as home_view
 from .views import notifications as notif_view
+from .views import avisos as avisos_view
 from .views import workers as workers_view
 
 MAX_BODY = 64 * 1024          # límite del cuerpo de un POST
@@ -342,6 +343,19 @@ class Handler(BaseHTTPRequestHandler):
                 vista_tg=query.get("tg", [""])[0] or "conexion",
                 vista_wa=query.get("wa", [""])[0] or "conexion"))
 
+        if path == "/avisos":
+            user, done = self._require()
+            if done:
+                return
+            if not auth.has_perm(user, "AccesoAppConfig"):
+                return self._html(forbidden_page(
+                    "La pestaña Avisos requiere el permiso AccesoAppConfig en el "
+                    "HUB. Pídeselo al administrador."), 403)
+            ok, err = self._flash(query)
+            return self._html(avisos_view.render(
+                user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                **self._shell_ctx()))
+
         if path == "/correo":
             user, done = self._require()
             if done:
@@ -440,6 +454,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/correo":
             return self._correo_action(user, form)
+
+        if path.startswith("/avisos/"):
+            segs = [s for s in path[len("/avisos/"):].split("/") if s]
+            return self._avisos_action(user, segs, form)
 
         if path == "/asistencia":
             return self._asistencia_action(user, form)
@@ -769,6 +787,41 @@ class Handler(BaseHTTPRequestHandler):
             "ventana_dias": num("ventana_dias", 90),
             "max_mensajes": num("max_mensajes", 5000),
         }
+
+    def _avisos_action(self, user, segs, form):
+        """Enciende o apaga un tipo de aviso.
+
+        El nombre del tipo viene de la URL, así que se valida contra el catálogo
+        de `notif_dispatch.TIPOS` antes de construir la clave. Escribir
+        `avisos_push_<lo que venga en la URL>` en HUB_Config dejaría filas
+        basura que nadie limpia y que el worker no lee, pero tampoco avisa.
+
+        Ojo con el valor: en HUB_Config el interruptor es "1"/"0". Vaciar la
+        casilla NO lo apaga (lo vacío cae al valor por defecto, que es
+        encendido), por eso aquí se escribe siempre un 0 explícito.
+        """
+        import notif_dispatch as nd
+        if not auth.has_perm(user, "AccesoAppConfig"):
+            return self._send(403, "Sin permiso para cambiar los avisos", "text/plain")
+        if len(segs) < 2:
+            return self._redirect("/avisos")
+        tipo, accion = segs[0], segs[1]
+        if tipo not in nd.TIPOS:
+            return self._redirect("/avisos")
+        if accion == "encender":
+            valor = "1"
+        elif accion == "apagar":
+            valor = "0"
+        else:
+            return self._redirect("/avisos")
+        clave = f"avisos_push_{tipo.lower()}"
+        ok, err = db.set_config_values({clave: valor})
+        if not ok:
+            return self._redirect("/avisos?e=" + err.replace(" ", "+"))
+        db.log_activity(user, "Avisos",
+                        f"{tipo} {'encendido' if valor == '1' else 'apagado'}")
+        return self._redirect("/avisos?ok=" + tipo.lower() + "+"
+                              + ("encendido" if valor == "1" else "apagado"))
 
     def _asistencia_action(self, user, form):
         """

@@ -609,6 +609,82 @@ def remove_push_subscription(endpoint):
         return 0
 
 
+# ── Avisos push por app (módulo "📣 Avisos") ─────────────────────────────────
+# Estas cinco leen HUB_PushSuscripciones / HUB_AvisosCola, que son las tablas
+# con columna `App` creadas por la migración 0056. Las de arriba
+# (HUB_PushSubscriptions) son la tabla VIEJA, sin columna de app: ahí una
+# suscripción de Admon es indistinguible de una de Field y por eso el módulo
+# nuevo no la usa.
+
+
+def get_suscripciones_por_app():
+    """{app: número de suscripciones activas}. Sirve para el conteo del panel."""
+    try:
+        return {r["App"]: int(r["Total"] or 0) for r in _rows(
+            "SELECT App, COUNT(*) AS Total FROM HUB_PushSuscripciones "
+            "WHERE Activo = 1 GROUP BY App")}
+    except Exception:
+        return {}
+
+
+def get_plataformas_suscripciones(app):
+    """[(plataforma, total)] para decir '3 iPhone, 1 PC' y no un número pelado."""
+    try:
+        return [(r["P"], int(r["Total"] or 0)) for r in _rows(
+            "SELECT ISNULL(Plataforma, '?') AS P, COUNT(*) AS Total "
+            "FROM HUB_PushSuscripciones WHERE Activo = 1 AND App = %s "
+            "GROUP BY ISNULL(Plataforma, '?') ORDER BY Total DESC", (app,))]
+    except Exception:
+        return []
+
+
+def get_avisos_en_cola(app):
+    """Avisos pendientes de esta app. No es historial: es lo que aún no salió."""
+    try:
+        filas = _rows("SELECT COUNT(*) AS Total FROM HUB_AvisosCola "
+                      "WHERE App = %s AND Estado = 'PENDIENTE'", (app,))
+        return int(filas[0]["Total"]) if filas else 0
+    except Exception:
+        return 0
+
+
+def get_ultimo_resumen_avisos():
+    """Fecha del último resumen entregado (HUB_Config). La usa la vista para no
+    prometer un resumen que ya se mandó."""
+    try:
+        filas = _rows("SELECT Valor FROM HUB_Config WHERE Clave = %s",
+                      ("avisos_ultimo_resumen",))
+        return (filas[0]["Valor"] or "") if filas else ""
+    except Exception:
+        return ""
+
+
+def get_usuarios_con_permiso_sin_suscribir(permiso, app):
+    """
+    Personas activas con el permiso que NO tienen ningún dispositivo suscrito
+    para esta app.
+
+    Es el número que explica por qué un aviso encendido "no le llega a nadie":
+    sin él, la pantalla del módulo se vería bien y el usuario no recibiría nada.
+    El nombre de la columna viene de notif_dispatch.TIPOS (código, no entrada del
+    usuario), pero se revalida igual por si algún día la tabla de tipos se llena
+    desde la base.
+    """
+    import re
+    if not re.match(r"^Acceso[A-Za-z]{3,40}$", permiso or ""):
+        return 0
+    try:
+        filas = _rows(
+            f"SELECT COUNT(*) AS Total FROM HUB_Users u "
+            f"WHERE u.Activo = 1 AND u.{permiso} = 1 AND NOT EXISTS ("
+            f"  SELECT 1 FROM HUB_PushSuscripciones s"
+            f"  WHERE s.IdUsuario = u.Id AND s.App = %s AND s.Activo = 1)",
+            (app,))
+        return int(filas[0]["Total"]) if filas else 0
+    except Exception:
+        return 0
+
+
 # ── Correo SMTP ──────────────────────────────────────────────────────────────
 def get_email_config():
     """Config SMTP (misma lectura que eccsa_db.get_email_config)."""

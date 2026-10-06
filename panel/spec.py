@@ -135,6 +135,35 @@ WORKERS_SPEC = {
         _f("nota", "Sin configuración expuesta", "info", "info",
            valor="Este panel no expone variables de entorno editables."),
     ],
+    # ─── Avisos push de las apps (nuevo 2026-10-06) ─────────────────────────
+    # Sustituye a `avisos` (abajo), que quedó muerto por un desajuste de
+    # columnas. Los intervalos SÍ son editables por entorno; el horario de
+    # jornada no: vive en HUB_Config y lo edita el módulo "📣 Avisos" del
+    # panel, no esta pantalla (está en HUB_Config para que el worker y la
+    # pantalla no puedan discrepar).
+    "avisos_push": [
+        _f("AVISOS_CICLO_SEG", "Cada cuánto se da un turno", "number", "env",
+           default=300, ayuda="Cinco minutos. Es el atraso máximo de un aviso "
+           "dentro de jornada; más corto solo consume consultas."),
+        _f("AVISOS_APP", "App que despacha", "text", "env", default="admon",
+           ayuda="Admon, y en el futuro field o mailbox. Cada suscripción push "
+                 "pertenece a un origen, así que cada app despacha solo la "
+                 "suya."),
+        _f("AVISOS_LIMPIAR_CADA", "Turnos entre limpiezas", "number", "env",
+           default=480, ayuda="Cada cuántos turnos se borran los avisos ya "
+           "entregados (a los 30 días). Nunca se borra lo pendiente."),
+        _f("horario", "Horario de jornada", "info", "info",
+           valor="HUB_Config avisos_push_horario_inicio / _fin",
+           ayuda="Lunes a viernes, por defecto 09:00 a 18:30 hora de la Ciudad "
+                 "de México. Fuera de esa ventana no sale nada: se acumula y "
+                 "al siguiente día laboral se entrega un solo resumen. Se "
+                 "edita en el módulo Avisos del panel."),
+        _f("tipos", "Tipos de aviso", "info", "info",
+           valor="HUB_Config avisos_push_<tipo>",
+           ayuda="Uno por evento, con su interruptor y su módulo de la "
+                 "pestaña Apps. El permiso que decide quién lo recibe NO se "
+                 "configura aquí: sale de HUB_Users."),
+    ],
     # ─── Workers de Field (migrados 2026-09-26) ──────────────────────────────
     # Sus intervalos y credenciales están escritos en el código (field/api),
     # que es la fuente de verdad: aquí solo se documentan. Lo que sí es

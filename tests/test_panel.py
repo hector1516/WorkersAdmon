@@ -205,6 +205,59 @@ def fake_set_config_values(valores):
     return True, ""
 
 
+# ── Dobles del módulo "📣 Avisos" (HUB_PushSuscripciones / HUB_AvisosCola) ───
+# El conteo de destinatarios SIEMPRE sale de notif_dispatch (que va a la base de
+# verdad); aquí se dobla lo que devuelve para poder probar la pantalla sin BD.
+_SUBS = {}
+
+
+def fake_get_suscripciones_por_app():
+    return dict(_SUBS)
+
+
+def fake_get_plataformas_suscripciones(app):
+    return [("iOS", 2), ("Escritorio", 1)]
+
+
+def fake_get_avisos_en_cola(app):
+    return 3
+
+
+def fake_get_ultimo_resumen_avisos():
+    return "2026-10-02"
+
+
+def fake_get_usuarios_con_permiso_sin_suscribir(permiso, app):
+    return _SIN_SUSCRIBIR.get(permiso, 0)
+
+
+# Cuántos dispositivos hay suscritos y cuántos con el permiso se quedan sin
+# teléfono. El segundo es el que dispara el aviso rojo de la tarjeta.
+_SUBS = {"admon": 3}
+_SIN_SUSCRIBIR = {"AccesoReportes": 0, "AccesoRegistroKilometros": 4}
+
+db.get_suscripciones_por_app = fake_get_suscripciones_por_app
+db.get_plataformas_suscripciones = fake_get_plataformas_suscripciones
+db.get_avisos_en_cola = fake_get_avisos_en_cola
+db.get_ultimo_resumen_avisos = fake_get_ultimo_resumen_avisos
+db.get_usuarios_con_permiso_sin_suscribir = fake_get_usuarios_con_permiso_sin_suscribir
+
+# Los destinatarios del módulo. notif_dispatch habla con la BD; aquí se le
+# sustituye por una lista fija para poder probar la pantalla sin ella.
+import notif_dispatch as _nd  # noqa: E402
+
+_DESTINATARIOS = []
+
+
+def _fake_usuarios_con_suscripcion(app=None, permiso=None, conn=None):
+    return list(_DESTINATARIOS)
+
+
+# El parche se aplica en setUpModule, NO aquí: `unittest discover` importa todos
+# los módulos de test antes de ejecutar el primero, así que un parche a nivel de
+# módulo se activa antes de que test_avisos.py corra y le rompe la prueba que
+# verifica que un permiso con nombre inválido se rechaza.
+
 db.authenticate = fake_authenticate
 db.create_session_token = fake_create_token
 db.validate_session_token = fake_validate
@@ -651,8 +704,15 @@ HTTPD = None
 PORT = None
 
 
+_ND_USUARIOS_ORIGINAL = None
+
+
 def setUpModule():
-    global HTTPD, PORT
+    global HTTPD, PORT, _ND_USUARIOS_ORIGINAL
+    # notif_dispatch es un módulo REAL (lo comparte con el worker), no un doble
+    # de este archivo: el módulo de Avisos lo consulta para contar destinatarios.
+    _ND_USUARIOS_ORIGINAL = _nd.usuarios_con_suscripcion
+    _nd.usuarios_con_suscripcion = _fake_usuarios_con_suscripcion
     HTTPD = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     PORT = HTTPD.server_address[1]
     threading.Thread(target=HTTPD.serve_forever, daemon=True).start()
@@ -664,6 +724,10 @@ def tearDownModule():
         HTTPD.shutdown()
         HTTPD.server_close()
     shutil.rmtree(ROOT, ignore_errors=True)
+    # Sin devolver la función original, el doble se queda puesto para el resto de
+    # la suite.
+    if _ND_USUARIOS_ORIGINAL is not None:
+        _nd.usuarios_con_suscripcion = _ND_USUARIOS_ORIGINAL
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -2611,6 +2675,165 @@ class CorreoViewTest(unittest.TestCase):
         fuente = (Path(REPO) / "mailbox_worker" / "sync.py").read_text(encoding="utf-8")
         self.assertIn("CredencialCifrada", fuente,
                       "el worker debe leer la credencial: es quien sincroniza")
+
+
+class AvisosTest(unittest.TestCase):
+    """Módulo "📣 Avisos": los cinco tipos, sus interruptores y el horario."""
+
+    def setUp(self):
+        _CONFIG.update({
+            "avisos_push_reporte_firmado": "1",
+            "avisos_push_kilometros": "0",
+            "avisos_push_ticket_oxxogas": "1",
+            "avisos_push_cotizacion_firmada": "1",
+            "avisos_push_cotizacion_facturada": "1",
+            "avisos_push_horario_inicio": "9",
+            "avisos_push_horario_fin": "18.5",
+            "avisos_push_resumen_activo": "1",
+        })
+        _SUBS.clear(); _SUBS.update({"admon": 3})
+        _SIN_SUSCRIBIR.clear(); _SIN_SUSCRIBIR.update({"AccesoReportes": 0})
+        _DESTINATARIOS[:] = [{"Id": 1, "Nombre": "Rosa", "Email": "r@x.com"}]
+        del _ACTIVITY[:]
+
+    def _logged(self):
+        c = Client()
+        c.login("admin@ecc-sa.com.mx", "s3cret")
+        return c
+
+    # ── La tarjeta del menú ────────────────────────────────────────────────
+
+    def test_la_tarjeta_aparece_en_la_home(self):
+        c = self._logged()
+        code, _, html = c.get("/")
+        self.assertEqual(code, 200)
+        self.assertIn("/avisos", html)
+        self.assertIn("Avisos", html)
+
+    def test_el_icono_esta_declarado(self):
+        # Sin la entrada en ICONOS sale el 📦 genérico: no rompe, pero se ve mal.
+        from panel.views import home as home_view
+        self.assertIn("avisos", home_view.ICONOS)
+        self.assertEqual(home_view.ICONOS["avisos"], "📣")
+
+    def test_la_pestana_declara_su_permiso(self):
+        from panel import config
+        tab = [t for t in config.TABS if t["id"] == "avisos"]
+        self.assertEqual(len(tab), 1, "la pestaña avisos debe estar en TABS")
+        self.assertEqual(tab[0]["perm"], "AccesoAppConfig")
+        self.assertEqual(tab[0]["href"], "/avisos")
+
+    # ── La pantalla ────────────────────────────────────────────────────────
+
+    def test_la_pantalla_abre(self):
+        c = self._logged()
+        code, _, html = c.get("/avisos")
+        self.assertEqual(code, 200)
+        # Los cinco tipos, con su nombre de siempre
+        self.assertIn("Reporte firmado", html)
+        self.assertIn("Ticket OxxoGas", html)
+        self.assertIn("Cotización firmada", html)
+
+    def test_muestra_el_horario_como_18_30_y_no_como_18(self):
+        # El acuerdo es 18:30. Si la pantalla lo pintara como "18:00" nadie se
+        # enteraría del error hasta que un aviso saliera una hora temprano.
+        c = self._logged()
+        _, _, html = c.get("/avisos")
+        self.assertIn("18:30", html)
+
+    def test_dice_lunes_a_viernes(self):
+        c = self._logged()
+        _, _, html = c.get("/avisos")
+        self.assertIn("lunes a viernes", html)
+
+    def test_muestra_a_quien_le_llega(self):
+        c = self._logged()
+        _, _, html = c.get("/avisos")
+        self.assertIn("persona(s)", html)
+        self.assertIn("AccesoReportes", html)
+
+    def test_avisa_cuando_no_le_llega_a_nadie(self):
+        # Interruptor encendido y cero destinatarios: el aviso rojo es lo que
+        # evita que alguien mire la pantalla y piense que todo está bien.
+        _DESTINATARIOS[:] = []
+        c = self._logged()
+        _, _, html = c.get("/avisos")
+        self.assertIn("No le llegaría a nadie", html)
+
+    def test_muestra_el_pendiente_en_cola(self):
+        c = self._logged()
+        _, _, html = c.get("/avisos")
+        self.assertIn("Avisos en cola", html)
+
+    # ── Los interruptores ──────────────────────────────────────────────────
+
+    def test_apagar_escribe_un_cero_explicito(self):
+        # Vaciar la casilla NO apaga (lo vacío cae al defecto, que es encendido).
+        # Por eso el POST tiene que escribir "0" y no "".
+        c = self._logged()
+        code, headers, _ = c.post("/avisos/REPORTE_FIRMADO/apagar", csrf=c.csrf())
+        self.assertEqual(code, 303)
+        self.assertEqual(_CONFIG["avisos_push_reporte_firmado"], "0")
+
+    def test_encender_escribe_un_uno(self):
+        c = self._logged()
+        code, _, _ = c.post("/avisos/KILOMETROS/encender", csrf=c.csrf())
+        self.assertEqual(code, 303)
+        self.assertEqual(_CONFIG["avisos_push_kilometros"], "1")
+
+    def test_lo_que_cambia_queda_en_la_bitacora(self):
+        c = self._logged()
+        c.post("/avisos/COTIZACION_FIRMADA/apagar", csrf=c.csrf())
+        self.assertTrue(any("COTIZACION_FIRMADA apagado" in a[2]
+                            for a in _ACTIVITY), _ACTIVITY)
+
+    def test_un_tipo_inventado_no_escribe_nada(self):
+        # El nombre del tipo viene de la URL. Si no se validara contra el
+        # catálogo, aparecerían filas basura en HUB_Config que nadie limpia.
+        antes = dict(_CONFIG)
+        c = self._logged()
+        code, _, _ = c.post("/avisos/NO_EXISTE/apagar", csrf=c.csrf())
+        self.assertEqual(code, 303)
+        self.assertEqual(_CONFIG, antes)
+        self.assertNotIn("avisos_push_no_existe", _CONFIG)
+
+    def test_una_accion_rara_no_escribe_nada(self):
+        antes = dict(_CONFIG)
+        c = self._logged()
+        code, _, _ = c.post("/avisos/REPORTE_FIRMADO/borrar", csrf=c.csrf())
+        self.assertEqual(code, 303)
+        self.assertEqual(_CONFIG, antes)
+
+    def test_sin_csrf_no_cambia_nada(self):
+        antes = dict(_CONFIG)
+        c = self._logged()
+        code, _, _ = c.post("/avisos/REPORTE_FIRMADO/apagar")   # sin csrf
+        self.assertEqual(code, 403)
+        self.assertEqual(_CONFIG, antes)
+
+    def test_sin_sesion_no_se_entra(self):
+        code, _, _ = Client().get("/avisos")
+        self.assertIn(code, (302, 303, 401, 403))
+
+    def test_sin_el_permiso_no_se_entra(self):
+        # AccesoAppConfig es lo que decide quién ve esta pantalla. El usuario
+        # "sin_app" entra al panel pero no a Apps, que es justo este caso.
+        c = Client()
+        c.login("sin_app@ecc-sa.com.mx", "s3cret")
+        code, _, _ = c.get("/avisos")
+        self.assertIn(code, (302, 303, 401, 403))
+
+    def test_la_tarjeta_sale_apagada_sin_el_permiso(self):
+        # Sin el permiso, la tarjeta se VE pero no es un enlace: es un <span>
+        # con el motivo, no un <a href>. Así se sabe que el módulo existe y qué
+        # falta, en vez de desaparecer y que el usuario piense que no hay nada.
+        c = Client()
+        c.login("sin_app@ecc-sa.com.mx", "s3cret")
+        _, _, html = c.get("/")
+        self.assertIn("Avisos", html)
+        self.assertIn("module-card off", html)
+        self.assertIn("AccesoAppConfig", html)
+        self.assertNotIn('href="/avisos"', html)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,11 @@
 {
   "app": "workersadmon",
-  "version": "1.4.0",
+  "version": "1.6.0",
   "cambios": [
-    "📬 La sincronizaci\u00f3n de correo se mud\u00f3 aqu\u00ed: la app ya no sincroniza el buz\u00f3n, solo lo consulta.",
-    "\ud83d\udcd1 Marcar un correo como le\u00eddo fallaba en algunas cuentas; ya funciona en todas.",
-    "\ud83d\udd10 La clave que descifra las cuentas ya no se puede inventar: si falta, el worker se queja en vez de fallar en silencio.",
-    "\ud83d\udcce Los adjuntos se guardan con ruta relativa, para que la app los encuentre desde su propio volumen.",
-    "\ud83d\udd10 Quitamos las credenciales que estaban escritas en el c\u00f3digo; ahora vienen de las variables de entorno."
+    "📣 Nuevo módulo Avisos: enciendes y apagas los avisos push y ves a quién le llega cada uno.",
+    "🔔 Los avisos se filtran por los permisos de cada usuario: nadie recibe avisos de un módulo que no puede abrir.",
+    "🕘 Fuera de lunes a viernes de 9:00 a 18:30 nada suena: lo que se acumula sale junto al día siguiente, en un solo resumen.",
+    "🚗 El aviso de kilómetros vuelve a funcionar: el worker viejo anunciaba que enviaba tres push y no mandaba ninguno.",
+    "📬 Las carpetas del buzón se descubren solas y aparecen como pestañas en ECCSA."
   ]
 }

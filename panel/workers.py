@@ -148,16 +148,32 @@ CATALOGO = {
             "consumen Field y las integraciones; de aquí sale la ayuda remota "
             "de opencode (http://ServerVM:8000/message)."),
     },
+    "avisos_push": {
+        "desc": "Avisos push de las apps",
+        "cadencia": "cada 5 min",
+        "app": "HUB",
+        "descripcion": (
+            "Detecta cinco eventos y avisa por push PWA solo a quien tiene "
+            "el permiso del módulo: reporte firmado, kilometraje sin registrar "
+            "(uno por vehículo y semana), ticket OxxoGas capturado en Field, "
+            "cotización firmada y cotización facturada. Fuera de lunes a "
+            "viernes 09:00-18:30 (hora México) nada sale: se acumula y al "
+            "siguiente día laboral se entrega UN resumen por usuario. El "
+            "reparto se hace al detectar el evento, no al enviar. Lógica en "
+            "notif_dispatch.py."),
+    },
     # ── Workers de Field (migrados de `field` el 2026-09-26, código en api/) ──
     "avisos": {
-        "desc": "Avisos Field (push PWA)",
+        "desc": "Avisos Field (push PWA) — APAGADO, muerto",
         "cadencia": "5 min / reportes cada hora / km lunes 8 AM",
         "app": "Field",
         "descripcion": (
-            "Notificaciones push de Field: kilómetros semanales (lunes 8:00 AM "
-            "hora México, UTC-6 fijo) a usuarios sin registro y reportes sin "
-            "firmar nuevos cada hora (dedupe en HUB_Config "
-            "field_avisos_rep_<IdUsuario>). Claves VAPID en HUB_Config."),
+            "Obsoleto desde 2026-10-06, sustituido por `avisos_push`. No "
+            "envía NADA: api/routers/push.py consulta la columna `userId` "
+            "sobre HUB_PushSubscriptions, que está indexada por `UserEmail`, "
+            "y el error se traga dentro de send_push_notification, así que el "
+            "log decía 'push enviados: 3' con cero enviados. Sus dos trabajos "
+            "viven ahora en notif_dispatch.py."),
     },
     "file_indexer": {
         "desc": "Índice de archivos (SMB al Fileserver)",

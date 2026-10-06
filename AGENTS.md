@@ -124,6 +124,46 @@ Nada corre solo por existir: hay que ejecutar
 `/data/workers_enabled.txt`, que vive en el **volumen** y sobrevive a recrear
 el contenedor).
 
+## Avisos push (`notif_dispatch.py` + `cron_avisos_push.py`)
+
+El canal push de las PWA. La decisión está en `notif_dispatch.py` (biblioteca
+sin bucle, probada sin BD) y el turno en `cron_avisos_push.py` (programa
+`avisos_push`). Los cinco eventos salen de datos que **otra** app escribió: el
+ticket OxxoGas lo captura Field y la firma de la cotización la hace el cliente
+desde Field, y el aviso lo tiene que ver quien abre Cotizaciones en Admon.
+
+| | |
+|---|---|
+| Worker | `cron_avisos_push.py` + `docker/conf.d.available/avisos_push.conf` + `heartbeat("avisos_push", ...)` |
+| Tablas | `HUB_PushSuscripciones` y `HUB_AvisosCola` (migración `0056`) |
+| Config | `HUB_Config` (`avisos_push_*`), catalogadas en `HUB_ConfigCatalogo` con `App='admon'` |
+| Claves VAPID | `HUB_PushConfig` (las mismas de siempre; se normalizan a 32 bytes crudos) |
+| Env | `AVISOS_APP`, `AVISOS_CICLO_SEG`, `AVISOS_LIMPIAR_CADA` |
+
+Reglas que ya se aprendieron:
+
+1. **Una suscripción push pertenece a un ORIGEN.** Por eso la tabla lleva `App`:
+   un endpoint registrado en `admon.ecc-sa.com.mx` lo atiende el service worker de
+   ese origen, así que mandarle un aviso de Field lo mostraría Mailbox. Se
+   corrigió en la 0056 creando `HUB_PushSuscripciones` en vez de alterar
+   `HUB_PushSubscriptions`, que no tiene la columna y sigue en uso por
+   `mcp_server` (`/__push_subscribe__`).
+2. **La privada VAPID va como base64url de los 32 bytes CRUDOS.** Con una clave en
+   PEM o DER, `pywebpush` falla siempre y el error no dice por qué;
+   `eccsa_db._normalizar_vapid_privada()` la convierte sola.
+3. **`eccsa_db.get_connection()` es una conexión cacheada por hilo.** Abrirla con
+   `with` la cierra de verdad: si un detector abre una conexión, la presta a
+   alguien que abre la suya, al volver tiene un cursor muerto. Por eso los
+   detectores usan **una sola conexión por ciclo** y la pasan a `encolar()`.
+4. **El reparto se hace al encolar**, no al enviar (los permisos cambian).
+5. **El marcador "ya avisado" avanza en la misma transacción que encola**, o el
+   siguiente ciclo repite el aviso.
+6. Fuera de lunes a viernes **09:00-18:30** (hora de la Ciudad de México, UTC-6
+   fijo: desde 2022 no hay horario de verano) no sale nada; se acumula y al día
+   siguiente se entrega **un resumen por usuario**.
+7. **La cola no tiene interfaz ni endpoint.** El usuario pidió que Admon no tenga
+   historial de avisos, y es lo que hace posible el resumen sin duplicar.
+
 ## Panel de control (`panel/`)
 
 Es el **centro de configuración** del ecosistema (workers + notificaciones +
@@ -310,6 +350,7 @@ inferior), `href`, `modulo` (el título de la página) y `desc`.
 | `config` | ⚙️ Configuración | `/configuracion` | — |
 | `notificaciones` | 🔔 Notificaciones | `/notificaciones` | AccesoTelegram / AccesoConfigurarCorreo / AccesoConfigAI |
 | `apps` | ⚙️ Apps | `/apps` | AccesoAppConfig |
+| `avisos` | 📣 Avisos | `/avisos` | AccesoAppConfig |
 
 - El `id` es lo que las vistas pasan a `templates.page(id, ...)` para marcar la
   pestaña activa. **Renombrar un `id` obliga a actualizar las llamadas.**

@@ -26,6 +26,7 @@ ICONOS = {
     "apps": "📦",
     "asistencia": "🕒",
     "correo": "✉️",
+    "avisos": "📣",
 }
 
 

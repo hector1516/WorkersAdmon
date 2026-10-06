@@ -3624,6 +3624,51 @@ def add_jarvis_mensaje(id_conversacion: int, role: str, contenido: str) -> bool:
 # PUSH NOTIFICATIONS
 # ---------------------------------------------------------------------------
 
+def _normalizar_vapid_privada(priv: str) -> str:
+    """Deja la clave privada en el formato que `pywebpush` sí entiende.
+
+    `pywebpush` (y `py-vapid`) quieren la privada como base64url de los 32 bytes
+    CRUDOS de la clave. Si en la tabla queda una clave PEM o un DER en base64, el
+    envío falla SIEMPRE y el error que sale no dice nada útil: parece que el push
+    no llegó a ningún dispositivo.
+
+    Ya se encontró una así en la base de pruebas (39 bytes de DER en lugar de 32).
+    El de producción sí está bien, pero normalizar aquí evita que un `UPDATE` a
+    mano en HUB_PushConfig rompa todos los avisos sin que nadie lo note.
+
+    Si la clave no se puede interpretar, se devuelve tal cual: mejor un error de
+    `pywebpush` que un "" silencioso.
+    """
+    import base64
+    original = (priv or "").strip()
+    if not original:
+        return original
+
+    def _b64d(texto):
+        pad = "=" * ((4 - len(texto) % 4) % 4)
+        return base64.urlsafe_b64decode((texto + pad).replace("-", "+").replace("_", "/"))
+
+    # Caso normal: ya son 32 bytes crudos. Se devuelve sin tocar.
+    try:
+        if len(_b64d(original)) == 32:
+            return original
+    except Exception:
+        pass
+
+    try:
+        from cryptography.hazmat.primitives import serialization
+        # Dos entradas posibles: PEM en texto plano, o base64 de un DER.
+        if "BEGIN" in original:
+            clave = serialization.load_pem_private_key(original.encode(), password=None)
+        else:
+            clave = serialization.load_der_private_key(_b64d(original), password=None)
+        crudo = clave.private_numbers().private_value.to_bytes(32, "big")
+        return base64.urlsafe_b64encode(crudo).rstrip(b"=").decode()
+    except Exception as e:
+        print(f"vapid: no se pudo normalizar la clave privada ({e}); se usa tal cual")
+        return original
+
+
 @_cache_data(ttl=300)
 def get_vapid_keys():
     """Return the VAPID keys for Web Push from config."""
@@ -3633,7 +3678,8 @@ def get_vapid_keys():
                 cur.execute("SELECT VapidPublicKey, VapidPrivateKey FROM HUB_PushConfig WHERE Id = 1")
                 row = cur.fetchone()
                 if row:
-                    return row['VapidPublicKey'].strip(), row['VapidPrivateKey'].strip()
+                    return (row['VapidPublicKey'].strip(),
+                            _normalizar_vapid_privada(row['VapidPrivateKey']))
     except Exception as e:
         print(f"get_vapid_keys error: {e}")
     return None, None
@@ -3759,8 +3805,15 @@ def get_notification_history(limit=50):
             print(f"get_notification_history error: {e2}")
             return []
 
-def send_push_notification(titulo, mensaje):
-    """Send a push notification to all subscribed users using pywebpush."""
+def send_push_notification(titulo, mensaje, extra=None):
+    """Send a push notification to all subscribed users using pywebpush.
+
+    `extra` son campos adicionales del payload (url, tag, badge_count, silent…).
+    El service worker los decide por plataforma: `badge` es un NÚMERO en iOS y
+    la URL de una IMAGEN en Android, así que no se manda `badge` sino el conteo
+    y el SW lo traduce. Sin esto el aviso abre siempre la raíz y en Android el
+    ícono se ve mal.
+    """
     import json, base64
     from io import BytesIO
     try:
@@ -3783,7 +3836,7 @@ def send_push_notification(titulo, mensaje):
         "sub": "mailto:robot@ecc-sa.com.mx"
     }
 
-    payload = json.dumps({"title": titulo, "body": mensaje})
+    payload = json.dumps({"title": titulo, "body": mensaje, **(extra or {})})
     sent = 0
     failed = 0
 
@@ -3812,8 +3865,11 @@ def send_push_notification(titulo, mensaje):
 
     return sent, failed
 
-def send_push_notification_to_users(titulo, mensaje, user_emails):
-    """Send a push notification to specific users by email list."""
+def send_push_notification_to_users(titulo, mensaje, user_emails, extra=None):
+    """Send a push notification to specific users by email list.
+
+    `extra` son campos adicionales del payload; ver `send_push_notification`.
+    """
     import json
     try:
         from pywebpush import webpush, WebPushException
@@ -3834,7 +3890,7 @@ def send_push_notification_to_users(titulo, mensaje, user_emails):
         "sub": "mailto:robot@ecc-sa.com.mx"
     }
 
-    payload = json.dumps({"title": titulo, "body": mensaje})
+    payload = json.dumps({"title": titulo, "body": mensaje, **(extra or {})})
     sent = 0
     failed = 0
 
