@@ -44,9 +44,8 @@ google.ai.generativelanguage
 qrcode[pil]        # imagen QR de los vales (govale_vouchers_worker)
 supervisor         # el panel corre bajo supervisor
 requests           # módulo Telegram heredado del HUB (api.telegram.org)
-PyMySQL==1.1.1     # worker de correo (hubmail_worker): MySQL HUBMAIL. NO es
-                   # parte del mandato porque Field y Admon no leen MySQL;
-                   # el cache de correo vive solo en MySQL. Se pinnea para que
-                   # un rebuild no cambie el driver sin avisar.
+# MySQL: fuera. Lo unico que leia era el worker hubmail_worker (cache de correo
+# en MySQL), que se elimino porque mailbox_worker hace lo mismo contra SQL Server
+# y ya era el unico en uso. Si vuelve a hacer falta, se agrega aqui.
 # playwright: NO va aquí. Se instala en la imagen con
 #   docker build --build-arg WITH_PLAYWRIGHT=1  (lo pasa deploy/build.bat)

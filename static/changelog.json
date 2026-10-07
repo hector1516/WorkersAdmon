@@ -1,7 +1,9 @@
 {
   "app": "workersadmon",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "cambios": [
+    "🧹 Se retiró el worker de correo viejo, que escribía en MySQL y además llevaba días sin arrancar.",
+    "📮 El correo sigue igual, pero ahora hay un solo worker y una sola base de datos (SQL Server).",
     "🔔 El despachador de avisos ya entrega también a Field, no solo a Admon.",
     "⛽ Cuando tu vale de gasolina ya tiene folio en Go Vale, te llega el aviso a ti.",
     "📣 Nuevo módulo Avisos: enciendes y apagas los avisos push y ves a quién le llega cada uno.",

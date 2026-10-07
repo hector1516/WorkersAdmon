@@ -69,7 +69,7 @@ if [ "$DRY" = "0" ]; then
     say "ERROR: 'docker' no responde desde esta cuenta."
     say "       Si esto es el runner de un deploy, el servicio corre con una"
     say "       cuenta sin acceso a Docker Desktop. En el ServerVM tiene que"
-    say "       estar en la misma cuenta que el runner de hubmail (eccsa), no en"
+    say "       estar en la misma cuenta que el runner (eccsa), no en"
     say "       NETWORK SERVICE."
     docker ps 2>&1 | head -3 | sed 's/^/       /'
     exit 1
@@ -99,18 +99,13 @@ for f in eccsa_db.py eccsa_db_server.py config_db.py telegram_alerts.py \
          pdf_generator.py shared_report_pdf.py numbers_helper.py \
          worker_heartbeat.py network_scanner.py asistencia_core.py \
          notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py \
-         oxxogas_vales_automation.py cron_sync_hubmail.py \
+         oxxogas_vales_automation.py \
          cron_sync_mailbox.py \
          notif_dispatch.py cron_avisos_push.py; do
   [ -f "$ROOT/$f" ] && run docker cp "$ROOT_DOCKER/$f" "$CONTAINER:/app/$f"
 done
-# El worker de correo (hubmail_worker) es un PAQUETE, no un archivo suelto: se
-# copia el directorio entero, igual que panel/ y api/ arriba. Si se olvidara, el
-# entrypoint arrancaría bien pero el `import hubmail_worker.sync` del worker
-# fallaría al primer ciclo y el proceso moriría en loop.
-[ -d "$ROOT/hubmail_worker" ] && \
-  run docker cp "$ROOT_DOCKER/hubmail_worker/." "$CONTAINER:/app/hubmail_worker"
-# mailbox_worker es el reemplazo de hubmail_worker (mismo patron: PAQUETE entero,
+# mailbox_worker es un PAQUETE, no archivos sueltos (es el unico worker de correo
+# que queda: habia un hubmail_worker que escribia en MySQL y se elimino).
 # no archivos sueltos). Sin esta linea el entrypoint de mailbox_worker arrancaria
 # bien y fallaria al PRIMER import, con el proceso en loop y el deploy reportando
 # exito.
@@ -136,8 +131,7 @@ fallos=0
 for par in panel/panel.css panel/templates.py panel/shell.css ECCSA_SHELL_VERSION \
            eccsa_db.py network_scanner.py asistencia_core.py \
            notif_messages.py openwa_client.py openwa_alerts.py cron_sync_openwa.py \
-         oxxogas_vales_automation.py cron_sync_hubmail.py \
-         hubmail_worker/sync.py hubmail_worker/crypto.py hubmail_worker/config.py \
+         oxxogas_vales_automation.py \
          cron_sync_mailbox.py mailbox_worker/sync.py mailbox_worker/stream.py \
          mailbox_worker/smtp.py mailbox_worker/filtros.py mailbox_worker/config.py \
          notif_dispatch.py cron_avisos_push.py panel/views/avisos.py; do
@@ -179,7 +173,7 @@ else
   # deshabilitado a proposito desde el panel no esta ni en la lista ni en
   # conf.d, o sea que es indistinguible de uno nuevo, y un barrido lo volveria
   # a encender solo. Al agregar un worker nuevo, agregarlo aqui.
-  for w in openwa_worker hubmail_worker avisos_push; do
+  for w in openwa_worker avisos_push; do
     say "    habilitando $w (nuevo en conf.d.available)"
     run docker exec "$CONTAINER" /app/docker/bin/enable_worker "$w" || true
   done
@@ -211,7 +205,6 @@ else
   # El worker de correo tiene su propio ciclo de 5 min y un candado de instancia
   # única en MySQL: si ya corre, `restart` mata el proceso viejo y arranca el
   # nuevo, y el candado lo vuelve a tomar sin quedar dos copias ni un hueco.
-  run docker exec "$CONTAINER" supervisorctl restart hubmail_worker || true
   run docker exec "$CONTAINER" supervisorctl restart mailbox_worker || true
 fi
 

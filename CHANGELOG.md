@@ -4,6 +4,34 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.7.1] - 2026-10-06
+
+### Corregido
+- **Se retiró el worker de correo viejo.** `hubmail_worker` escribía la caché
+  del buzón en **MySQL** y era el único usuario de MySQL de la app
+  (`hubmail_worker/db.py` es un pool de conexiones; el worker no toca SQL Server
+  en ningún punto). Se fue el paquete completo, `cron_sync_hubmail.py`, su
+  `.conf`, su runbook y sus tests, y PyMySQL salió de `requirements.txt`.
+- **El correo no se pierde.** `mailbox_worker` hace lo mismo (sincroniza IMAP y
+  drena la cola) contra SQL Server, y ya era el único worker habilitado en la
+  práctica: `hubmail_worker` llevaba días sin arrancar (`FATAL` al iniciar el
+  contenedor). Ahora hay un worker de correo y una sola base de datos.
+- **Fuera la huella del worker en el deploy y en el panel:** el paso de
+  variables `HUBMAIL_*`, el aviso de secretos faltantes y el montaje del volumen
+  `hubmail_data` en `run_container.ps1`; el copiado, la verificación por hash, el
+  reinicio y el alta de programa en `hotsync.sh`; y la ficha del worker con sus
+  campos de configuración en `panel/workers.py` y `panel/spec.py`.
+- **Un deploy venía fallando desde antes:** el banner de versión (1.5.1) y el
+  popup del changelog (1.4.0) no cuadraban, y `check.yml` exige que sean iguales.
+  Ambos quedan en 1.7.1.
+
+### Notas
+- Un test se reapuntó en vez de borrarse: `tests/test_imap_store.py` fija la
+  semántica de IMAP que sí importa y `mailbox_worker` tiene esos métodos casi sin
+  cubrir. `tests/test_almacen_adjuntos.py` sí se borró: probaba el backend SMB
+  que `mailbox_worker` no tiene.
+- El volumen `hubmail_data` no se tocó: lo compartían `admon` y `migra_adj`.
+
 ## [1.7.0] - 2026-10-06
 
 ### Corregido

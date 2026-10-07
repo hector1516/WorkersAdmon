@@ -88,7 +88,7 @@ TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 # Versión del panel (la de la app) y del shell (estampada por
 # tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
 APP_ID = "workersadmon"
-APP_VERSION = "1.7.0"   # 1.7.0: el despachador entrega tambien las colas de Field y avisa cuando un vale queda generado
+APP_VERSION = "1.7.1"   # 1.7.1: se elimino hubmail_worker (y con el, MySQL)
 
 
 def _shell_version():

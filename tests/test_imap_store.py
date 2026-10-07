@@ -4,7 +4,8 @@ tests/test_imap_store.py — El bug de `UID STORE` (marcar como leído)
 Bug encontrado en producción al migrar el worker de correo, y reproducido con
 un servidor IMAP real y mínimo.
 
-Los 3 ops `failed` que había en `HUBMAIL_PendingOps` (cuenta 34, 2026-09-01 y
+Estos casos vienen de los 3 ops `failed` que había en la cola de la app de
+correo (cuenta 34, 2026-09-01 y
 2026-09-09) tenían el mismo error:
 
     UID command error: BAD [b'UID STORE extra parameters supplied "\\Seen"']
@@ -110,7 +111,7 @@ def _conectar(puerto):
 
 def _uid_store(conn, uid, flag, valor):
     """Asi debe quedar la orden de STORE. Mismo criterio que
-    `hubmail_worker.imap_client.IMAPClient.set_flag`."""
+    `mailbox_worker.imap_client.IMAPClient.set_flag`."""
     prefijo = "+" if valor else "-"
     return conn._simple_command("UID", "STORE", str(uid),
                                 f"{prefijo}FLAGS.SILENT", f"({flag})")
@@ -175,7 +176,7 @@ class TestSetFlagDelWorker(unittest.TestCase):
         `IMAPClient._connect()` usa IMAP4_SSL fijo (GoDaddy es 993), así que en
         el test se le inyecta la conexión en claro ya conectada.
         """
-        from hubmail_worker.imap_client import IMAPClient
+        from mailbox_worker.imap_client import IMAPClient
         cliente = IMAPClient(srv.host, srv.puerto, "x", "x")
         cliente._conn = _conectar(srv.puerto)
         return cliente
@@ -184,21 +185,28 @@ class TestSetFlagDelWorker(unittest.TestCase):
         with ServidorLocal() as srv:
             cliente = self._cliente_con_conn(srv)
             RECIBIDO.clear()
-            cliente.set_flag("INBOX", "1474", "\\Seen", True)
+            cliente.select_folder("INBOX")
+            cliente.set_flag(1474, "\\Seen", True)
             cliente.close()
         store = [l for l in RECIBIDO if "STORE" in l]
         self.assertTrue(store, f"no llego STORE; se recibio: {RECIBIDO}")
         self.assertRegex(store[-1], r"UID STORE 1474 \+FLAGS\.SILENT \(\\Seen\)")
 
-    def test_set_flags_lote_emite_store_valido(self):
+    def test_no_hay_envio_en_lote_pero_cada_uid_sigue_saliendo(self):
+        """
+        `mailbox_worker` no tiene `set_flags` (en lote): hace un STORE por UID.
+        La carpeta se selecciona antes, no se pasa en cada llamada.
+        """
         with ServidorLocal() as srv:
             cliente = self._cliente_con_conn(srv)
             RECIBIDO.clear()
-            cliente.set_flags("INBOX", ["1", "2", "3"], "\\Seen", True)
+            cliente.select_folder("INBOX")
+            for uid in (1, 2, 3):
+                cliente.set_flag(uid, "\\Seen", True)
             cliente.close()
         store = [l for l in RECIBIDO if "STORE" in l]
-        self.assertTrue(store, f"no llego STORE; se recibio: {RECIBIDO}")
-        self.assertRegex(store[-1], r"UID STORE 1,2,3 \+FLAGS\.SILENT \(\\Seen\)")
+        self.assertEqual(len(store), 3, f"esperaba 3 STORE; se recibio: {RECIBIDO}")
+        self.assertRegex(store[-1], r"UID STORE 3 \+FLAGS\.SILENT \(\\Seen\)")
 
 
 def _linea_imaplib_311(tag, nombre, args):
@@ -263,30 +271,44 @@ class TestArgumentosQuePasan(unittest.TestCase):
     flag suelto aunque los tests contra el IMAP local siguieran en verde en 3.14.
     """
 
-    def _spy(self, metodo, args):
+    def _spy(self, metodo, args, selec="INBOX"):
+        """
+        Captura las ordenes STORE que salen por la conexion.
+
+        `mailbox_worker` no tiene el helper `_uid_store` que tenia
+        `hubmail_worker`: arma el STORE con `conn._simple_command`. Por eso el
+        espia va sobre `_simple_command`, que es donde de verdad sale la linea.
+        """
         from unittest import mock
-        from hubmail_worker.imap_client import IMAPClient
+        from mailbox_worker.imap_client import IMAPClient
         cli = IMAPClient("h", 993, "u", "p")
         conn = mock.MagicMock()
         conn.select.return_value = ("OK", [b""])
         conn.expunge.return_value = ("OK", [b""])
+        conn._simple_command.return_value = ("OK", [b""])
         cli._conn = conn
         vistos = []
-        cli._uid_store = lambda c, u, f, v: (
-            vistos.append((u, f"{'+' if v else '-'}FLAGS.SILENT", f"({f})"))
-            or ("OK", [b""]))
+
+        def _spy_command(_name, *args):
+            if _name == "UID" and args and args[0] == "STORE":
+                vistos.append((args[1], args[2], args[3]))
+            return ("OK", [b""])
+
+        conn._simple_command.side_effect = _spy_command
+        if selec:
+            cli.select_folder(selec)
         getattr(cli, metodo)(*args)
         return vistos
 
     def test_cada_metodo_manda_el_flag_entre_parentesis(self):
         casos = [
-            ("set_flag", ("INBOX", "1474", "\\Seen", True),
+            ("set_flag", (1474, "\\Seen", True),
              ("1474", "+FLAGS.SILENT", "(\\Seen)")),
-            ("set_flags", ("INBOX", ["1", "2"], "\\Seen", True),
-             ("1,2", "+FLAGS.SILENT", "(\\Seen)")),
-            ("delete_message", ("INBOX", "9"),
+            ("set_flag", (1474, "\\Seen", False),
+             ("1474", "-FLAGS.SILENT", "(\\Seen)")),
+            ("delete_message", ("9",),
              ("9", "+FLAGS.SILENT", "(\\Deleted)")),
-            ("delete_messages", ("INBOX", ["3", "4"]),
+            ("delete_messages", (["3", "4"],),
              ("3,4", "+FLAGS.SILENT", "(\\Deleted)")),
         ]
         for metodo, args, esperado in casos:
@@ -294,8 +316,7 @@ class TestArgumentosQuePasan(unittest.TestCase):
                 self.assertEqual(self._spy(metodo, args), [esperado])
 
     def test_lista_vacia_no_manda_nada(self):
-        self.assertEqual(self._spy("set_flags", ("INBOX", [], "\\Seen", True)), [])
-        self.assertEqual(self._spy("delete_messages", ("INBOX", [])), [])
+        self.assertEqual(self._spy("delete_messages", ([],), selec=None), [])
 
 
 class TestErroresDelServidor(unittest.TestCase):
@@ -311,35 +332,35 @@ class TestErroresDelServidor(unittest.TestCase):
 
     def _cliente(self, copy_ty="OK", store_ty="OK"):
         from unittest import mock
-        from hubmail_worker.imap_client import IMAPClient
+        from mailbox_worker.imap_client import IMAPClient
         cli = IMAPClient("h", 993, "u", "p")
         conn = mock.MagicMock()
         conn.select.return_value = ("OK", [b""])
         conn.uid.return_value = (copy_ty, [b""])
         conn.expunge.return_value = ("OK", [b""])
+        conn._simple_command.return_value = (store_ty, [b""])
         cli._conn = conn
-        cli._uid_store = lambda c, u, f, v: (store_ty, [b""])
         return cli
 
     def test_move_no_lanza_si_falla_el_store_tras_un_copy_bueno(self):
         # Si este test empezara a fallar con IMAPError, alguien volvió a hacer
         # que move levante: revisar la nota del método antes de "arreglarlo".
-        self._cliente("OK", "BAD").move_message("INBOX", "1474", "Archivados")
+        self._cliente("OK", "BAD").move_message("1474", "Archivados")
 
     def test_move_lanza_si_falla_el_copy(self):
-        from hubmail_worker.imap_client import IMAPError
+        from mailbox_worker.imap_client import IMAPError
         with self.assertRaises(IMAPError):
-            self._cliente("NO", "OK").move_message("INBOX", "1474", "Archivados")
+            self._cliente("NO", "OK").move_message("1474", "Archivados")
 
     def test_delete_lanza_si_falla_el_store(self):
-        from hubmail_worker.imap_client import IMAPError
+        from mailbox_worker.imap_client import IMAPError
         with self.assertRaises(IMAPError):
-            self._cliente("OK", "BAD").delete_message("INBOX", "9")
+            self._cliente("OK", "BAD").delete_message("9")
 
     def test_set_flag_lanza_si_falla_el_store(self):
-        from hubmail_worker.imap_client import IMAPError
+        from mailbox_worker.imap_client import IMAPError
         with self.assertRaises(IMAPError):
-            self._cliente("OK", "BAD").set_flag("INBOX", "9", "\\Seen", True)
+            self._cliente("OK", "BAD").set_flag(9, "\\Seen", True)
 
 
 if __name__ == "__main__":
