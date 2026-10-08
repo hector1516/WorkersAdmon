@@ -1,29 +1,32 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# WorkersAdmon · deploy automático
+# WorkersAdmon · build de la imagen
 #
-# La idea: no reconstruir la imagen en cada push. El gate mira QUÉ archivos
-# cambió y elige entre dos caminos:
+# ESTÁNDAR (igual en las 6 apps):
+#   build + push a ghcr.io en la nube → Arcane ve el digest → Update a mano.
 #
-#   rebuild  → deploy/build.bat (reconstruye la imagen y recrea el
-#              contenedor, con el rollback que ya tenía). Se usa cuando el push
-#              tocó un insumo de la IMAGEN: Dockerfile / requirements.txt / docker/
-#   hotsync  → deploy/hotsync.sh (compila lo estático y lo copia al contenedor
-#              que ya corre). Se usa para todo lo demás: .svelte, .css, .py.
+# ── Qué cambió y por qué ──────────────────────────────────────────────────────
+# Antes el build corría en un runner WINDOWS propio de este repo: el paso
+# Rebuild llamaba a deploy/build.ps1 (PowerShell 5.1), que compilaba con
+# `docker build --build-arg WITH_PLAYWRIGHT=1` y luego recreaba el contenedor;
+# otro paso mantenía un clon canónico en C:\WorkersAdmon. El gate elegía entre
+# rebuild y hotsync según qué archivos hubiera cambiado.
 #
-# ── Sobre el shell de los pasos ──────────────────────────────────────────────
-# El runner es WINDOWS con Windows PowerShell 5.1. No hay PowerShell 7, así que
-# `shell: pwsh` muere con "pwsh: command not found". Y `shell: bash` tampoco
-# sirve: en Windows apunta a C:\Windows\system32\bash.exe, que es el de WSL y no
-# está instalado en el ServerVM. Por eso los pasos van en `shell: powershell`, y
-# el único que necesita un .sh (el hotsync) invoca al Git Bash explícitamente.
+# Tres cosas estaban mal:
+#   1. No publicaba en ghcr.io, así que Arcane NUNCA veía actualizaciones de
+#      esta app. Era la única que seguía fuera del flujo estándar.
+#   2. Recreaba el contenedor por fuera de Arcane. Siendo un Project de Arcane,
+#      eso lo deja sin contenedor.
+#   3. Ataba la maquina windows a este repo: un folder de runner por repositorio.
 #
-# Por lo mismo las salidas se escriben con [IO.File]::AppendAllText y no con
-# `Out-File -Encoding utf8`: en PowerShell 5.1 eso mete BOM, y un BOM al
-# principio de $GITHUB_OUTPUT hace que GitHub no lea las variables del gate.
+# Ahora solo se construye y publica. Del lado del servidor no queda nada que
+# hacer. Para publicar una version nueva:
 #
-# ── Sobre el runner ──────────────────────────────────────────────────────────
-# Cada repo necesita su propio runner: un folder de runner solo sirve para uno.
-# Este está en C:\actions-runner-workers, nombre WorkersAdmon-Runner, labels self-hosted,windows.
+#   1. push a main
+#   2. la CI publica en ghcr.io/hector1516/workersadmon
+#   3. Arcane → Projects → workersadmon → Updates → Update
+#
+# deploy/build.ps1, build.bat, run_container.ps1 y register_task.ps1 quedan sin
+# uso. No se borran en este commit por si hay que volver atrás.
 # ─────────────────────────────────────────────────────────────────────────────
 name: Deploy WorkersAdmon
 
@@ -41,11 +44,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # No se puede consultar la API de runners desde el workflow: exige permiso de
-  # administración de repos, que GITHUB_TOKEN no tiene (devuelve 403), así que
-  # un guard que la consulte concluye "no hay runner" aunque lo haya. En vez de
-  # preguntar, este job usa solo `actions: write` (que sí tiene): cancela los
-  # Deploys atascados más de 10 min y dice cuál es la causa habitual.
   desbloquear:
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -74,370 +72,64 @@ jobs:
               && echo "  cancelado $id" || true
           done
 
-  deploy:
-    runs-on: self-hosted
-    timeout-minutes: 20
+  # ─────────────────────────────────────────────────────────────────────────────
+  # ESTÁNDAR DE DESPLIEGUE — el mismo en las 6 apps:
+  #   1. build + push a ghcr.io, AQUÍ en la nube
+  #   2. el servidor no hace NADA — no compila, no baja, no recrea
+  #   3. Arcane ve el digest nuevo y el operador da "Update" en la UI
+  #
+  # Antes esto corría en un runner WINDOWS: deploy/build.ps1 compilaba con
+  # PowerShell 5.1, sincronizaba un clon canónico en C:\WorkersAdmon y recreaba
+  # el contenedor. Tres problemas:
+  #   · no publicaba en ghcr.io, así que Arcane nunca veía actualizaciones
+  #   · el build ataba la maquina windows a este repo (un folder de runner)
+  #   · recrear el contenedor por fuera de Arcane lo dejaba sin Project
+  #
+  # El build-arg WITH_PLAYWRIGHT=1 se conserva: es el que trae los navegadores
+  # para los workers que los necesitan.
+  # ─────────────────────────────────────────────────────────────────────────────
+  build:
+    needs: desbloquear
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
         with:
-          # El hotsync necesita el código, y el gate necesita historial para
-          # comparar contra el push anterior.
-          fetch-depth: 0
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Decidir rebuild vs hotsync
-        id: gate
-        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
-        env:
-          # gh lo necesita para la API de compare; sin esto responde con un
-          # error de ayuda y rc=4, y el gate no puede leer la lista de cambios.
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          function Add-Output($k, $v) {
-            [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "$k=$v`n")
-          }
-          $before = '${{ github.event.before }}'
-          $after  = '${{ github.event.after }}'
-
-          if ([string]::IsNullOrEmpty($before) -or $before -eq ('0' * 40)) {
-            Write-Output "primer push: rebuild (no hay contra que comparar)"
-            Add-Output 'modo' 'rebuild'
-            Add-Output 'motivo' 'sin referencia previa'
-            exit 0
-          }
-
-          # `git diff` con ErrorActionPreference=Stop es problematico en
-          # Windows PowerShell 5.1: si el comando escribe en stderr (sha
-          # desconocida, repo shallow) se convierte en error terminante y el
-          # paso muere. Se aisla la llamada y, si no se puede diffear, se
-          # reconstruye: es el camino conservador. Nunca adivinar "hotsync".
-          # Que archivos cambio, con DIAGNOSTICO de verdad.
-          #
-          # Por que la API va PRIMERO: `git diff <before> <after>` depende de
-          # que el clon del runner tenga ese commit, y en este ServerVM no lo
-          # tenia ("error: Could not access <sha>"), asi que el gate caia a
-          # rebuild en cada push y el camino rapido nunca se ejercito. La API
-          # de compare es autoritativa y no depende del clon.
-          #
-          # Si la API no responde, se reintenta con git. Si no hay forma de
-          # saber, se reconstruye: es el camino conservador, nunca adivinar.
-          $changed = @()
-          $diag = ''
-
-          $apiNames = @()
-          try {
-            $ErrorActionPreference = 'Continue'
-            $cmp = & gh api "repos/$env:GITHUB_REPOSITORY/compare/$before...$after" --jq '.files[].filename' 2>&1
-            $ccode = $LASTEXITCODE
-            $ErrorActionPreference = 'Stop'
-            $apiNames = @($cmp | ForEach-Object { $_.ToString() } |
-                          Where-Object { $_.Trim() -ne '' -and $_ -notmatch '^(gh:|To use GitHub CLI|error:|fatal:)' })
-            $diag = "api rc=$ccode archivos=$($apiNames.Count)"
-          } catch {
-            $diag = "api lanzo excepcion: $($_.Exception.Message)"
-          }
-
-          # La API de compare corta en 300 archivos. Si los toca todos, la
-          # lista puede estar incompleta y no nos serviria para decidir:
-          # reconstruimos, que es lo seguro.
-          if ($apiNames.Count -ge 300) {
-            Write-Host "DIAG gate: $diag -> >=300 archivos, lista podria estar truncada; se reconstruye"
-            Add-Output 'modo' 'rebuild'
-            Add-Output 'motivo' 'push demasiado grande para decidir por lista'
-            exit 0
-          }
-          if ($apiNames.Count -gt 0) { $changed = $apiNames }
-
-          if ($changed.Count -eq 0) {
-            try {
-              $ErrorActionPreference = 'Continue'
-              $out  = & git diff --name-only $before $after 2>&1
-              $code = $LASTEXITCODE
-              $ErrorActionPreference = 'Stop'
-              $lines = @($out | ForEach-Object { $_.ToString() })
-              $errs  = @($lines | Where-Object { $_ -match '^(fatal|error|warning):' })
-              $names = @($lines | Where-Object { $_ -notmatch '^(fatal|error|warning):' -and $_.Trim() -ne '' })
-              $diag  = "$diag | git rc=$code nombres=$($names.Count) stderr=$(($errs -join ' '))"
-              if ($code -eq 0 -and $names.Count -gt 0) { $changed = $names }
-            } catch {
-              $diag = "$diag | git lanzo excepcion: $($_.Exception.Message)"
-            }
-          }
-
-          Write-Host "DIAG gate: $diag"
-          if ($changed.Count -eq 0) {
-            Write-Output "no se pudo determinar que cambio; se reconstruye por seguridad"
-            Write-Output "  (detalle arriba en 'DIAG gate')"
-            Add-Output 'modo' 'rebuild'
-            Add-Output 'motivo' 'no se pudo determinar que cambio'
-            exit 0
-          }
-          Write-Output "Cambios en este push: $($changed.Count)"
-          $changed | ForEach-Object { "  $_" }
-
-          # Lo que de verdad cambia la imagen. Todo lo demas se publica
-          # copiando al contenedor que ya corre, sin docker build.
-          $imagen = @("Dockerfile", "requirements.txt", "docker/")
-          $tocaba = $changed | Where-Object {
-            $f = $_
-            $imagen | Where-Object { $f -eq $_ -or $f -like "$_/*" }
-          }
-
-          if ($tocaba) {
-            Write-Output "modo=REBUILD: cambiaron $($tocaba -join ', ')"
-            Add-Output 'modo' 'rebuild'
-            Add-Output 'motivo' 'cambio un insumo de la imagen'
-          } else {
-            Write-Output "modo=HOTSYNC: sin rebuild"
-            Add-Output 'modo' 'hotsync'
-            Add-Output 'motivo' 'solo cambio codigo y estaticos'
-          }
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: WITH_PLAYWRIGHT=1
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/workersadmon:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/workersadmon:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Resumen
-        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
         run: |
-          $s = $env:GITHUB_STEP_SUMMARY
-          [IO.File]::AppendAllText($s, "### Deploy de WorkersAdmon`n`n")
-          [IO.File]::AppendAllText($s, "- **modo**: ${{ steps.gate.outputs.modo }}`n")
-          [IO.File]::AppendAllText($s, "- **por que**: ${{ steps.gate.outputs.motivo }}`n")
-          [IO.File]::AppendAllText($s, "- **commit**: ${{ github.sha }}`n")
-
-      - name: Hotsync
-        if: steps.gate.outputs.modo == 'hotsync'
-        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $bash = 'C:\Program Files\Git\bin\bash.exe'
-          if (-not (Test-Path $bash)) { throw "Git Bash no esta en $bash" }
-          & $bash deploy/hotsync.sh
-          if ($LASTEXITCODE -ne 0) { throw "hotsync.sh fallo (rc=$LASTEXITCODE)" }
-
-      # ── Camino completo ────────────────────────────────────────────────────
-      # El rebuild NO se corre desde el checkout del runner: el script espera el
-      # clon canónico (C:\WorkersAdmon) y así el contenedor se recrea con la misma
-      # configuración de siempre (puertos, red, volumes y credenciales que saca
-      # del contenedor actual). Y va por schtasks, no por SSH, porque Windows
-      # mata los procesos hijos al cerrarse la sesión.
-      # El rebuild usa C:\WorkersAdmon como contexto de build (eso hace
-      # deploy/build.bat: `cd /d C:\WorkersAdmon` + `docker build .`). Ese
-      # directorio TIENE que tener el codigo del commit que se esta
-      # desplegando. Durante meses fue una copia del 26 de septiembre que
-      # nadie mantenia: `git pull` ahi fallaba con "not a git repository" y
-      # los rebuilds reconstruian la imagen con codigo viejo, devolviendo
-      # rc=0 igual. Este paso pone el clon canonico al dia y verifica que
-      # quedo en el commit correcto, ANTES de reconstruir nada.
-      - name: Sincronizar el clon canonico
-        if: steps.gate.outputs.modo == 'rebuild'
-        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $CANON = 'C:\WorkersAdmon'
-          $ESPERADO = '${{ github.sha }}'
-          $REPO = 'https://github.com/${{ github.repository }}.git'
-          $url = $REPO -replace '^https://', "https://x-access-token:$env:GH_TOKEN@"
-
-          if (-not (Test-Path $CANON)) {
-            Write-Output "DIAG canon: $CANON no existe; se crea"
-            New-Item -ItemType Directory -Path $CANON -Force | Out-Null
-          }
-
-          # No se borra el directorio: puede tener secretos o configuracion
-          # que no estan en el repo. Si no es repo, se inicializa encima y se deja
-          # que el checkout lo sobreescriba.
-          #
-          # OJO con git y PowerShell 5.1: git imprime su progreso ("From
-          # https://...", "main -> main") en STDERR, y `2>&1 | Out-Null` convierte
-          # cada linea de STDERR en un ErrorRecord; con EAP=Stop eso levanta
-          # NativeCommandError y mata el paso aunque git haya salido 0. Es
-          # exactamente lo que le paso a este paso en d590754 (el primer push con
-          # camino rebuild, con el .git del canonico recien creado): murio en el
-          # fetch y el rebuild quedo skipeado. Por eso los git de este bloque
-          # corren con EAP=Continue y sin `2>&1` (el progreso queda en el log,
-          # que es donde uno lo quiere ver) y el codigo se captura a mano.
-          $ErrorActionPreference = 'Continue'
-
-          if (-not (Test-Path (Join-Path $CANON '.git'))) {
-            Write-Output "DIAG canon: no era un repo git; se inicializa"
-            git -C $CANON init
-            git -C $CANON remote add origin $url
-          } else {
-            git -C $CANON remote set-url origin $url
-          }
-
-          git -C $CANON fetch --depth 1 origin main
-          $fetchRc = $LASTEXITCODE
-          if ($fetchRc -ne 0) {
-            Write-Output "::error::no se pudo traer main del remoto (rc=$fetchRc); el rebuild construiria con lo que hubiera"
-            exit 1
-          }
-          git -C $CANON reset --hard FETCH_HEAD
-          $resetRc = $LASTEXITCODE
-          $head = ("$(git -C $CANON rev-parse HEAD)").Trim()
-          Write-Output "DIAG canon: HEAD=$head esperado=$ESPERADO"
-          if ($resetRc -ne 0 -or $head -eq '') {
-            Write-Output "::error::no se pudo poner el clon canonico en FETCH_HEAD (reset rc=$resetRc, HEAD='$head')"
-            exit 1
-          }
-          if (-not $head.StartsWith($ESPERADO.Substring(0, 7))) {
-            Write-Output "::error::el clon canonico quedo en $head y se queria $ESPERADO. Aborto: no voy a construir una imagen con el codigo equivocado."
-            exit 1
-          }
-          Write-Output "OK - clon canonico sincronizado en $($head.Substring(0,7))"
-
-      - name: Rebuild
-        if: steps.gate.outputs.modo == 'rebuild'
-        shell: 'powershell -ExecutionPolicy Bypass -command ". {0}"'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $logPath = 'C:\WorkersAdmon\build.log'
-
-          # Diagnostico: ante cualquier fallo queremos ver que paso, no solo
-          # un "no mostro FIN rc=". Se imprime dentro del log del job.
-          function Show-Diag {
-            Write-Host "=== DIAGNOSTICO (WorkersBuild) ==="
-            try {
-              if (Test-Path $logPath) {
-                $f = Get-Item $logPath
-                Write-Host ("build.log - modificado " + $f.LastWriteTime + " - " + $f.Length + " bytes")
-                Get-Content $logPath -Tail 40 | ForEach-Object { Write-Host $_ }
-              } else {
-                Write-Host "build.log NO EXISTE (el build no llego a escribir nada)"
-              }
-              Write-Host "--- estado de la tarea ---"
-              Write-Host (schtasks /query /tn WorkersBuild /fo LIST /v 2>&1 | Out-String)
-              Write-Host "--- contenedores ---"
-              Write-Host (docker ps -a --format "{{.Names}} | {{.Status}}" 2>&1 | Out-String)
-            } catch {
-              Write-Host ("diagnostico fallo: " + $_.Exception.Message)
-            }
-            Write-Host "=== FIN DIAGNOSTICO ==="
-          }
-
-          # Un "FIN rc=" viejo NO cuenta. build.log persiste entre builds, asi
-          # que si el build no lo trunca, el primer poll matchearia la linea del
-          # build ANTERIOR y dariamos por bueno un build que nunca ocurrio.
-          # Lo movemos aside: cualquier linea que encontremos es de ESTE build.
-          if (Test-Path $logPath) {
-            Move-Item $logPath "$logPath.prev" -Force
-            Write-Host "build.log anterior movido a build.log.prev"
-          }
-
-          # El build se lanza como proceso DESACOPLADO, no con schtasks.
-          # schtasks estaba porque "Windows mata los procesos hijos al cerrarse
-          # la sesion", pero eso era un problema de SSH: el runner de GitHub es
-          # un servicio, no una sesion, asi que sus hijos sobreviven. Y la tarea
-          # actualizada quedo en modo 'Solo interactivo', que hace que /run
-          # responda CORRECTO sin arrancar nada. Con schtasks el deploy
-          # dependia de: una sesion de escritorio abierta, una tarea registrada
-          # en el modo correcto y la contrasena de Windows para registrarlo.
-          # Con Start-Process no depende de nada de eso.
-          $script = 'C:\WorkersAdmon\deploy\build.ps1'
-          # stdout y stderr del proceso hijo van a archivos: si build.ps1 muere
-          # ANTES de crear build.log (le paso a una version con error de parseo:
-          # PowerShell la rechaza al leerla y no llega a ejecutar ni la linea 1),
-          # lo unico que explica el por que es el stderr del powershell hijo y
-          # este paso no lo estaba capturando.
-          $childOut = 'C:\WorkersAdmon\build.ps1.out'
-          $childErr = 'C:\WorkersAdmon\build.ps1.err'
-          if (-not (Test-Path $script)) { Show-Diag; throw "no existe $script" }
-          Remove-Item $childOut, $childErr -Force -ErrorAction SilentlyContinue
-          Write-Host "Lanzando build.ps1 (proceso desacoplado)..."
-          $child = Start-Process -FilePath 'powershell.exe' `
-              -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $script `
-              -WindowStyle Hidden `
-              -RedirectStandardOutput $childOut `
-              -RedirectStandardError $childErr `
-              -PassThru
-
-          # build.log puede tardar (PowerShell frio en una VM con un monton de
-          # contenedores): no se falla a los 3s, se espera hasta 60.
-          $arranco = $false
-          for ($i = 0; $i -lt 20; $i++) {
-            Start-Sleep -Seconds 3
-            if (Test-Path $logPath) { $arranco = $true; break }
-          }
-          if (-not $arranco) {
-            Show-Diag
-            foreach ($f in @($childOut, $childErr)) {
-              if (Test-Path $f) {
-                Write-Host "--- $f (tail) ---"
-                try { Get-Content $f -Tail 30 -ErrorAction Stop | ForEach-Object { Write-Host $_ } }
-                catch { Write-Host ("no se pudo leer {0}: {1}" -f $f, $_.Exception.Message) }
-              } else {
-                Write-Host "--- $f no existe (el proceso ni abrio la redireccion) ---"
-              }
-            }
-            if ($child -and -not $child.HasExited) {
-              Stop-Process -Id $child.Id -Force -ErrorAction SilentlyContinue
-              Write-Host ("proceso hijo (pid {0}) detenido: no escribio build.log" -f $child.Id)
-            }
-            throw "el build no llego a escribir build.log en 60s; no arranco"
-          }
-          Write-Host "build.log creado; esperando a que termine..."
-
-          $rc = $null
-          for ($i = 0; $i -lt 150; $i++) {
-            Start-Sleep -Seconds 10
-            $log = Get-Content $logPath -ErrorAction SilentlyContinue
-            $line = $log | Select-String 'FIN rc=(\d+)' | Select-Object -Last 1
-            if ($line) {
-              Get-Content $logPath -Tail 30 | ForEach-Object { Write-Host $_ }
-              $rc = [int]$line.Matches[0].Groups[1].Value
-              break
-            }
-          }
-          if ($null -eq $rc) { Show-Diag; throw "build.log no mostro 'FIN rc=' a tiempo" }
-          if ($rc -ne 0) { Show-Diag; throw "el rebuild fallo (rc=$rc)" }
-
-          # El build.ps1 escribe FIN rc=0 solo despues de recrear el contenedor
-          # y ver la salud. Se vuelve a comprobar desde afuera, porque un
-          # 'FIN rc=0' sin contenedor nuevo seria otro deploy que miente.
-          #
-          # OJO: el Dockerfile no define HEALTHCHECK (build.ps1 valida con
-          # Invoke-WebRequest a /healthz), asi que .State.Health no existe y el
-          # template de docker inspect -f '{{.State.Health.Status}}' sale con
-          # "map has no entry for key Health" por STDERR. Con EAP=Stop y aun
-          # redirigiendo con 2>$null eso se vuelve NativeCommandError y tumbaba
-          # el paso aunque el build hubiera salido bien. Con {{if .State.Health}}
-          # el template no revienta y, ademas, el bloque corre con EAP=Continue
-          # (mismo truco que los git del paso de sincronizacion).
-          $ErrorActionPreference = 'Continue'
-          $salud = (docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}sin-healthcheck{{end}}' workersadmon 2>$null)
-          $img = (docker inspect -f '{{.Image}}' workersadmon 2>$null)
-          # Sin Select-Object en el PIPE: cortar el pipeline ahi adentro dejaba
-          # a docker con $LASTEXITCODE=-1 (ver mas abajo).
-          $imgs = @(docker images --format '{{.ID}}' workersadmon:latest 2>$null)
-          $ErrorActionPreference = 'Stop'
-          $salud = "$salud".Trim()
-          # docker inspect -f '{{.Image}}' devuelve "sha256:<64 hex>" y
-          # docker images --format '{{.ID}}' solo los 12 primeros hex: sin
-          # sacar el prefijo, $img.StartsWith(...) siempre daba false y el paso
-          # se mataba con "el contenedor no quedo con la imagen nueva" aunque el
-          # contenedor justo estuviera con la imagen recien construida.
-          $img = ("$img".Trim() -replace '^sha256:', '')
-          $esperada = if ($imgs.Count -gt 0) { "$($imgs[0])".Trim() } else { '' }
-          Write-Host "contenedor: health=$salud imagen=$(if ($img.Length -ge 12) { $img.Substring(0,12) } else { $img })"
-          if (-not $img -or -not $esperada) {
-            Write-Host "::error::no pude leer la imagen del contenedor o la recien construida"
-            throw "docker inspect no devolvio la imagen (salud=$salud img=$img esperada=$esperada)"
-          }
-          if ($img.StartsWith($esperada.Substring(0, 12))) {
-            Write-Host "OK - contenedor recreado con la imagen recien construida"
-          } else {
-            Write-Host "::error::el contenedor corre con una imagen que no es la recien construida (cont=$img nueva=$esperada)"
-            throw "el contenedor no quedo con la imagen nueva"
-          }
-
-          # El wrapper de `shell: powershell` de Actions cierra cada script con
-          #   if (Test-Path -LiteralPath variable:\LASTEXITCODE) { exit $LASTEXITCODE }
-          # es decir: el codigo de salida del PASO es el del ultimo comando
-          # nativo, no lo que decida el script. Aqui `docker images ... |
-          # Select-Object -First 1` cortaba el pipe, dejaba $LASTEXITCODE=-1 y
-          # el paso se ponia en rojo AUNQUE todos los checks hubieran pasado
-          # (se vio: "OK - contenedor recreado..." seguido de exit code 1).
-          # Todos los checks ya pasaron, asi que se sale explicito con 0.
-          Write-Host "rebuild verificado: contenedor $img (salud=$salud)"
-          exit 0
+          {
+            echo "### Imagen publicada en la nube"
+            echo ""
+            echo "- **sha**: \`${{ github.sha }}\`"
+            echo "- **tags**: \`ghcr.io/hector1516/workersadmon\` → :latest + :sha"
+            echo "- **build-arg**: WITH_PLAYWRIGHT=1"
+            echo "- **runner**: \`${{ runner.name }}\` (nube — nada se compiló en el servidor)"
+            echo ""
+            echo "Arcane ya la ve como actualización pendiente:"
+            echo "**Projects → workersadmon → Updates → Update**."
+            echo ""
+            echo "Ya no se usa el runner Windows ni \`deploy/build.ps1\`."
+          } >> "$GITHUB_STEP_SUMMARY"
