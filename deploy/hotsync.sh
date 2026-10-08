@@ -58,6 +58,27 @@ run() {
 
 say() { echo "[hotsync] $*"; }
 
+# ── 0-bis. ¿Administra Arcane este contenedor? ───────────────────────────────
+# hotsync copia panel/, api/ y los módulos raíz DENTRO del contenedor. Con Arcane
+# eso deja el contenedor distinto de su imagen sin que nadie lo sepa, y la
+# próxima vez que Arcane lo recree (Update, restart, redeploy) esos archivos
+# desaparecen y la app vuelve a una versión vieja sin explicación.
+#
+# Si Arcane es el dueño, hotsync no aplica: hace falta reconstruir la imagen.
+if [ "$DRY" = "0" ] && docker ps >/dev/null 2>&1; then
+  COMPOSE_PROJECT=$(docker inspect \
+    -f '{{ index .Config.Labels "com.docker.compose.project" }}' \
+    "$CONTAINER" 2>/dev/null || echo "")
+  if [ -n "$COMPOSE_PROJECT" ]; then
+    say "ATENCION: '$CONTAINER' lo administra Arcane (project=$COMPOSE_PROJECT)."
+    say "           hotsync no sirve: los cambios se perderian en el proximo Update."
+    say "           Hay que reconstruir la imagen y aplicarla con:"
+    say "           Arcane -> Projects -> workersadmon -> Updates -> Update."
+    say ""
+    exit 0
+  fi
+fi
+
 # ── 0. Precondiciones ────────────────────────────────────────────────────────
 if [ "$DRY" = "0" ]; then
   # Primero: ¿responde docker? Sin esta comprobación, un runner cuyo servicio
