@@ -88,14 +88,58 @@ def _capturar_debug(page, nombre, timeout=5000):
         return False
 
 
+def _cerrar_playwright(browser, pw):
+    """Suelta el navegador y el driver, sin poder tumbar nada.
+
+    Si un `sync_playwright().start()` no se detiene, el PROCESO queda envenenado:
+    el siguiente `start()` falla con "It looks like you are using Playwright Sync
+    API inside the asyncio loop" y el worker no vuelve a funcionar hasta que lo
+    reinicien. Le paso a `govale_vouchers_worker` el 2026-10-10: un `page.goto`
+    expiro (estaba fuera del try) y desde ese ciclo el worker ya no pudo hacer
+    login nunca mas, asi que los vales dejaron de sincronizarse.
+    """
+    try:
+        if browser:
+            browser.close()
+    except Exception:
+        pass
+    try:
+        if pw:
+            pw.stop()
+    except Exception:
+        pass
+
+
+def _navegar_inicial(page, url, timeout=45000):
+    """Navega a la home de Go Vale sin depender de 'networkidle'.
+
+    'networkidle' es fragil en el SPA: si una peticion de telemetria queda
+    pendiente, el goto se cuelga hasta el timeout y tumba el ciclo. Se intenta
+    primero igual que antes y, si expira, se cae a 'domcontentloaded' (el login
+    de abajo ya espera cada selector con su propio timeout).
+    """
+    try:
+        page.goto(url, wait_until="networkidle", timeout=timeout)
+        return
+    except Exception as e:
+        print(f"[govale] networkidle fallo ({str(e)[:80]}); reintento con domcontentloaded")
+    page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+
+
 def _launch_browser_and_login(user, pwd):
     """Lanza Chromium, navega a Go Vale, intercepta tokens, completa login."""
     from playwright.sync_api import sync_playwright
 
     pw = sync_playwright().start()
-    browser = pw.chromium.launch(headless=True)
-    context = browser.new_context(ignore_https_errors=True)
-    page = context.new_page()
+    browser = None
+    try:
+        browser = pw.chromium.launch(headless=True)
+        context = browser.new_context(ignore_https_errors=True)
+        page = context.new_page()
+    except Exception:
+        # Si no se pudo ni abrir el navegador hay que soltar el driver igual.
+        _cerrar_playwright(browser, pw)
+        raise
 
     captured_tokens = {}
 
@@ -107,7 +151,13 @@ def _launch_browser_and_login(user, pwd):
 
     page.on("request", on_request)
 
-    page.goto("https://govale-digital.oxxogas.com/home", wait_until="networkidle", timeout=60000)
+    try:
+        _navegar_inicial(page, "https://govale-digital.oxxogas.com/home")
+    except Exception:
+        # El goto es justo el punto que se cuelga: si falla, se suelta Playwright
+        # para no envenenar el proceso antes de dejar subir el error.
+        _cerrar_playwright(browser, pw)
+        raise
     time.sleep(3)
 
     try:
@@ -641,18 +691,7 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         print(f"[govale] Excepción: {e}")
         return {'error': f'Excepción en Playwright: {str(e)}'}
     finally:
-        try:
-            browser.close()
-        except Exception:
-            pass
-        try:
-            pw.stop()
-        except Exception:
-            pass
-        try:
-            pw.stop()
-        except Exception:
-            pass
+        _cerrar_playwright(browser, pw)
 
 
 def crear_vale_desde_solicitud(solicitud_id, user=None, pwd=None):

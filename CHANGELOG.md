@@ -4,6 +4,22 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.8.1] - 2026-10-10
+
+### Corregido
+- **El worker de Go Vale se quedaba muerto tras un `goto` que expiraba.**
+  `_launch_browser_and_login` hacía `page.goto(...)` **fuera** de todo `try`: si
+  el SPA de Go Vale no llegaba a `networkidle` en 60s (le pasó a
+  `govale_vouchers_worker` el 2026-10-10 a las 13:39), la excepción subía sin
+  soltar Playwright. Un `sync_playwright().start()` que no se detiene **envenena
+  el proceso**: el siguiente `start()` falla con *"It looks like you are using
+  Playwright Sync API inside the asyncio loop"* y el worker no vuelve a hacer
+  login nunca más (hasta reiniciarlo), así que los vales dejaron de
+  sincronizarse. Ahora cualquier fallo al abrir el navegador o al navegar pasa
+  por `_cerrar_playwright()`, que cierra el navegador y detiene el driver antes
+  de dejar subir el error. Además la navegación inicial reintenta con
+  `domcontentloaded` si `networkidle` expira.
+
 ## [1.8.0] - 2026-10-10
 
 ### Agregado

@@ -1,7 +1,8 @@
 {
   "app": "workersadmon",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "cambios": [
+    "🔧 El worker de Go Vale ya no se queda muerto cuando un login se tarda: vuelve a sincronizar los vales en el siguiente ciclo.",
     "⛽ El aviso del ticket de OxxoGas (WhatsApp, Telegram y push) ahora incluye el saldo que queda en el monedero.",
     "🧹 Se retiró el worker de correo viejo, que escribía en MySQL y además llevaba días sin arrancar.",
     "📮 El correo sigue igual, pero ahora hay un solo worker y una sola base de datos (SQL Server).",
