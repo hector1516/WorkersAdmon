@@ -82,6 +82,7 @@ TIPOS = {
         "titulo_func": lambda d: "⛽ Ticket OxxoGas registrado",
         "mensaje_func": lambda d: (
             f"{d['actor']} registró el ticket {d['ref']} ({d['extra']})."
+            + (f" Saldo OxxoGas: {d['saldo']}." if d.get('saldo') else "")
         ),
     },
     "COTIZACION_FIRMADA": {
@@ -222,6 +223,14 @@ def cfg_set(cur, clave, valor):
         cur.execute("INSERT INTO HUB_Config (Clave, Valor) VALUES (%s, %s)", (clave, str(valor)))
 
 
+def _formato_saldo(valor):
+    """`govale_saldo` (texto en HUB_Config) → '$9,709.00'; '' si no es número."""
+    try:
+        return f"${float(valor):,.2f}"
+    except (TypeError, ValueError):
+        return ""
+
+
 def tipo_activo(cur, tipo, app=APP_ADMON):
     """¿Este tipo de aviso está encendido? La clave vive en HUB_Config.
 
@@ -342,7 +351,7 @@ def _filas(sql, params=(), conn=None):
 
 
 def encolar(tipo, actor, ref, extra="", url=None, solo_ids=None, app=APP_ADMON,
-            conn=None):
+            conn=None, contexto=None):
     """
     Encola el aviso para todos los destinatarios que correspondan.
 
@@ -380,8 +389,14 @@ def encolar(tipo, actor, ref, extra="", url=None, solo_ids=None, app=APP_ADMON,
     if not destinatarios:
         return 0
 
-    titulo = defn["titulo_func"]({"actor": actor, "ref": ref, "extra": extra})
-    mensaje = defn["mensaje_func"]({"actor": actor, "ref": ref, "extra": extra})
+    # `contexto` agrega datos que solo algunos avisos necesitan (p. ej. el saldo
+    # del monedero en el ticket). Va aparte para no cambiar la firma de todos los
+    # detectores ni obligar a cada plantilla a declararlo.
+    campos = {"actor": actor, "ref": ref, "extra": extra}
+    if contexto:
+        campos.update(contexto)
+    titulo = defn["titulo_func"](campos)
+    mensaje = defn["mensaje_func"](campos)
     enlace = url or defn["url"]
 
     def _inserta(cur, app_, tipo_, id_usuario):
@@ -525,10 +540,13 @@ def detectar_tickets_oxxogas(app=APP_ADMON):
             return 0
         enviados = 0
         cur = conn.cursor()
+        # El aviso del ticket lleva el saldo actual del monedero OxxoGas/Go Vale.
+        saldo = _formato_saldo(cfg_get(cur, "govale_saldo", ""))
         for f in filas:
             enviados += encolar("TICKET_OXXOGAS", f["Actor"] or "Alguien",
                                 f["FolioTicket"] or f"#{f['Id']}",
-                                extra=f["Estacion"] or "", app=app, conn=conn)
+                                extra=f["Estacion"] or "", app=app, conn=conn,
+                                contexto={"saldo": saldo})
             marcador = max(marcador, int(f["Id"]))
         marcador_set(cur, "ticket_oxxogas", marcador)
         conn.commit()

@@ -168,6 +168,25 @@ def alertar_vale(solicitante, id_auto, id_cliente, descripcion, monto="500.00"):
     })
 
 
+def _saldo_govale():
+    """Saldo actual del monedero OxxoGas/Go Vale ya formateado, o ''.
+
+    El aviso del ticket dice con cuánto queda el monedero después de la carga.
+    Si la revisión no ha corrido todavía (no hay fila en HUB_Config) sale vacío y
+    la línea se omite.
+    """
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT Valor FROM HUB_Config WHERE Clave = 'govale_saldo'")
+            row = cur.fetchone()
+        if row and row[0]:
+            return f"${float(row[0]):,.2f}"
+    except Exception:
+        pass
+    return ""
+
+
 def alertar_ticket_oxxogas(usuario, folio_server, folio_cliente, id_auto, id_cliente, descripcion,
                            foto_bytes=None, foto_nombre=None, cantidad=None):
     fecha, _ = _now_mx()
@@ -187,6 +206,7 @@ def alertar_ticket_oxxogas(usuario, folio_server, folio_cliente, id_auto, id_cli
         "Cliente": cliente, "Descripcion": desc_con_folio,
         "NombreRegistro": usuario, "FolioTicket": folio_cliente or folio_server,
         "Empresa": cliente, "ProyectoServicio": desc_con_folio,
+        "Saldo": _saldo_govale(),
     }, adjunto=foto_bytes, adjunto_nombre=foto_nombre)
 
 

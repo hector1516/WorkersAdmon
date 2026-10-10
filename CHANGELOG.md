@@ -4,6 +4,20 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.8.0] - 2026-10-10
+
+### Agregado
+- **El aviso del ticket de OxxoGas lleva el saldo del monedero.** Cuando se
+  registra un ticket, el aviso ahora muestra cuánto queda en el monedero
+  OxxoGas/Go Vale (`HUB_Config.govale_saldo`, el mismo dato del aviso de saldo).
+  Sale por los tres canales del ticket: **WhatsApp** (`notif_messages.datos_ticket`),
+  **Telegram** (`api/telegram_hub.py` y `telegram_alerts.py`) y el **push de Admon**
+  (`notif_dispatch.py` → `TICKET_OXXOGAS`). Si el saldo todavía no tiene revisión,
+  la línea se omite en vez de salir vacía.
+- **Migración `0057_oxxogas_ticket_saldo.sql`:** agrega el placeholder `{Saldo}`
+  a las plantillas que ya existen en `HUB_WhatsappEventos` y `HUB_TelegramEventos`
+  (respeta lo personalizado: solo agrega la línea si aún no menciona `{Saldo}`).
+
 ## [1.7.1] - 2026-10-06
 
 ### Corregido

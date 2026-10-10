@@ -347,6 +347,20 @@ class TestCatalogoDeTipos(unittest.TestCase):
         self.assertEqual(nd.TIPOS["COTIZACION_FIRMADA"]["permiso"],
                          nd.TIPOS["COTIZACION_FACTURADA"]["permiso"])
 
+    def test_el_aviso_de_ticket_lleva_el_saldo_cuando_lo_hay(self):
+        f = nd.TIPOS["TICKET_OXXOGAS"]["mensaje_func"]
+        con = f({"actor": "Ana", "ref": "F-1", "extra": "Oxxo Sur",
+                 "saldo": "$9,709.00"})
+        self.assertIn("Saldo OxxoGas: $9,709.00", con)
+        # Sin saldo (aun sin revision) el texto no menciona un saldo vacio.
+        sin = f({"actor": "Ana", "ref": "F-1", "extra": "Oxxo Sur"})
+        self.assertNotIn("Saldo", sin)
+
+    def test_formato_saldo_del_push(self):
+        self.assertEqual(nd._formato_saldo("9709"), "$9,709.00")
+        for malo in (None, "", "n/a"):
+            self.assertEqual(nd._formato_saldo(malo), "")
+
 
 class TestTextoResumen(unittest.TestCase):
     """Un resumen con ocho cosas que decir, en un solo aviso."""

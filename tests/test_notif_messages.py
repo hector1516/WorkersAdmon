@@ -236,11 +236,12 @@ class DatosReporte(unittest.TestCase):
 
 
 class DatosTicket(unittest.TestCase):
-    def _fake(self, vale=None):
+    def _fake(self, vale=None, saldo='9709.00'):
         return {'FROM HUB_Automoviles': {'MarcaModelo': 'NP300', 'Placas': 'JKM-123'},
                 'FROM clientes': {'Cliente': 'CEMEX'},
                 'FROM HUB_Users': {'Nombre': 'Hector'},
-                'FROM HUB_OxxoGasVales': vale}
+                'FROM HUB_OxxoGasVales': vale,
+                'FROM HUB_Config': {'Valor': saldo}}
 
     def test_une_ticket_auto_cliente_y_vale(self):
         vale = {'XmlFolio': 'F-99', 'XmlEstacion': 'Oxxo Guadalajara',
@@ -255,6 +256,7 @@ class DatosTicket(unittest.TestCase):
         self.assertEqual(d['Estacion'], 'Oxxo Guadalajara')
         self.assertEqual(d['Folio'], 'F-99')
         self.assertEqual(d['Cantidad'], '$520.50')
+        self.assertEqual(d['Saldo'], '$9,709.00')
 
     def test_sin_vale_ligado_no_inventa_factura(self):
         _con_fake(nm, self._fake(None))
@@ -276,6 +278,19 @@ class DatosTicket(unittest.TestCase):
             nm.db = None
         self.assertEqual(d['Usuario'], 'Rosa Ramirez')
         self.assertEqual(d['Nombre'], 'Rosa Ramirez')
+
+    def test_sin_revision_de_saldo_la_linea_del_saldo_se_omite(self):
+        # Si el monedero todavia no tiene revision (no hay fila en HUB_Config),
+        # el mensaje sale sin la linea en vez de con "$nan" o un label colgando.
+        _con_fake(nm, self._fake(None, saldo=None))
+        try:
+            d = nm.datos_ticket('F-1', None, None, None, 'Carga', 'f', 'h')
+        finally:
+            nm.db = None
+        self.assertEqual(d['Saldo'], '')
+        texto = nm.aplicar_plantilla(nm.PLANTILLAS['OXXOGAS_TICKET'], d)
+        self.assertNotIn('Saldo OxxoGas', texto)
+        self.assertNotIn('{', texto)
 
 
 # ── Las cinco plantillas que se siembran para WhatsApp ───────────────────────
@@ -339,6 +354,18 @@ class Plantillas(unittest.TestCase):
 
     def test_el_aviso_de_saldo_bajo_dice_que_hay_que_refactoriar(self):
         self.assertIn('refactor', nm.PLANTILLAS['GOVALE_SALDO_BAJO'].lower())
+
+    def test_el_ticket_muestra_el_saldo_del_monedero(self):
+        self.assertIn('{Saldo}', nm.PLANTILLAS['OXXOGAS_TICKET'])
+        texto = nm.aplicar_plantilla(nm.PLANTILLAS['OXXOGAS_TICKET'],
+                                     {'Saldo': '$9,709.00'})
+        self.assertIn('Saldo OxxoGas: $9,709.00', texto)
+
+    def test_formato_saldo_es_dinero_o_vacio(self):
+        self.assertEqual(nm.formato_saldo('9709'), '$9,709.00')
+        self.assertEqual(nm.formato_saldo(1500.5), '$1,500.50')
+        for malo in (None, '', 'n/a'):
+            self.assertEqual(nm.formato_saldo(malo), '')
 
 
 if __name__ == '__main__':

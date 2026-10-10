@@ -84,7 +84,8 @@ PLANTILLAS = {
         "Folio ticket: {Folio}\n"
         "Auto: {Auto}\n"
         "Cliente: {Cliente}\n"
-        "Descripción: {Descripcion}"
+        "Descripción: {Descripcion}\n"
+        "💰 Saldo OxxoGas: {Saldo}"
     ),
     'REPORTE_SERVICIO': (
         "*{Folio}*\n"
@@ -203,6 +204,16 @@ def componer(plantilla, datos):
 
 # ── Datos de cada aviso ──────────────────────────────────────────────────────
 
+def formato_saldo(saldo):
+    """Formatea el saldo del monedero OxxoGas/Go Vale como dinero; '' si no es
+    un número. Es el mismo formato del aviso de saldo, pero aquí lo usan los
+    avisos que lo muestran de paso (el del ticket)."""
+    try:
+        return f"${float(saldo):,.2f}"
+    except (TypeError, ValueError):
+        return ""
+
+
 def datos_saldo(saldo, saldo_fecha, umbral=2000.0):
     """Saldo Go Vale. El mismo dato sirve para el aviso diario y el de bajo."""
     try:
@@ -301,7 +312,7 @@ def datos_ticket(folio_ticket, id_vehiculo, id_cliente, id_usuario, descripcion,
         'Usuario': '', 'Nombre': '',
         'Descripcion': descripcion or '', 'ProyectoServicio': descripcion or '',
         'FacturaFolio': '', 'Estacion': '', 'Litros': '', 'Producto': '',
-        'Monto': '', 'Cantidad': '',
+        'Monto': '', 'Cantidad': '', 'Saldo': '',
         'Fecha': fecha, 'Hora': hora,
     }
 
@@ -338,6 +349,16 @@ def datos_ticket(folio_ticket, id_vehiculo, id_cliente, id_usuario, descripcion,
                         datos['Litros'] = str(vale.get('XmlLitros') or '')
                         datos['Producto'] = vale.get('XmlConcepto') or ''
                         datos['Monto'] = str(vale.get('Monto') or '')
+
+                # Saldo actual del monedero OxxoGas/Go Vale: quien ve el ticket
+                # quiere saber con cuánto queda después de la carga. Se lee en la
+                # misma conexión para no abrir otra.
+                cur.execute("SELECT Valor FROM HUB_Config WHERE Clave = 'govale_saldo'")
+                fila_saldo = cur.fetchone()
+                if fila_saldo:
+                    valor_saldo = (fila_saldo.get('Valor') if hasattr(fila_saldo, 'get')
+                                   else fila_saldo[0])
+                    datos['Saldo'] = formato_saldo(valor_saldo)
     except Exception as e:
         print(f"datos_ticket: no se pudieron leer los datos del ticket ({e})")
 

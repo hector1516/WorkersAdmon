@@ -264,6 +264,11 @@ def alertar_ticket_oxxogas(folio_ticket, id_vehiculo=None, id_cliente=None,
         datos['Auto'] = datos['Automovil']
         datos['Empresa'] = datos['Cliente']
         datos['ProyectoServicio'] = datos['Descripcion']
+        # Saldo del monedero para que el aviso diga con cuánto queda tras la carga.
+        try:
+            datos['Saldo'] = f"${float(db.get_govale_config('govale_saldo')):,.2f}"
+        except (TypeError, ValueError):
+            datos['Saldo'] = ''
 
         plantilla, adj_config, _ = _get_event_template('OXXOGAS_TICKET')
         adjunto = None
