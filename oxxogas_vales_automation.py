@@ -126,6 +126,63 @@ def _navegar_inicial(page, url, timeout=45000):
     page.goto(url, wait_until="domcontentloaded", timeout=timeout)
 
 
+def _esperar_dashboard(page, timeout=25000):
+    """Espera a que el SPA de Go Vale termine el redirect de Microsoft.
+
+    Sin esto la extraccion del token corre a mitad de navegacion ("Execution
+    context was destroyed") y el SPA queda a medias: la navegacion siguiente a
+    /vouchers/1 rebota al home y el formulario de Generar Vale nunca carga.
+    """
+    try:
+        page.wait_for_load_state("networkidle", timeout=timeout)
+    except Exception:
+        pass
+    for _ in range(4):
+        try:
+            if (page.query_selector('text=Saldo de mi cuenta')
+                    or page.query_selector('text=Generar Vale')):
+                return True
+        except Exception:
+            pass
+        time.sleep(2)
+    return False
+
+
+def _abrir_formulario_generar_vale(page):
+    """Lleva el SPA al formulario de Generar Vale.
+
+    Cierra primero el aviso de "Estamos renovando nuestra plataforma": es un
+    modal que tapa los botones. Luego hace click en el enlace/boton "Generar
+    Vale" del home; si no aparece, navega directo a /vouchers/1. El que llama
+    espera los selectores del formulario: no basta con el texto, porque el menu
+    tambien dice "Generar Vale" y daba falso positivo.
+    """
+    for sel in ('button:has-text("Cerrar aviso")', 'text=Cerrar aviso',
+                'button:has-text("Cerrar")'):
+        try:
+            b = page.query_selector(sel)
+            if b and b.is_visible():
+                b.click()
+                print("[govale] aviso de plataforma cerrado")
+                time.sleep(1)
+                break
+        except Exception:
+            pass
+    gen_link = page.query_selector('text=Generar Vale')
+    if gen_link:
+        try:
+            gen_link.click()
+        except Exception:
+            pass
+    else:
+        try:
+            page.goto("https://govale-digital.oxxogas.com/vouchers/1",
+                      wait_until="domcontentloaded", timeout=60000)
+        except Exception:
+            pass
+    time.sleep(3)
+
+
 def _launch_browser_and_login(user, pwd):
     """Lanza Chromium, navega a Go Vale, intercepta tokens, completa login."""
     from playwright.sync_api import sync_playwright
@@ -291,33 +348,44 @@ def _launch_browser_and_login(user, pwd):
             except Exception:
                 continue
 
-        # Esperar a que la app Angular cargue (dashboard)
+        # Esperar a que el SPA termine el redirect de Microsoft y cargue el
+        # dashboard (ver docstring de _esperar_dashboard).
         print("[govale] Esperando carga del dashboard...")
-        time.sleep(10)
+        _esperar_dashboard(page)
 
-        # Extraer token de sessionStorage (MSAL lo guarda ahí)
-        token_extracted = page.evaluate("""() => {
-            for (let i = 0; i < sessionStorage.length; i++) {
-                const key = sessionStorage.key(i);
-                if (key.includes('accesstoken') && key.includes('.default')) {
-                    try {
-                        const val = JSON.parse(sessionStorage.getItem(key));
-                        if (val && val.secret) return val.secret;
-                    } catch(e) {}
-                }
-            }
-            // Fallback: buscar cualquier accesstoken con scope de Go Vale
-            for (let i = 0; i < sessionStorage.length; i++) {
-                const key = sessionStorage.key(i);
-                if (key.includes('accesstoken') && key.includes('633e24b6')) {
-                    try {
-                        const val = JSON.parse(sessionStorage.getItem(key));
-                        if (val && val.secret) return val.secret;
-                    } catch(e) {}
-                }
-            }
-            return null;
-        }""")
+        # Extraer token de sessionStorage (MSAL lo guarda ahí). Puede fallar si
+        # el SPA todavia esta navegando: se reintenta en vez de rendirse.
+        token_extracted = None
+        for _ in range(3):
+            try:
+                token_extracted = page.evaluate("""() => {
+                    for (let i = 0; i < sessionStorage.length; i++) {
+                        const key = sessionStorage.key(i);
+                        if (key.includes('accesstoken') && key.includes('.default')) {
+                            try {
+                                const val = JSON.parse(sessionStorage.getItem(key));
+                                if (val && val.secret) return val.secret;
+                            } catch(e) {}
+                        }
+                    }
+                    // Fallback: buscar cualquier accesstoken con scope de Go Vale
+                    for (let i = 0; i < sessionStorage.length; i++) {
+                        const key = sessionStorage.key(i);
+                        if (key.includes('accesstoken') && key.includes('633e24b6')) {
+                            try {
+                                const val = JSON.parse(sessionStorage.getItem(key));
+                                if (val && val.secret) return val.secret;
+                            } catch(e) {}
+                        }
+                    }
+                    return null;
+                }""")
+            except Exception as e:
+                print(f"[govale] token evaluate fallo, reintento: {str(e)[:80]}")
+                token_extracted = None
+            if token_extracted:
+                break
+            time.sleep(2)
 
         if token_extracted:
             captured_tokens['access_token'] = token_extracted
@@ -461,22 +529,24 @@ def crear_vale(solicitud_id, user=None, pwd=None):
     cantidad = int(sol['CANTIDAD'])
 
     browser, context, page, tokens, pw = _launch_browser_and_login(user, pwd)
+    # Marca si YA se hizo click en "Generar Vale". Decide si un fallo es seguro
+    # de reintentar (nunca se llego a generar) o no (pudo crearse a medias).
+    click_generar = False
     try:
         if 'govale-digital.oxxogas.com' not in page.url:
-            return {'error': 'No se pudo iniciar sesión en Go Vale.'}
+            return {'error': 'No se pudo iniciar sesión en Go Vale.', 'reintentable': True}
         print("[govale] Login OK, navegando a Generar Vale...")
 
-        # Click "Generar Vale" desde el dashboard
-        gen_link = page.query_selector('text=Generar Vale')
-        if gen_link:
-            gen_link.click()
-        else:
-            page.goto("https://govale-digital.oxxogas.com/vouchers/1", wait_until="networkidle", timeout=60000)
-        time.sleep(8)
-
-        body_text = page.query_selector('body').inner_text() if page.query_selector('body') else ''
-        if 'Generar Vale' not in body_text:
-            return {'error': 'No se pudo cargar el formulario de Generar Vale.'}
+        # Llevar el SPA al formulario y ESPERAR sus selectores. Mirar solo el
+        # texto "Generar Vale" daba falso positivo: tambien esta en el menu, y
+        # se seguia con el formulario a medias.
+        _abrir_formulario_generar_vale(page)
+        try:
+            page.wait_for_selector('.mat-mdc-select-trigger', timeout=30000)
+        except Exception:
+            _capturar_debug(page, "govale_form_fail")
+            return {'error': 'No se pudo cargar el formulario de Generar Vale.',
+                    'reintentable': True}
 
         # 1. Seleccionar empresa (primer mat-select, obligatorio aunque sea fija)
         triggers = page.query_selector_all('.mat-mdc-select-trigger')
@@ -555,11 +625,12 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         # 5. Click "Generar Vale"
         gen_btn = page.query_selector('button:has-text("Generar Vale")')
         if gen_btn and not gen_btn.is_disabled():
+            click_generar = True
             gen_btn.click()
             time.sleep(5)
             print("[govale] Click en Generar Vale")
         else:
-            return {'error': 'Botón Generar Vale deshabilitado.'}
+            return {'error': 'Botón Generar Vale deshabilitado.', 'reintentable': True}
 
         # 7. Verificar resultado y extraer folio/QR
         _capturar_debug(page, "govale_result")
@@ -678,18 +749,26 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                 'contacto': contacto_nombre
             }}
 
+        # A partir de aqui YA se hizo click en Generar Vale: si el resultado no
+        # se pudo confirmar, reintentar a ciegas puede cobrar dos veces. Estos
+        # errores NO son "reintentables": el worker los revierte a PENDIENTE
+        # para reconciliacion a mano.
         if 'error' in body_text.lower():
             idx = body_text.lower().index('error')
-            return {'error': f'Go Vale: {body_text[max(0,idx-30):idx+150]}'}
+            return {'error': f'Go Vale: {body_text[max(0,idx-30):idx+150]}',
+                    'reintentable': False}
 
         if '$0.00' in body_text and 'Saldo disponible' in body_text:
-            return {'error': 'Saldo insuficiente para generar vale.'}
+            return {'error': 'Saldo insuficiente para generar vale.', 'reintentable': False}
 
-        return {'error': 'No se pudo confirmar la generación del vale.'}
+        return {'error': 'No se pudo confirmar la generación del vale.',
+                'reintentable': False}
 
     except Exception as e:
         print(f"[govale] Excepción: {e}")
-        return {'error': f'Excepción en Playwright: {str(e)}'}
+        # Antes del click es seguro reintentar; despues, no (pudo crearse).
+        return {'error': f'Excepción en Playwright: {str(e)}',
+                'reintentable': not click_generar}
     finally:
         _cerrar_playwright(browser, pw)
 
@@ -713,7 +792,11 @@ def generar_vale_background(solicitud_id):
             resultado = crear_vale(solicitud_id, user=config['user'], pwd=config['password'])
             if 'error' in resultado:
                 print(f"[govale_bg] Error generando vale #{solicitud_id}: {resultado['error']}")
-                db.revertir_solicitud_pendiente(solicitud_id)
+                if resultado.get('reintentable'):
+                    # Fallo antes de generar: se deja APROBADO para reintento.
+                    print(f"[govale_bg] vale #{solicitud_id} queda APROBADO para reintento")
+                else:
+                    db.revertir_solicitud_pendiente(solicitud_id)
             else:
                 print(f"[govale_bg] Vale #{solicitud_id} generado exitosamente")
                 # Notificar por Telegram

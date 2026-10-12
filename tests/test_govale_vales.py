@@ -187,5 +187,189 @@ class LifecyclePlaywright(unittest.TestCase):
         self.assertTrue(pw.stopped)
 
 
+class _El:
+    def __init__(self, page, sel):
+        self.page = page
+        self.sel = sel
+
+    def is_visible(self):
+        return True
+
+    def click(self):
+        self.page.clicks.append(self.sel)
+
+
+class _PageNaveg:
+    """Pagina falsa que recuerda clicks y navegaciones."""
+
+    def __init__(self):
+        self.clicks = []
+        self.gotos = []
+
+    def query_selector(self, sel):
+        return _El(self, sel)
+
+    def goto(self, url, **kw):
+        self.gotos.append(url)
+
+
+class AbrirFormulario(unittest.TestCase):
+    """La navegacion al formulario de Generar Vale."""
+
+    def setUp(self):
+        self._sleep = ov.time.sleep
+        ov.time.sleep = lambda *a, **k: None
+
+    def tearDown(self):
+        ov.time.sleep = self._sleep
+
+    def test_cierra_el_aviso_y_clickea_generar_vale(self):
+        page = _PageNaveg()
+        ov._abrir_formulario_generar_vale(page)
+        # Primero el modal de "renovando plataforma", luego el formulario.
+        self.assertTrue(any('Cerrar aviso' in c for c in page.clicks), page.clicks)
+        self.assertTrue(any('Generar Vale' in c for c in page.clicks), page.clicks)
+        self.assertEqual(page.gotos, [])   # no hizo falta el goto directo
+
+
+class _CursorSol:
+    def __init__(self, row):
+        self.row = row
+
+    def execute(self, *a, **k):
+        pass
+
+    def fetchone(self):
+        return self.row
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+class _ConnSol:
+    def __init__(self, row):
+        self.row = row
+
+    def cursor(self, as_dict=False):
+        return _CursorSol(self.row)
+
+    def close(self):
+        pass
+
+
+class _DbEccsaFalso:
+    def __init__(self, row):
+        self.row = row
+
+    def get_connection(self):
+        return _ConnSol(self.row)
+
+    def get_oxxogas_mapeo_by_usuario(self, uid):
+        return {'ContactoOxxoGas': 'Victor'}
+
+
+class _PageFormFail:
+    """La navegacion "funciona" pero el formulario nunca aparece."""
+
+    url = 'https://govale-digital.oxxogas.com/home'
+
+    def query_selector(self, sel):
+        return None
+
+    def query_selector_all(self, sel):
+        return []
+
+    def goto(self, *a, **k):
+        pass
+
+    def wait_for_selector(self, *a, **k):
+        raise TimeoutError('Page.wait_for_selector: Timeout 30000ms exceeded.')
+
+    def screenshot(self, *a, **k):
+        return b''
+
+    def inner_text(self):
+        return ''
+
+
+class _Vacio:
+    def close(self):
+        pass
+
+    def stop(self):
+        pass
+
+
+class Reintentable(unittest.TestCase):
+    """Un fallo ANTES de generar no puede perder el vale."""
+
+    ROW = {'Id': 28, 'IdSolicitante': 8, 'Placa': 'SAJ-722-B',
+           'Descripcion': 'x', 'Cantidad': 1, 'MontoUnit': 500.0,
+           'Solicitante': 'Victor', 'IdAutomovil': 9, 'Estatus': 'APROBADO'}
+
+    def test_formulario_que_no_carga_es_reintentable(self):
+        import sys
+        import types as _types
+        page = _PageFormFail()
+        fake_db = _DbEccsaFalso(dict(self.ROW))
+        previos = {k: sys.modules.get(k) for k in ('eccsa_db',)}
+        sys.modules['eccsa_db'] = fake_db
+        login_orig = ov._launch_browser_and_login
+        ov._launch_browser_and_login = lambda u, p: (_Vacio(), None, page, {}, _Vacio())
+        try:
+            res = ov.crear_vale(28, user='u', pwd='p')
+        finally:
+            ov._launch_browser_and_login = login_orig
+            for k, v in previos.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+        self.assertIn('error', res)
+        self.assertTrue(res.get('reintentable'),
+                        'un fallo antes del click debe poder reintentarse')
+
+
+class RetryEnWorker(unittest.TestCase):
+    """`generar_vale_sincrono` deja APROBADO si el fallo es seguro."""
+
+    class _DbFalso:
+        def __init__(self):
+            self.revertidas = []
+
+        def get_govale_credentials(self):
+            return {'user': 'u', 'password': 'p'}
+
+        def revertir_solicitud_pendiente(self, sid):
+            self.revertidas.append(sid)
+
+    def _corre(self, resultado):
+        import cron_vales_autogenerate as cv
+        db = self._DbFalso()
+        crear_orig, db_orig = cv.crear_vale, cv.db
+        cv.db = db
+        cv.crear_vale = lambda sid, user=None, pwd=None: resultado
+        try:
+            r = cv.generar_vale_sincrono(28)
+        finally:
+            cv.crear_vale, cv.db = crear_orig, db_orig
+        return r, db.revertidas
+
+    def test_fallo_seguro_no_revierte_a_pendiente(self):
+        r, revertidas = self._corre({'error': 'No se pudo cargar el formulario',
+                                     'reintentable': True})
+        self.assertFalse(r)
+        self.assertEqual(revertidas, [], 'no debía revertirse: se deja APROBADO')
+
+    def test_fallo_tras_click_si_revierte(self):
+        r, revertidas = self._corre({'error': 'No se pudo confirmar',
+                                     'reintentable': False})
+        self.assertFalse(r)
+        self.assertEqual(revertidas, [28])
+
+
 if __name__ == '__main__':
     unittest.main()

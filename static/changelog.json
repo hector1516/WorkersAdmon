@@ -1,7 +1,8 @@
 {
   "app": "workersadmon",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "cambios": [
+    "🎫 Los vales de gasolina ya se generan solos otra vez: si el formulario de Go Vale no carga, se reintenta en el siguiente ciclo en vez de perderse.",
     "🔧 El worker de Go Vale ya no se queda muerto cuando un login se tarda: vuelve a sincronizar los vales en el siguiente ciclo.",
     "⛽ El aviso del ticket de OxxoGas (WhatsApp, Telegram y push) ahora incluye el saldo que queda en el monedero.",
     "🧹 Se retiró el worker de correo viejo, que escribía en MySQL y además llevaba días sin arrancar.",

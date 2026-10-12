@@ -50,7 +50,13 @@ def generar_vale_sincrono(solicitud_id):
     resultado = crear_vale(solicitud_id, user=config["user"], pwd=config["password"])
     if "error" in resultado:
         print(f"[vales_worker] Error vale #{solicitud_id}: {resultado['error']}")
-        db.revertir_solicitud_pendiente(solicitud_id)
+        if resultado.get("reintentable"):
+            # Fallo ANTES de generar (login/navegacion): no hay riesgo de
+            # duplicar. Se deja APROBADO para que el proximo ciclo reintente, en
+            # vez de PENDIENTE, que el worker NUNCA vuelve a mirar.
+            print(f"[vales_worker] vale #{solicitud_id} queda APROBADO para reintento")
+        else:
+            db.revertir_solicitud_pendiente(solicitud_id)
         return False
     print(f"[vales_worker] Vale #{solicitud_id} generado exitosamente")
     try:

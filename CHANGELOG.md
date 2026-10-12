@@ -4,6 +4,26 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.8.2] - 2026-10-12
+
+### Corregido
+- **Los vales de gasolina dejaron de generarse (6 seguidos).** Desde el
+  4-oct, cada solicitud aprobada se intentaba una sola vez y, al fallar la
+  navegación a Go Vale, se revertía a `PENDIENTE` — que es justo lo que el
+  worker NO vuelve a mirar. Síntoma real: el usuario pedía el vale en Field y
+  nunca llegaba. Causa: tras la renovación de la plataforma de Go Vale, el login
+  no esperaba a que el SPA terminara el redirect de Microsoft, y `/vouchers/1`
+  rebotaba al home; el formulario nunca cargaba.
+  - `_launch_browser_and_login` ahora espera el dashboard (`_esperar_dashboard`)
+    y reintenta la lectura del token si el SPA todavía navega.
+  - `crear_vale` abre el formulario con `_abrir_formulario_generar_vale` (cierra
+    el aviso de "renovando plataforma" y hace click en *Generar Vale*) y **espera
+    los selectores** del formulario, en vez de 8 s fijos y buscar el texto
+    (que también está en el menú y daba falso positivo).
+  - Un fallo **antes** de pulsar *Generar Vale* (login/navegación) ya no revierte
+    a `PENDIENTE`: se deja `APROBADO` para que el worker lo reintente. Los fallos
+    **después** del click sí revierten (reintentar a ciegas cobraría dos veces).
+
 ## [1.8.1] - 2026-10-10
 
 ### Corregido
