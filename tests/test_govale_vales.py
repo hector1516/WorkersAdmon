@@ -256,6 +256,9 @@ class _ConnSol:
     def cursor(self, as_dict=False):
         return _CursorSol(self.row)
 
+    def commit(self):
+        pass
+
     def close(self):
         pass
 

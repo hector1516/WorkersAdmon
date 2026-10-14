@@ -4,6 +4,20 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.9.0] - 2026-10-14
+
+### Agregado
+- **Los vales se generan casi al instante y en orden (FIFO).** `vales_worker`
+  revisaba la cola cada **5 minutos** y sin `ORDER BY`. Ahora el intervalo es
+  `VALES_INTERVALO` (por omisión **15 s**) y la consulta lleva `ORDER BY Id ASC`,
+  así que un vale recién aprobado se toma en segundos y los pendientes salen en
+  orden de llegada. Sigue siendo **un solo worker** que los genera **uno por
+  uno**: el intervalo no era un candado de concurrencia, era solo cada cuánto
+  encuestaba.
+- **Progreso de la generación.** El worker escribe en `HUB_SolicitudVales`
+  `Progreso` (0 en cola, 1–99 generándose, 100 listo), `PasoVale` (la etapa) y
+  `ProgresoFecha` (migración `0062`). Field lo pinta como barra de espera.
+
 ## [1.8.2] - 2026-10-12
 
 ### Corregido

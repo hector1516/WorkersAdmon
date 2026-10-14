@@ -66,6 +66,26 @@ def get_govale_credentials():
         conn.close()
 
 
+def marcar_progreso(solicitud_id, progreso, paso=None):
+    """Anota el avance de la generación en HUB_SolicitudVales (lo lee Field).
+
+    0 = en cola, 1..99 = generándose, 100 = listo. Nunca tumba la operación: si
+    el UPDATE falla, la generación sigue igual.
+    """
+    try:
+        import eccsa_db as db
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE HUB_SolicitudVales "
+            "SET Progreso = %s, PasoVale = %s, ProgresoFecha = GETDATE() "
+            "WHERE Id = %s",
+            (int(progreso), (paso or "")[:80], int(solicitud_id)))
+        conn.commit()
+    except Exception as e:
+        print(f"[govale] no se pudo marcar progreso #{solicitud_id}: {str(e)[:80]}")
+
+
 def _capturar_debug(page, nombre, timeout=5000):
     """
     Toma un screenshot de depuracion SIN poder tumbar la operacion.
@@ -536,6 +556,7 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         if 'govale-digital.oxxogas.com' not in page.url:
             return {'error': 'No se pudo iniciar sesión en Go Vale.', 'reintentable': True}
         print("[govale] Login OK, navegando a Generar Vale...")
+        marcar_progreso(solicitud_id, 20, "Iniciando sesión en Go Vale…")
 
         # Llevar el SPA al formulario y ESPERAR sus selectores. Mirar solo el
         # texto "Generar Vale" daba falso positivo: tambien esta en el menu, y
@@ -547,6 +568,7 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             _capturar_debug(page, "govale_form_fail")
             return {'error': 'No se pudo cargar el formulario de Generar Vale.',
                     'reintentable': True}
+        marcar_progreso(solicitud_id, 45, "Abriendo el formulario…")
 
         # 1. Seleccionar empresa (primer mat-select, obligatorio aunque sea fija)
         triggers = page.query_selector_all('.mat-mdc-select-trigger')
@@ -621,14 +643,17 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                     break
 
         time.sleep(1)
+        marcar_progreso(solicitud_id, 65, "Llenando los datos…")
 
         # 5. Click "Generar Vale"
         gen_btn = page.query_selector('button:has-text("Generar Vale")')
         if gen_btn and not gen_btn.is_disabled():
             click_generar = True
+            marcar_progreso(solicitud_id, 85, "Generando el vale…")
             gen_btn.click()
             time.sleep(5)
             print("[govale] Click en Generar Vale")
+            marcar_progreso(solicitud_id, 95, "Confirmando el folio…")
         else:
             return {'error': 'Botón Generar Vale deshabilitado.', 'reintentable': True}
 
@@ -720,6 +745,8 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                     conn.commit()
                     print(f"[govale] BD actualizada: {est} folio={folio_oxxogas or '(sin folio)'}, "
                           f"qr={'sí' if qr_code else 'no (el listado de Go Vale no lo muestra)'}")
+                    if folio_oxxogas:
+                        marcar_progreso(solicitud_id, 100, "Vale generado")
             finally:
                 conn.close()
 

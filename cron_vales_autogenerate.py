@@ -17,11 +17,15 @@ except Exception as e:
     print(f"[vales_worker] Error de importación: {e}")
     sys.exit(1)
 
-INTERVALO = 300  # 5 minutos
+# Cada cuánto revisa la cola. Ya NO son 5 minutos: con 15 s el vale se toma
+# casi en cuanto se aprueba. No es un candado de concurrencia (el worker es de
+# un solo hilo y los genera uno por uno); es solo cada cuánto encuesta. Si no
+# hay nada pendiente, lo único que pasa es una consulta a la BD.
+INTERVALO = int(os.getenv("VALES_INTERVALO", "15"))
 
 
 def get_vales_pendientes_generacion():
-    """Vales APROBADO sin QR generado."""
+    """Vales APROBADO sin QR generado, en orden de llegada (FIFO)."""
     try:
         conn = db.get_connection()
         with conn.cursor(as_dict=True) as cur:
@@ -29,6 +33,7 @@ def get_vales_pendientes_generacion():
                 SELECT Id FROM HUB_SolicitudVales
                 WHERE Estatus = 'APROBADO'
                   AND (CodigoQR IS NULL OR LTRIM(RTRIM(CodigoQR)) = '')
+                ORDER BY Id ASC
             """)
             return [r["Id"] for r in cur.fetchall()]
     except Exception as e:
