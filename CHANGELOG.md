@@ -4,6 +4,16 @@
 > MCP/passkeys/push y el panel de control. Versión y novedades visibles en
 > `static/changelog.json` y en el popup 📋 del shell.
 
+## [1.9.1] - 2026-10-14
+
+### Corregido
+- **Un vale ya creado se reportaba como fallido.** Tras pulsar *Generar Vale*,
+  Go Vale muestra el **listado** (no una confirmación), así que la detección por
+  texto/URL daba falso negativo aunque el folio SÍ estuviera en la lista. El
+  resultado: el vale existía en Go Vale pero se revertía a `PENDIENTE`, la barra
+  de progreso quedaba trabada en 95 % y no salía el aviso de Telegram. Ahora el
+  **folio extraído del listado ES la confirmación** (`success = bool(folio)`).
+
 ## [1.9.0] - 2026-10-14
 
 ### Agregado

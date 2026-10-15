@@ -88,7 +88,7 @@ TITLE = os.environ.get("STATUS_TITLE", "Workers Admon")
 # Versión del panel (la de la app) y del shell (estampada por
 # tools/sync_shell.py del repo ECCSA-Shell al copiar panel/shell.css).
 APP_ID = "workersadmon"
-APP_VERSION = "1.9.0"   # 1.9.0: vales FIFO casi inmediatos y con progreso para Field
+APP_VERSION = "1.9.1"   # 1.9.1: el folio del listado confirma el vale (no mas PENDIENTE trabado)
 
 
 def _shell_version():

@@ -705,11 +705,18 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             elif qr_src:
                 qr_url = qr_src
 
-        success = False
-        if 'vouchers' in page_url and '/1' not in page_url:
-            success = True
-        elif any(w in body_text.lower() for w in ['éxito', 'generado', 'exitoso', 'correctamente']):
-            success = True
+        # El FOLIO del listado es la prueba de que el vale existe: si lo
+        # extrajimos, la generación fue exitosa aunque el texto no traiga la
+        # palabra "generado" (el listado de Go Vale no la trae). Antes esto se
+        # ignoraba y vales YA creados se reportaban como fallidos y se revertían
+        # a PENDIENTE, dejando la barra de progreso trabada y sin avisar por
+        # Telegram.
+        success = bool(folio_oxxogas)
+        if not success:
+            if 'vouchers' in page_url and '/1' not in page_url:
+                success = True
+            elif any(w in body_text.lower() for w in ['éxito', 'generado', 'exitoso', 'correctamente']):
+                success = True
 
         if success:
             # Guardar en BD con todos los datos.

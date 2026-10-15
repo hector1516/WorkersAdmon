@@ -1,7 +1,8 @@
 {
   "app": "workersadmon",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "cambios": [
+    "🛠️ Un vale ya creado en Go Vale se marca como generado (antes se reportaba como fallido y quedaba pendiente, trabando la barra).",
     "⚡ Los vales de gasolina ahora se generan casi al instante: el worker revisa la cola cada 15 segundos y los toma en orden de llegada.",
     "📊 El vale reporta su avance (en cola, iniciando sesión, generando…), para que Field muestre una barra de progreso de verdad.",
     "🎫 Los vales de gasolina ya se generan solos otra vez: si el formulario de Go Vale no carga, se reintenta en el siguiente ciclo en vez de perderse.",
