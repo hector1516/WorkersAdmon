@@ -205,6 +205,7 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido", ip="")
 
     return page("avisos", cuerpo, user=user, flash_ok=flash_ok, flash_err=flash_err,
                 lugar=lugar, ip=ip,
-                subtitle="Cinco avisos push, filtrados por los permisos de cada "
+                subtitle="Cuatro avisos push, filtrados por los permisos de cada "
                          "usuario · lunes a viernes dentro del horario, fuera de "
-                         "él se acumulan y salen juntos")
+                         "él se acumulan y salen juntos · el reporte firmado va "
+                         "directo al creador y a los involucrados")

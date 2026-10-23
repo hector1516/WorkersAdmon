@@ -5750,7 +5750,86 @@ def queue_telegram_alerta(id_evento, chat_id, texto, adjunto=None, adjunto_nombr
         return False
 
 
+def tomar_telegram_pendientes(limite=1, reintento_seg=30):
+    """Reclama hasta `limite` mensajes y los deja en ENVIANDO.
+
+    Antes el worker solo leía las filas PENDIENTE: si el proceso moría después
+    de leer y antes de marcar, la fila seguía PENDIENTE y se podía reenviar; y
+    si otra instancia arrancaba, ambas veían el mismo lote. El UPDATE dentro de
+    la misma transacción que el SELECT (con UPDLOCK/ROWLOCK) hace que una fila
+    pertenezca a un solo consumidor. Si el worker se cae, `recuperar_...` la
+    devuelve a PENDIENTE.
+
+    El filtro de `UltimoIntento` evita que un mensaje que acaba de fallar se
+    reintente en cada vuelta y tape a los demás.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor(as_dict=True) as cur:
+            cur.execute("""
+                SELECT TOP (%s) Id, IdEvento, ChatId, Texto, Adjunto,
+                       AdjuntoNombre, Intentos
+                FROM HUB_TelegramQueue WITH (UPDLOCK, ROWLOCK)
+                WHERE Estado = 'PENDIENTE'
+                  AND (UltimoIntento IS NULL
+                       OR UltimoIntento < DATEADD(second, -%s, GETDATE()))
+                ORDER BY Creado ASC
+            """, (int(limite), int(reintento_seg)))
+            filas = cur.fetchall()
+            if not filas:
+                conn.commit()
+                return []
+            ids = ",".join(str(int(f["Id"])) for f in filas)
+            cur.execute(f"""
+                UPDATE HUB_TelegramQueue
+                SET Estado = 'ENVIANDO', UltimoIntento = GETDATE()
+                WHERE Id IN ({ids})
+            """)
+        conn.commit()
+        return filas
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f"Error claiming telegram messages: {e}")
+        return []
+
+
+def recuperar_telegram_atascados(minutos=10, max_intentos=3):
+    """Devuelve a PENDIENTE lo que quedó en ENVIANDO tras un reinicio.
+
+    Cada recuperación cuenta como intento: si un mensaje tumba al proceso (por
+    ejemplo, un adjunto que hace segfault en una librería nativa), después de
+    `max_intentos` recuperaciones se marca FALLADO y deja de reiniciar al
+    worker en loop. Al arrancar se llama con `minutos=0` para no esperar diez
+    minutos.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE HUB_TelegramQueue
+                    SET Estado = CASE
+                            WHEN ISNULL(Intentos, 0) + 1 >= %s THEN 'FALLADO'
+                            ELSE 'PENDIENTE'
+                        END,
+                        Intentos = ISNULL(Intentos, 0) + 1,
+                        UltimoIntento = GETDATE(),
+                        Respuesta = 'Recuperado: el worker se reinició mientras se enviaba'
+                    WHERE Estado = 'ENVIANDO'
+                      AND ISNULL(UltimoIntento, Creado) < DATEADD(minute, -%s, GETDATE())
+                """, (int(max_intentos), int(minutos)))
+                n = cur.rowcount
+            conn.commit()
+            return n
+    except Exception as e:
+        print(f"Error recovering stuck telegram messages: {e}")
+        return 0
+
+
 def dequeue_telegram_pendientes(limite=10):
+    """Solo lectura. El worker usa `tomar_telegram_pendientes`, que reclama."""
     try:
         with get_connection() as conn:
             with conn.cursor(as_dict=True) as cur:
@@ -5782,11 +5861,12 @@ def marcar_telegram_enviado(id_queue, respuesta):
         return False
 
 
-def marcar_telegram_fallado(id_queue, respuesta, intentos):
+def marcar_telegram_fallado(id_queue, respuesta, intentos, max_intentos=3):
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                nuevo_estado = 'FALLADO' if intentos >= 3 else 'PENDIENTE'
+                nuevo_estado = ('FALLADO' if intentos >= int(max_intentos)
+                                else 'PENDIENTE')
                 cur.execute("""
                     UPDATE HUB_TelegramQueue
                     SET Estado = %s, UltimoIntento = GETDATE(), Respuesta = %s, Intentos = %s
@@ -6324,8 +6404,13 @@ def test_telegram_bot():
         return False, {'error': str(e)[:200]}
 
 
-def get_telegram_updates_offset(offset=None):
-    """Obtiene updates pendientes del bot (para capturar /start y compartir contacto)."""
+def get_telegram_updates_offset(offset=None, timeout=10):
+    """Obtiene updates pendientes del bot (para capturar /start y compartir contacto).
+
+    `timeout` es el corte de la petición HTTP; el long-poll de Telegram se deja
+    en 2 s para que el worker no se quede esperando mensajes entrantes cuando
+    tiene avisos en la cola.
+    """
     cfg = get_telegram_config()
     token = cfg.get('token', '')
     if not token:
@@ -6334,7 +6419,8 @@ def get_telegram_updates_offset(offset=None):
         params = {'timeout': 2, 'allowed_updates': '["message"]'}
         if offset is not None:
             params['offset'] = int(offset)
-        resp = _requests.get(f"{_TELEGRAM_API}/bot{token}/getUpdates", params=params, timeout=10)
+        resp = _requests.get(f"{_TELEGRAM_API}/bot{token}/getUpdates", params=params,
+                             timeout=timeout)
         data = resp.json()
         if resp.ok and data.get('ok'):
             return data.get('result', [])

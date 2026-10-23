@@ -85,15 +85,18 @@ CATALOGO = {
     },
     "telegram_worker": {
         "desc": "Alertas por Telegram (cola outbox)",
-        "cadencia": "cada 20 s",
+        "cadencia": "cada 10 s",
         "app": "HUB",
         "descripcion": (
-            "Consume la cola HUB_TelegramQueue: atiende los /start entrantes "
-            "(vinculación automática de usuarios), envía hasta 10 mensajes por "
-            "ciclo —texto con sendMessage o adjunto con sendDocument—, marca "
-            "ENVIADO o FALLADO con máximo 3 reintentos y limpia el historial "
-            "de más de 30 días. Es quien materializa las alertas de "
-            "telegram_alerts.py."),
+            "Consume la cola HUB_TelegramQueue: reclama un mensaje por ciclo "
+            "(texto con sendMessage o adjunto con sendDocument), espera entre "
+            "envíos para no soltar ráfagas, marca ENVIADO o FALLADO con máximo "
+            "3 reintentos, respeta el 429 de Telegram sin gastar intento, "
+            "recupera las filas que quedaron ENVIANDO si el proceso murió y "
+            "late cada ciclo. Un watchdog reinicia el worker si un ciclo se "
+            "queda colgado; supervisor lo levanta si se cae. Atiende los "
+            "/start entrantes cuando la cola está vacía. Es quien materializa "
+            "las alertas de telegram_alerts.py."),
     },
     "pdf_storage_worker": {
         "desc": "Respaldo de PDFs de reportes a SMB",
@@ -153,14 +156,15 @@ CATALOGO = {
         "cadencia": "cada 5 min",
         "app": "HUB",
         "descripcion": (
-            "Detecta cinco eventos y avisa por push PWA solo a quien tiene "
-            "el permiso del módulo: reporte firmado, kilometraje sin registrar "
-            "(uno por vehículo y semana), ticket OxxoGas capturado en Field, "
-            "cotización firmada y cotización facturada. Fuera de lunes a "
-            "viernes 09:00-18:30 (hora México) nada sale: se acumula y al "
-            "siguiente día laboral se entrega UN resumen por usuario. El "
-            "reparto se hace al detectar el evento, no al enviar. Lógica en "
-            "notif_dispatch.py."),
+            "Detecta cuatro eventos y avisa por push PWA solo a quien tiene "
+            "el permiso del módulo: kilometraje sin registrar (uno por "
+            "vehículo y semana), ticket OxxoGas capturado en Field, "
+            "cotización firmada y cotización facturada. El reporte firmado no "
+            "pasa por aquí: Field lo manda directo al creador y a los "
+            "técnicos involucrados. Fuera de lunes a viernes 09:00-18:30 "
+            "(hora México) nada sale: se acumula y al siguiente día laboral se "
+            "entrega UN resumen por usuario. El reparto se hace al detectar el "
+            "evento, no al enviar. Lógica en notif_dispatch.py."),
     },
     # ── Workers de Field (migrados de `field` el 2026-09-26, código en api/) ──
     "avisos": {

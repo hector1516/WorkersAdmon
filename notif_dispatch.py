@@ -46,23 +46,20 @@ APP_ADMON = "admon"
 # Zona horaria de la Ciudad de México.
 TZ_MEXICO = datetime.timezone(datetime.timedelta(hours=-6), "Mexico")
 
-# Los cinco avisos de Admon. Cada uno declara el PERMISO que hay que tener para
+# Los cuatro avisos de Admon. Cada uno declara el PERMISO que hay que tener para
 # recibirlo: así el filtrado sale del mismo catálogo que usa la sesión de Admon y
 # no de una lista escrita a mano en el worker.
 #
+# REPORTE_FIRMADO no está aquí: Field lo manda directo por PWA al creador y a
+# los técnicos involucrados en el momento de la firma. Si se detectara aquí,
+# `encolar` lo repartiría a TODOS los usuarios con `AccesoReportes` (broadcast) y
+# además esperaría al horario del despachador. El aviso de reporte firmado no es
+# un aviso de módulo: le importa a quien espera esa firma, no a toda la empresa.
+#
 # `titulo_func` arma el texto con el nombre de quien causó el aviso, que es lo
-# que hace útil la notificación ("Rosa firmó el reporte RS-123" y no un
-# "Hay un reporte nuevo").
+# que hace útil la notificación ("Rosa firmó la cotización COT-123" y no un
+# "Hay una cotización nueva").
 TIPOS = {
-    "REPORTE_FIRMADO": {
-        "permiso": "AccesoReportes",
-        "titulo": "✍️ Reporte firmado",
-        "url": "/reportes",
-        "titulo_func": lambda d: f"✍️ {d['actor']} firmó el reporte {d['ref']}",
-        "mensaje_func": lambda d: (
-            f"{d['actor']} firmó el reporte {d['ref']} del cliente {d['extra']}."
-        ),
-    },
     "KILOMETROS": {
         "permiso": "AccesoRegistroKilometros",
         "titulo": "🚗 Registra tus kilómetros",
@@ -480,49 +477,14 @@ def limpiar(dias=30):
 
 # ── Detección de eventos ──────────────────────────────────────────────────────
 #
-# Los cinco avisos salen de datos que ALGUIEN ya escribe (Admon al firmar un
-# reporte o cambiar el estatus de una cotización, Field al registrar un ticket).
-# No se toca ninguna app para avisar: el worker pregunta "¿qué hay de nuevo?".
-# Esa es la diferencia entre un aviso y un webhook, y es lo que permite que un
-# evento que ocurre en Field llegue a un usuario que solo entra por Admon.
+# Los avisos salen de datos que ALGUIEN ya escribe (Admon al cambiar el estatus
+# de una cotización, Field al registrar un ticket). No se toca ninguna app para
+# avisar: el worker pregunta "¿qué hay de nuevo?". Esa es la diferencia entre un
+# aviso y un webhook, y es lo que permite que un evento que ocurre en Field
+# llegue a un usuario que solo entra por Admon.
 #
 # El marcador de cada detector es un id o una fecha ya leídos. Se avanza en la
 # misma transacción que encola, así que un reinicio a mitad de ciclo no repite.
-
-
-def detectar_reportes_firmados(app=APP_ADMON):
-    """
-    Reportes de servicio recién firmados.
-
-    `ReportesServicio` no tiene columna de fecha de firma (solo `FirmaConformidad`),
-    así que el marcador es el IdReporte más alto visto. Es igual de fiable para
-    esto: los ids son monotónicos y solo nos interesan los nuevos.
-    """
-    with db.get_connection() as conn:
-        marcador = int(_marcador("reporte_firmado", "0", conn=conn) or 0)
-        filas = _filas(
-            "SELECT r.IdReporte, r.Folio, r.Cliente, ISNULL(u.Nombre, 'Alguien') AS Actor "
-            "FROM ReportesServicio r "
-            "LEFT JOIN HUB_Users u ON u.Nombre = r.Tecnico "
-            "WHERE r.IdReporte > %s "
-            "  AND r.FirmaConformidad IS NOT NULL "
-            "  AND LTRIM(RTRIM(r.FirmaConformidad)) <> '' "
-            "  AND ISNULL(r.Eliminado, 0) = 0 "
-            "ORDER BY r.IdReporte ASC",
-            (marcador,), conn=conn,
-        )
-        if not filas:
-            return 0
-        enviados = 0
-        cur = conn.cursor()
-        for f in filas:
-            enviados += encolar("REPORTE_FIRMADO", f["Actor"] or "Alguien",
-                                f["Folio"] or f"#{f['IdReporte']}",
-                                extra=f["Cliente"] or "", app=app, conn=conn)
-            marcador = max(marcador, int(f["IdReporte"]))
-        marcador_set(cur, "reporte_firmado", marcador)
-        conn.commit()
-    return enviados
 
 
 def detectar_tickets_oxxogas(app=APP_ADMON):
@@ -630,7 +592,7 @@ def detectar_kilometros(app=APP_ADMON):
     """
     Un aviso por VEHÍCULO y por semana, al responsable que lo tiene asignado.
 
-    Es el único de los cinco que NO avisa de un evento: avisa de una ausencia
+    Es el único de los cuatro que NO avisa de un evento: avisa de una ausencia
     (que no haya kilometraje). Por eso se salta al que ya registró algo esta
     semana —es el comportamiento del cron que ya existía en Field y no hay
     razón para nagginguearlo— y por eso el marcador es la semana ISO, no un id.
@@ -720,7 +682,6 @@ def _marcador(nombre, defecto="", conn=None):
 
 
 DETECTORES = {
-    "REPORTE_FIRMADO": detectar_reportes_firmados,
     "KILOMETROS": detectar_kilometros,
     "TICKET_OXXOGAS": detectar_tickets_oxxogas,
     "COTIZACION_FIRMADA": detectar_cotizaciones_firmadas,
@@ -730,10 +691,10 @@ DETECTORES = {
 
 def detectar(app=APP_ADMON):
     """
-    Corre los cinco detectores y devuelve {tipo: encolados}.
+    Corre los cuatro detectores y devuelve {tipo: encolados}.
 
-    Cada detector se aísla: uno que falle —porque su tabla no existe todavía, o
-    porque le cambiaron una columna— no puede tumbar a los otros cuatro.
+    Cada detector se aísla: uno que falle -porque su tabla no existe todavía, o
+    porque le cambiaron una columna- no puede tumbar a los otros tres.
     """
     resultado = {}
     for tipo, fn in DETECTORES.items():

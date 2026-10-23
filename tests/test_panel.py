@@ -2678,11 +2678,11 @@ class CorreoViewTest(unittest.TestCase):
 
 
 class AvisosTest(unittest.TestCase):
-    """Módulo "📣 Avisos": los cinco tipos, sus interruptores y el horario."""
+    """Módulo "📣 Avisos": los cuatro tipos, sus interruptores y el horario."""
 
     def setUp(self):
+        _CONFIG.pop("avisos_push_reporte_firmado", None)
         _CONFIG.update({
-            "avisos_push_reporte_firmado": "1",
             "avisos_push_kilometros": "0",
             "avisos_push_ticket_oxxogas": "1",
             "avisos_push_cotizacion_firmada": "1",
@@ -2692,7 +2692,7 @@ class AvisosTest(unittest.TestCase):
             "avisos_push_resumen_activo": "1",
         })
         _SUBS.clear(); _SUBS.update({"admon": 3})
-        _SIN_SUSCRIBIR.clear(); _SIN_SUSCRIBIR.update({"AccesoReportes": 0})
+        _SIN_SUSCRIBIR.clear(); _SIN_SUSCRIBIR.update({"AccesoValesOxxoGas": 0})
         _DESTINATARIOS[:] = [{"Id": 1, "Nombre": "Rosa", "Email": "r@x.com"}]
         del _ACTIVITY[:]
 
@@ -2729,10 +2729,11 @@ class AvisosTest(unittest.TestCase):
         c = self._logged()
         code, _, html = c.get("/avisos")
         self.assertEqual(code, 200)
-        # Los cinco tipos, con su nombre de siempre
-        self.assertIn("Reporte firmado", html)
+        # Los cuatro tipos, con su nombre de siempre
         self.assertIn("Ticket OxxoGas", html)
         self.assertIn("Cotización firmada", html)
+        self.assertNotIn("Reporte firmado", html,
+                         "el reporte firmado ya no se configura en esta cola")
 
     def test_muestra_el_horario_como_18_30_y_no_como_18(self):
         # El acuerdo es 18:30. Si la pantalla lo pintara como "18:00" nadie se
@@ -2750,7 +2751,7 @@ class AvisosTest(unittest.TestCase):
         c = self._logged()
         _, _, html = c.get("/avisos")
         self.assertIn("persona(s)", html)
-        self.assertIn("AccesoReportes", html)
+        self.assertIn("AccesoValesOxxoGas", html)
 
     def test_avisa_cuando_no_le_llega_a_nadie(self):
         # Interruptor encendido y cero destinatarios: el aviso rojo es lo que
@@ -2771,9 +2772,9 @@ class AvisosTest(unittest.TestCase):
         # Vaciar la casilla NO apaga (lo vacío cae al defecto, que es encendido).
         # Por eso el POST tiene que escribir "0" y no "".
         c = self._logged()
-        code, headers, _ = c.post("/avisos/REPORTE_FIRMADO/apagar", csrf=c.csrf())
+        code, headers, _ = c.post("/avisos/TICKET_OXXOGAS/apagar", csrf=c.csrf())
         self.assertEqual(code, 303)
-        self.assertEqual(_CONFIG["avisos_push_reporte_firmado"], "0")
+        self.assertEqual(_CONFIG["avisos_push_ticket_oxxogas"], "0")
 
     def test_encender_escribe_un_uno(self):
         c = self._logged()
@@ -2800,14 +2801,14 @@ class AvisosTest(unittest.TestCase):
     def test_una_accion_rara_no_escribe_nada(self):
         antes = dict(_CONFIG)
         c = self._logged()
-        code, _, _ = c.post("/avisos/REPORTE_FIRMADO/borrar", csrf=c.csrf())
+        code, _, _ = c.post("/avisos/TICKET_OXXOGAS/borrar", csrf=c.csrf())
         self.assertEqual(code, 303)
         self.assertEqual(_CONFIG, antes)
 
     def test_sin_csrf_no_cambia_nada(self):
         antes = dict(_CONFIG)
         c = self._logged()
-        code, _, _ = c.post("/avisos/REPORTE_FIRMADO/apagar")   # sin csrf
+        code, _, _ = c.post("/avisos/TICKET_OXXOGAS/apagar")   # sin csrf
         self.assertEqual(code, 403)
         self.assertEqual(_CONFIG, antes)
 

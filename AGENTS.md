@@ -133,9 +133,17 @@ el contenedor).
 
 El canal push de las PWA. La decisión está en `notif_dispatch.py` (biblioteca
 sin bucle, probada sin BD) y el turno en `cron_avisos_push.py` (programa
-`avisos_push`). Los cinco eventos salen de datos que **otra** app escribió: el
-ticket OxxoGas lo captura Field y la firma de la cotización la hace el cliente
+`avisos_push`). Los **cuatro** eventos salen de datos que **otra** app escribió:
+el ticket OxxoGas lo captura Field y la firma de la cotización la hace el cliente
 desde Field, y el aviso lo tiene que ver quien abre Cotizaciones en Admon.
+
+El **reporte firmado no pasa por este worker**: Field manda un push directo, en
+el momento, al creador del reporte y a los técnicos involucrados
+(`ReportesServicioTecnicos`), deduplicando y excluyendo a quien firmó. Se retiró
+`REPORTE_FIRMADO` de `DETECTORES` para que `encolar` no lo reparta a todos los
+usuarios con `AccesoReportes`. En firma remota el técnico está esperando esa
+confirmación; la cola central solo entrega de lunes a viernes 09:00-18:30 y
+podía avisarle hasta el día siguiente.
 
 | | |
 |---|---|
@@ -429,8 +437,8 @@ seguir al shell.
 - CI (`.github/workflows/deploy.yml` + runner self-hosted para este repo):
   fase posterior, mientras tanto el deploy es manual (`docker build` + `docker run`).
 - ~~Activar el primer worker~~ — los **10** están activos desde 2026-09-26.
-- Heartbeats: ningún worker llama aún `worker_heartbeat.heartbeat()` (la columna
-  "Última ejecución" queda vacía).
+- Heartbeats: `telegram_worker` ya llama `worker_heartbeat.heartbeat()` cada
+  ciclo; los demás usan su propio mecanismo o todavía no laten.
 - Smoke de imports por worker (los 15). La **migración 1-a-1 ya terminó**
   (2026-09-26): los 15 programas (10 de HUB/mcp + 4 de Field + 1 de correo)
   corren aquí, `hub_python` quedó solo con `streamlit`, `field` con `nginx` +

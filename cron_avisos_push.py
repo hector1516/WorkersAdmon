@@ -2,14 +2,16 @@
 cron_avisos_push — Worker que despacha los avisos push de las apps
 (programa `avisos_push` bajo supervisor).
 
-Turno de trabajo, uno cada AVISOS_CICLO_SEG (5 min, de sobra para cinco
+Turno de trabajo, uno cada AVISOS_CICLO_SEG (5 min, de sobra para cuatro
 consultas con índice):
 
-  1. **Detecta** qué eventos ocurrieron desde el turno anterior: la firma de un
-     reporte, un kilometraje registrado, la captura de un ticket OxxoGas (la hace
-     Field), la firma de una cotización (también Field) y su paso a facturar.
-     Aquí se ENCOLA y no se envía: la lista de destinatarios se decide en el
-     momento del evento.
+  1. **Detecta** qué eventos ocurrieron desde el turno anterior: un kilometraje
+     registrado, la captura de un ticket OxxoGas (la hace Field), la firma de
+     una cotización (también Field) y su paso a facturar. Aquí se ENCOLA y no
+     se envía: la lista de destinatarios se decide en el momento del evento.
+     La firma de un REPORTE no está aquí: Field la manda directo por PWA al
+     creador y a los técnicos involucrados, porque el técnico está esperando
+     esa confirmación y no puede esperar al horario del despachador.
   2. **Despacha** según el horario: dentro de jornada cada aviso sale por
      separado; fuera de ella se van acumulando.
 
@@ -77,7 +79,7 @@ APPS = [a.strip() for a in os.environ.get(
     "AVISOS_APPS", "admon,field" if not APP else APP).split(",") if a.strip()]
 APP_DETECTORES = os.environ.get("AVISOS_APP_DETECTORES", "admon")
 
-# Cada cuánto se da un turno. Cinco minutos es de sobra para cinco consultas con
+# Cada cuánto se da un turno. Cinco minutos es de sobra para cuatro consultas con
 # índice, y hace que el atraso máximo de un aviso sea de cinco minutos.
 AVISOS_CICLO_SEG = int(os.environ.get("AVISOS_CICLO_SEG", "300"))
 

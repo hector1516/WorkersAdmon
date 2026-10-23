@@ -89,8 +89,8 @@ WORKERS_SPEC = {
            clave="telegram_bot_token",
            ayuda="Token de @BotFather; lo usan todas las alertas del HUB.", test=True),
         _f("cadencia", "Cadencia de la cola", "const", "const",
-           valor="cada 20 s (lee HUB_TelegramQueue)",
-           ayuda="Constante del código; envía hasta 3 reintentos por mensaje."),
+           valor="cada 10 s (1 mensaje por ciclo)",
+           ayuda="Constante del código; 3 reintentos por mensaje, 429 sin gastar intento y watchdog de 4 min."),
     ],
     "oxxogas_worker": [
         _f("intervalo", "Cadencia de sincronización", "const", "const",

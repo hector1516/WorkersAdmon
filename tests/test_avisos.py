@@ -321,8 +321,10 @@ class TestCatalogoDeTipos(unittest.TestCase):
     """El catálogo es lo que traduce 'qué avisar' a SQL; si se desincroniza del
     interruptor de HUB_Config, el aviso se queda apagado sin que nadie lo note."""
 
-    def test_cinco_tipos(self):
-        self.assertEqual(len(nd.TIPOS), 5)
+    def test_cuatro_tipos(self):
+        self.assertEqual(len(nd.TIPOS), 4)
+        self.assertNotIn("REPORTE_FIRMADO", nd.TIPOS,
+                         "el reporte firmado va directo desde Field, no por esta cola")
 
     def test_cada_tipo_tiene_lo_que_necesita(self):
         for nombre, d in nd.TIPOS.items():
@@ -401,9 +403,9 @@ class TestEnvio(unittest.TestCase):
         _llamadas_envio.clear()
         nd.db.send_push_notification_to_users(
             "tit", "msg", ["a@x.com"],
-            extra={"url": "/reportes", "tag": "admon-reporte_firmado"})
-        self.assertEqual(_llamadas_envio[0]["extra"]["url"], "/reportes")
-        self.assertEqual(_llamadas_envio[0]["extra"]["tag"], "admon-reporte_firmado")
+            extra={"url": "/kilometros", "tag": "admon-kilometros"})
+        self.assertEqual(_llamadas_envio[0]["extra"]["url"], "/kilometros")
+        self.assertEqual(_llamadas_envio[0]["extra"]["tag"], "admon-kilometros")
 
     def test_el_resumen_lleva_el_conteo_como_badge(self):
         # En iOS `badge` es un número; el SW lo espera en `badge_count`.
@@ -439,7 +441,7 @@ class TestHorariosDesdeConfig(unittest.TestCase):
 
     def test_tipo_activo_por_defecto(self):
         # Sin fila en HUB_Config, un tipo nuevo se considera encendido.
-        self.assertTrue(nd.tipo_activo(_cursor, "REPORTE_FIRMADO"))
+        self.assertTrue(nd.tipo_activo(_cursor, "TICKET_OXXOGAS"))
         _cursor.respuestas = {"avisos_push_kilometros": {"v": "0"}}
         self.assertFalse(nd.tipo_activo(_cursor, "KILOMETROS"))
 
@@ -670,11 +672,12 @@ class TestDespachoPorApp(unittest.TestCase):
         self.assertEqual(len(re.findall(r"%s", sql)), len(params))
 
     def test_despachar_de_field_pasa_la_app_al_envio(self):
-        # Fila pendiente de Field para el usuario 2.
+        # Fila pendiente de Field para el usuario 2 (el tipo lo escribe el
+        # worker de vales, no está en el catálogo de Admon).
         _cursor.respuestas = {
-            "HUB_AvisosCola": {"Id": 99, "App": "field", "Tipo": "REPORTE_FIRMADO",
-                               "IdUsuario": 2, "Titulo": "✍️ Reporte firmado",
-                               "Mensaje": "Ya está firmado.", "Url": "/reportes/7"},
+            "HUB_AvisosCola": {"Id": 99, "App": "field", "Tipo": "VALE_GENERADO",
+                               "IdUsuario": 2, "Titulo": "⛽ Vale listo",
+                               "Mensaje": "Ya puedes pagarlo.", "Url": "/vales"},
             "HUB_PushSuscripciones": {"Email": "hector@ecc-sa.com.mx"},
         }
         with unittest.mock.patch.object(nd, "dentro_de_horario", return_value=True), \
@@ -685,7 +688,7 @@ class TestDespachoPorApp(unittest.TestCase):
         self.assertEqual(_llamadas_envio[0]["app"], "field",
                          "el envío no se hizo por la app de field: el aviso "
                          "buscaría los equipos de otra app")
-        self.assertEqual(_llamadas_envio[0]["extra"]["tag"], "field-reporte_firmado")
+        self.assertEqual(_llamadas_envio[0]["extra"]["tag"], "field-vale_generado")
 
     def test_el_resumen_also_se_envia_por_su_app(self):
         _cursor.respuestas = {
