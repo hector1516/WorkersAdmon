@@ -17,10 +17,10 @@ EXPLICACION = """
 <div class="panel">
   <h2>🛡️ Triaje del correo</h2>
   <p class="hint">
-    Clasifica cada mensaje nuevo sin gastar IA primero: publicidad, rebotes y
-    correo interno se descartan por cabeceras. Solo los correos de una persona
-    real a alguien que <b>ya no está</b> llegan aquí, con un borrador listo.
-    Nada se envía hasta que lo apruebes.
+    Clasifica cada mensaje nuevo con reglas, sin IA y sin costo: publicidad,
+    rebotes y correo interno se descartan por cabeceras y por el remitente.
+    Solo los correos de una persona real a alguien que <b>ya no está</b> llegan
+    aquí, con un borrador listo. Nada se envía hasta que lo apruebes.
   </p>
 </div>
 """
@@ -30,10 +30,8 @@ def _tarjeta(c, csrf):
     cat = (c.get("Categoria") or "").lower()
     icono = {"huerfano": "❓", "bulk": "📢", "rebote": "↩️",
              "interno": "🏠", "activo": "✅"}.get(cat, "•")
-    metodo = (c.get("Metodo") or "").lower()
-    etiqueta_ia = ('<span class="badge badge-info">IA</span>'
-                   if metodo == "ia" else
-                   '<span class="badge">regla</span>')
+    metodo = (c.get("Metodo") or "regla").lower()
+    etiqueta_ia = f'<span class="badge">{esc(metodo)}</span>'
     conf = c.get("Confianza")
     conf_txt = f"{float(conf):.2f}" if conf is not None else "—"
 
@@ -83,8 +81,7 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido", ip="")
     <div><div class="hint">Aprobadas</div><b style="font-size:22px">{r.get('aprobada', 0)}</b></div>
     <div><div class="hint">Rechazadas</div><b style="font-size:22px">{r.get('rechazada', 0)}</b></div>
     <div><div class="hint">Huérfanos (30 d)</div><b style="font-size:22px">{r.get('huerfanos_mes', 0)}</b></div>
-    <div><div class="hint">Llamadas IA (30 d)</div><b style="font-size:22px">{r.get('ia_mes', 0)}</b></div>
-    <div><div class="hint">Tokens (30 d)</div><b style="font-size:22px">{r.get('tokens_mes', 0)}</b></div>
+    <div><div class="hint">Remitentes bloqueados</div><b style="font-size:22px">{r.get('bloqueos', 0)}</b></div>
   </div>
 </div>"""
 
@@ -110,8 +107,8 @@ def _bloqueos(csrf):
   <h2>Lista de bloqueo global</h2>
   <p class="hint">
     Un remitente bloqueado se mueve a Spam en <b>las 13 cuentas</b>, no solo en
-    la que lo recibió. Se evalúa antes que las reglas personales y antes que la
-    IA, así que un bloqueo nunca cuesta tokens.
+    la que lo recibió. Se evalúa antes que las reglas personales y antes de
+    cualquier clasificación.
   </p>
   <form method="post" action="/triaje" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
     <input type="hidden" name="csrf" value="{csrf}">

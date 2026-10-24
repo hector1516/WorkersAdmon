@@ -3,18 +3,17 @@ mailbox_worker/triaje.py — clasificación del correo y respuesta sugerida
 =========================================================================
 
 QUÉ HACE
-Cada mensaje nuevo se clasifica UNA vez, en tres pasos ordenados por costo:
+Cada mensaje nuevo se clasifica UNA vez, con reglas deterministas (sin IA y sin
+costo): cabeceras de envío masivo, remitentes con pinta de boletín, rebotes,
+correo interno, lista de bloqueo global y resolución del destinatario contra
+`HUB_Users`. Solo lo que parece una persona real escribiéndose de buenos modos
+a alguien que ya no está llega a la cola de revisión.
 
-  1. **Reglas deterministas** (0 tokens): cabeceras de envío masivo, rebotes,
-     correo interno, y resolución del destinatario contra HUB_Users.
-  2. **Compuerta** (0 tokens): solo pasa a revisión lo que parece una persona
-     real escribiéndose de buenos modos a alguien que ya no está.
-  3. **Gemini** (opcional y con tope): solo para los candidatos de la compuerta,
-     y solo para CONFIRMAR que es una persona y sugerir el buzón de destino.
-
-LA IA NO REDACTA LA RESPUESTA. Se usa una plantilla aprobada y la IA solo
-decide a qué buzón redirigir. Es a la vez lo más barato y lo más seguro: la
-empresa nunca manda un texto que no aprobó.
+SIN IA, A PROPÓSITO (decisión del usuario, 2026-10-24)
+No se llama a ningún proveedor externo: no hay cuota que pagar y el módulo
+funciona igual con o sin internet. El costo es que un correo de venta en frío a
+la dirección de alguien que se fue se parece mucho a un cliente que se equivocó;
+eso lo distingue el operador en la cola, con un clic.
 
 MODO REVISIÓN (el que está activo)
 Nada se envía solo. Cada candidato queda en `HUB_MailboxClasificacion` con un
@@ -26,7 +25,6 @@ Si la dirección del destinatario NO está en `HUB_Users` (o está con
 `Activo = 0`), es de alguien que ya no está. Solo aplica a nuestro dominio: un
 remitente externo que no está en HUB_Users no es un ex empleado.
 """
-import json
 import re
 from datetime import datetime
 
@@ -114,7 +112,7 @@ def _cfg_bool(clave, defecto=True):
 
 
 def destino_de(slug):
-    """Slug de la IA -> dirección real, configurable por HUB_Config."""
+    """Slug de destino -> dirección real, configurable por HUB_Config."""
     slug = (slug or "").strip().lower()
     defecto = _cfg("triaje_destino_defecto", "contacto@ecc-sa.com.mx")
     if not slug or slug == "null":
@@ -333,102 +331,11 @@ def clasificar(msg, bloqueos=None):
             "motivo": "sin señal de error de destinatario"}
 
 
-# ── IA (opcional, con tope) ───────────────────────────────────────────────────
-
-# Cortacircuitos: si el proveedor responde 429 (cuota agotada), se apaga la IA
-# para el resto del proceso. Sin esto, un lote de 1000 mensajes hace 1000
-# llamadas fallidas y llena el log con el mismo error.
-_IA_AGOTADA = False
-
-
-def _ia_disponible():
-    if _IA_AGOTADA:
-        return False
-    if not _cfg_bool("triaje_ia", True):
-        return False
-    tope = int(_cfg("triaje_ia_tope_dia", "25") or 25)
-    hoy = una("SELECT COUNT(*) AS n FROM HUB_MailboxClasificacion "
-              "WHERE Metodo = 'ia' AND Creado >= CONVERT(date, GETDATE())")
-    return int((hoy or {}).get("n") or 0) < tope
-
-
-def _ia(msg, destinatario):
-    """
-    Confirma si es una persona y sugiere buzón. Devuelve None si no hay clave,
-    si se agotó el tope o si el proveedor falla: el triaje sigue sin IA.
-    """
-    try:
-        import google.generativeai as genai
-        from eccsa_db import get_ai_config
-
-        cfg = get_ai_config() or {}
-        api_key = cfg.get("api_key") or ""
-        modelo = cfg.get("model") or "gemini-2.0-flash"
-        if not api_key:
-            return None
-
-        genai.configure(api_key=api_key)
-        m = genai.GenerativeModel(
-            model_name=modelo,
-            system_instruction="Clasificas correo corporativo. Respondes SOLO JSON válido.",
-        )
-        prompt = (
-            "Un correo llegó a ECCSA y uno de sus destinatarios ya no trabaja aquí.\n"
-            f"Remitente: {msg.get('RemitenteEmail')}\n"
-            f"Asunto: {(msg.get('Asunto') or '')[:120]}\n"
-            f"Extracto: {(msg.get('Extracto') or '')[:200]}\n"
-            f"Destinatario huérfano: {destinatario}\n\n"
-            "¿Quien escribe es una PERSONA que se equivocó de dirección "
-            "(no publicidad, no boletín, no automatizado)? ¿A qué buzón conviene "
-            "redirigirla?\n"
-            'Responde: {"persona": true|false, "destino": '
-            '"ventas|soporte|rrhh|admin|general|null", "confianza": 0.0-1.0}'
-        )
-        r = m.generate_content(
-            prompt,
-            generation_config={
-                "max_output_tokens": 120,
-                "temperature": 0,
-                # Salida JSON estricta: sin esto el modelo a veces contesta con
-                # prosa y el parseo falla (nos pasó en la primera prueba).
-                "response_mime_type": "application/json",
-            },
-        )
-        texto = (getattr(r, "text", "") or "").strip()
-        # Aun pidiendo JSON, se recorta al primer objeto: algunos modelos
-        # agregan una línea de contexto antes.
-        mj = re.search(r"\{.*\}", texto, re.S)
-        if not mj:
-            raise ValueError("respuesta sin JSON")
-        datos = json.loads(mj.group(0))
-        uso = getattr(r, "usage_metadata", None)
-        return {
-            "persona": bool(datos.get("persona")),
-            "destino": (datos.get("destino") or "").strip() or None,
-            "confianza": float(datos.get("confianza") or 0),
-            "modelo": modelo,
-            "tokens_in": int(getattr(uso, "prompt_token_count", 0) or 0),
-            "tokens_out": int(getattr(uso, "candidates_token_count", 0) or 0),
-        }
-    except Exception as exc:
-        global _IA_AGOTADA
-        nombre = type(exc).__name__
-        if "ResourceExhausted" in nombre or "429" in str(exc)[:120]:
-            _IA_AGOTADA = True
-            print("[triaje] cuota de Gemini agotada: la IA queda apagada hasta "
-                  "el próximo arranque del worker (el triaje por reglas sigue).",
-                  flush=True)
-        else:
-            print(f"[triaje] IA no disponible: {nombre}: {str(exc)[:160]}",
-                  flush=True)
-        return None
-
-
 # ── Borrador ──────────────────────────────────────────────────────────────────
 
 def plantilla(msg, destinatario, destino, tipo="exempleado"):
     """
-    Asunto y cuerpo del borrador. Plantilla fija: la IA no redacta.
+    Asunto y cuerpo del borrador. Plantilla fija, sin IA.
 
     Dos textos distintos, porque no es lo mismo:
       · `exempleado`  → la persona existió y ya no está.
@@ -492,20 +399,8 @@ def procesar_nuevos(ids):
                 continue
 
             r = clasificar(msg, bloqueos)
-            ia = None
-            if r["categoria"] == "huerfano" and _ia_disponible():
-                ia = _ia(msg, r.get("destinatario"))
-                if ia:
-                    r["metodo"] = "ia"
-                    r["confianza"] = ia["confianza"] or r["confianza"]
-                    if not ia["persona"]:
-                        # La IA dice que no es una persona: no se responde.
-                        r["categoria"] = "bulk"
-                        r["motivo"] = "la IA lo descartó como no humano"
-                    elif ia.get("destino"):
-                        r["destino_slug"] = ia["destino"]
 
-            destino = destino_de(r.get("destino_slug")) if r["categoria"] == "huerfano" else None
+            destino = destino_de(None) if r["categoria"] == "huerfano" else None
             borrador = (plantilla(msg, r["destinatario"], destino, r.get("tipo"))
                         if r["categoria"] == "huerfano" else {"asunto": None, "texto": None})
 
@@ -518,14 +413,12 @@ def procesar_nuevos(ids):
                 "INSERT INTO HUB_MailboxClasificacion "
                 "(IdMensaje, IdCuenta, RemitenteEmail, Destinatario, Categoria, "
                 " Confianza, Metodo, Motivo, DestinoSugerido, BorradorAsunto, "
-                " BorradorTexto, Estado, Modelo, TokensIn, TokensOut) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                " BorradorTexto, Estado) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (msg["Id"], msg["IdCuenta"], msg.get("RemitenteEmail"),
                  r.get("destinatario"), r["categoria"], r.get("confianza"),
                  r["metodo"], (r.get("motivo") or "")[:400], destino,
-                 borrador["asunto"], borrador["texto"], estado,
-                 (ia or {}).get("modelo"), (ia or {}).get("tokens_in"),
-                 (ia or {}).get("tokens_out")),
+                 borrador["asunto"], borrador["texto"], estado),
             )
             n += 1
         except Exception as exc:
@@ -602,21 +495,18 @@ def pendientes(limite=100):
 
 def resumen():
     """Conteos para la cabecera del panel."""
-    datos = {"nueva": 0, "aprobada": 0, "rechazada": 0, "ia_mes": 0,
-             "tokens_mes": 0, "huerfanos_mes": 0}
+    datos = {"nueva": 0, "aprobada": 0, "rechazada": 0, "huerfanos_mes": 0,
+             "bloqueos": 0}
     try:
         for f in filas("SELECT Estado, COUNT(*) AS n FROM HUB_MailboxClasificacion "
                        "GROUP BY Estado"):
             if f["Estado"].lower() in datos:
                 datos[f["Estado"].lower()] = f["n"]
-        f = una("SELECT COUNT(*) AS ia, ISNULL(SUM(TokensIn + TokensOut), 0) AS tk "
-                "FROM HUB_MailboxClasificacion WHERE Metodo = 'ia' "
-                "AND Creado >= DATEADD(month, -1, GETDATE())")
-        datos["ia_mes"] = int((f or {}).get("ia") or 0)
-        datos["tokens_mes"] = int((f or {}).get("tk") or 0)
         f = una("SELECT COUNT(*) AS n FROM HUB_MailboxClasificacion "
                 "WHERE Categoria = 'huerfano' AND Creado >= DATEADD(month, -1, GETDATE())")
         datos["huerfanos_mes"] = int((f or {}).get("n") or 0)
+        f = una("SELECT COUNT(*) AS n FROM HUB_MailboxBloqueos WHERE Activo = 1")
+        datos["bloqueos"] = int((f or {}).get("n") or 0)
     except Exception:
         pass
     return datos
