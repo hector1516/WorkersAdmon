@@ -155,6 +155,10 @@ TABS = [
     {"id": "correo", "label": "✉️ Correo", "href": "/correo",
      "enabled": True, "perm": "AccesoUsuarios", "modulo": "Correo",
      "desc": "Cuentas de correo de Mailbox: alta, asignación y estado."},
+    {"id": "triaje", "label": "🛡️ Triaje", "href": "/triaje",
+     "enabled": True, "perm": "AccesoUsuarios", "modulo": "Triaje",
+     "desc": "Correo a direcciones que ya no existen: clasificación, "
+             "borrador de respuesta y envío con aprobación."},
 ]
 
 

@@ -59,6 +59,30 @@ _UID_RE = re.compile(r"UID\s+(\d+)")
 _FLAGS_RE = re.compile(r"FLAGS\s*\((.*?)\)")
 
 
+def _veredicto_auth(cabecera):
+    """
+    Reduce `Authentication-Results` a 'pass' | 'fail' | 'none' | None.
+
+    No se guarda la cabecera entera: para el triaje solo importa si el servidor
+    dice que el remitente falló la autenticación. Muchos servidores no la
+    mandan, y entonces es None (desconocido), que NO es lo mismo que 'fail':
+    tratarlo como fallo marcaría como spam medio buzón.
+    """
+    texto = (cabecera or "").lower()
+    if not texto:
+        return None
+    for mecanismo in ("dmarc", "spf", "dkim"):
+        m = re.search(mecanismo + r"\s*=\s*([a-z]+)", texto)
+        if not m:
+            continue
+        valor = m.group(1)
+        if valor in ("fail", "softfail", "permerror"):
+            return "fail"
+        if valor == "pass":
+            return "pass"
+    return "none"
+
+
 def _extract_uid(meta: bytes):
     m = _UID_RE.search(meta.decode("ascii", "replace") if isinstance(meta, bytes) else meta)
     return int(m.group(1)) if m else None
@@ -619,7 +643,8 @@ class IMAPClient:
             typ, data = c.uid(
                 "fetch", str(uid),
                 "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO CC BCC REPLY-TO "
-                "DATE MESSAGE-ID)] FLAGS)")
+                "DATE MESSAGE-ID AUTO-SUBMITTED PRECEDENCE LIST-UNSUBSCRIBE "
+                "LIST-ID IN-REPLY-TO AUTHENTICATION-RESULTS)] FLAGS)")
         except Exception:
             return dict(vacio)
         if typ != "OK" or not data:
@@ -648,6 +673,19 @@ class IMAPClient:
         nombre, correo = _separar_remitente(remitente)
         fecha = _parse_fecha(msg.get("Date"))
 
+        # ── Señales de envío masivo/automático ───────────────────────────
+        # Son las que permiten descartar publicidad SIN gastar tokens. Se
+        # calculan aquí, en la ingesta, y se guardan en el índice (migración
+        # 0056): el clasificador no vuelve a pedir cabeceras por IMAP.
+        precedencia = (msg.get("Precedence") or "").strip().lower()
+        autosub = (msg.get("Auto-Submitted") or "").strip().lower()
+        tiene_lista = bool(msg.get("List-Unsubscribe") or msg.get("List-Id"))
+        es_bulk = (
+            precedencia in ("bulk", "list", "junk")
+            or tiene_lista
+            or (bool(autosub) and autosub != "no")
+        )
+
         return {
             "subject": _decode_mime(msg.get("Subject")),
             "from_name": nombre,
@@ -657,6 +695,11 @@ class IMAPClient:
             "bcc": _decode_mime(msg.get("Bcc")),
             "reply_to": _decode_mime(msg.get("Reply-To")),
             "message_id": (msg.get("Message-ID") or "").strip(),
+            "in_reply_to": (msg.get("In-Reply-To") or "").strip(),
+            "es_bulk": 1 if es_bulk else 0,
+            "auto_submitted": 1 if (autosub and autosub != "no") else 0,
+            "tiene_lista": 1 if tiene_lista else 0,
+            "auth": _veredicto_auth(msg.get("Authentication-Results")),
             # Si el Date es inválido se usa la hora de ingesta, no epoch 1970:
             # un mensaje sin fecha usable se ordenaría como el más viejo del
             # mundo y se purgaría en el primer ciclo de retención.

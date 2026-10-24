@@ -222,6 +222,15 @@ def sincronizar_cuenta(cuenta: dict) -> dict:
             except Exception as exc:
                 print(f"[sync] reglas de {cuenta['Email']}: {exc}", flush=True)
 
+            # Triaje: clasifica lo recién indexado (publicidad vs persona) y, si
+            # el destinatario ya no está, deja un borrador para revisar. Es
+            # idempotente y nunca lanza hacia arriba.
+            from .triaje import procesar_nuevos
+            try:
+                resumen["triaje"] = procesar_nuevos(nuevos_ids)
+            except Exception as exc:
+                print(f"[sync] triaje de {cuenta['Email']}: {exc}", flush=True)
+
             from .smtp import enviar_cola
             try:
                 resumen["enviados"] = enviar_cola(cuenta)
@@ -540,13 +549,18 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
     n = ejecuta(
         "UPDATE HUB_MailboxMensajes SET RemitenteNombre = %s, RemitenteEmail = %s, "
         "ParaTexto = %s, CcTexto = %s, Asunto = %s, Extracto = %s, FechaCorreo = %s, "
-        "Visto = %s, MessageId = %s, BytesCuerpo = %s, CuerpoGuardado = %s "
+        "Visto = %s, MessageId = %s, BytesCuerpo = %s, CuerpoGuardado = %s, "
+        "EsBulk = %s, AutoSubmitted = %s, TieneLista = %s, AuthResultado = %s "
         "WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
         (cabeceras.get("from_name"), cabeceras.get("from_email"),
          cabeceras.get("to"), cabeceras.get("cc"), cabeceras.get("subject"),
          extracto, fecha, 1 if cabeceras.get("seen") else 0,
          cabeceras.get("message_id"), bytes_cuerpo,
-         1 if cuerpo_guardado else 0, cid, carpeta, uid),
+         1 if cuerpo_guardado else 0,
+         int(cabeceras.get("es_bulk") or 0),
+         int(cabeceras.get("auto_submitted") or 0),
+         int(cabeceras.get("tiene_lista") or 0),
+         cabeceras.get("auth"), cid, carpeta, uid),
     )
     if n > 0:
         return None
@@ -558,15 +572,19 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
         "(IdCuenta, UID, MessageId, Carpeta, RemitenteNombre, RemitenteEmail, ParaTexto, "
         " CcTexto, Asunto, Extracto, FechaCorreo, FechaIngesta, Visto, Marcado, Respondido, "
         " TieneAdjuntos, NumAdjuntos, ClaveCuerpo, BytesCuerpo, CuerpoGuardado, CuerpoTruncado, "
-        " Eliminado) "
+        " EsBulk, AutoSubmitted, TieneLista, AuthResultado, Eliminado) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), %s, 0, 0, %s, %s, "
-        "        %s, %s, %s, %s, 0)",
+        "        %s, %s, %s, %s, %s, %s, %s, %s, 0)",
         (cid, uid, cabeceras.get("message_id"), carpeta,
          cabeceras.get("from_name"), cabeceras.get("from_email"),
          cabeceras.get("to"), cabeceras.get("cc"), cabeceras.get("subject"),
          extracto, fecha, 1 if cabeceras.get("seen") else 0,
          1 if adjuntos else 0, len(adjuntos), clave, bytes_cuerpo,
-         1 if cuerpo_guardado else 0, 1 if cuerpo_truncado else 0),
+         1 if cuerpo_guardado else 0, 1 if cuerpo_truncado else 0,
+         int(cabeceras.get("es_bulk") or 0),
+         int(cabeceras.get("auto_submitted") or 0),
+         int(cabeceras.get("tiene_lista") or 0),
+         cabeceras.get("auth")),
     )
     nuevo_id = ultimo_id()
     cur.close()

@@ -42,6 +42,7 @@ from .views import apps as apps_view
 from .views import asistencia as asis_view
 from .views import config as config_view
 from .views import correo as correo_view
+from .views import triaje as triaje_view
 from .views import home as home_view
 from .views import notifications as notif_view
 from .views import avisos as avisos_view
@@ -376,6 +377,19 @@ class Handler(BaseHTTPRequestHandler):
                 **self._shell_ctx(),
                 editando=int(editar) if editar.isdigit() else None))
 
+        if path == "/triaje":
+            user, done = self._require()
+            if done:
+                return
+            if not auth.has_perm(user, "AccesoUsuarios"):
+                return self._html(forbidden_page(
+                    "La pestaña Triaje requiere el permiso AccesoUsuarios en el "
+                    "HUB: envía correo en nombre de la empresa."), 403)
+            ok, err = self._flash(query)
+            return self._html(triaje_view.render(
+                user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                **self._shell_ctx()))
+
         if path == "/asistencia":
             user, done = self._require()
             if done:
@@ -454,6 +468,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/correo":
             return self._correo_action(user, form)
+
+        if path == "/triaje":
+            return self._triaje_action(user, form)
 
         if path.startswith("/avisos/"):
             segs = [s for s in path[len("/avisos/"):].split("/") if s]
@@ -741,6 +758,40 @@ class Handler(BaseHTTPRequestHandler):
                     f"mensajes."))
 
         return self._redirect("/correo?err=Acción desconocida")
+
+    def _triaje_action(self, user, form):
+        """
+        POST de la pestaña Triaje.
+
+        Aprobar **encola** la respuesta en la misma cola que usa la app de
+        Mailbox; el envío lo hace el worker en su próximo ciclo. El panel no
+        abre SMTP: si lo hiciera, un error de red dejaría la pantalla colgada y
+        el correo a medias.
+        """
+        if not auth.has_perm(user, "AccesoUsuarios"):
+            return self._html(forbidden_page(
+                "La pestaña Triaje requiere el permiso AccesoUsuarios."), 403)
+
+        from mailbox_worker import triaje as triaje_mod
+
+        accion = form.get("accion", [""])[0]
+        try:
+            idc = int(form.get("id", ["0"])[0])
+        except (TypeError, ValueError):
+            idc = 0
+        quien = user.get("email") or ""
+
+        try:
+            if accion == "aprobar":
+                triaje_mod.aprobar(idc, user.get("id") or 1, quien)
+                return self._redirect("/triaje?ok=" + urllib.parse.quote(
+                    "Respuesta encolada. El worker la envía en su próximo ciclo."))
+            if accion == "rechazar":
+                triaje_mod.rechazar(idc, quien)
+                return self._redirect("/triaje?ok=" + urllib.parse.quote("Descartado."))
+        except Exception as exc:
+            return self._redirect("/triaje?err=" + urllib.parse.quote(str(exc)))
+        return self._redirect("/triaje?err=Acción desconocida")
 
     def _datos_cuenta(self, form):
         """
