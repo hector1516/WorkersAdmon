@@ -975,15 +975,31 @@ def _encontrar_parte_texto(nodo, parte: str = ""):
     if not isinstance(nodo, list) or not nodo:
         return None
     if isinstance(nodo[0], list):
-        # Multiparte: recorrer los hijos en orden.
+        # Multiparte: recorrer los hijos en orden, pero prefiriendo text/html
+        # sobre text/plain (el HTML es el que se muestra si existe).
         hijos = [it for it in nodo if isinstance(it, list)]
+        html_part = None
+        plain_part = None
         for idx, hijo in enumerate(hijos, start=1):
             subparte = f"{parte}.{idx}" if parte else str(idx)
             res = _encontrar_parte_texto(hijo, subparte)
             if res:
-                return res
-        return None
+                if res[1] == "text/html" and html_part is None:
+                    html_part = res
+                elif res[1] == "text/plain" and plain_part is None:
+                    plain_part = res
+        return html_part or plain_part
     # Hoja.
+    if len(nodo) < 2:
+        return None
+    tipo = str(nodo[0] or "").upper()
+    subtipo = str(nodo[1] or "").upper() if len(nodo) > 1 else ""
+    if tipo != "TEXT":
+        return None
+    if subtipo not in ("HTML", "PLAIN"):
+        return None
+    pn = parte if parte else "1"
+    return (pn, f"text/{subtipo.lower()}")
     if len(nodo) < 2:
         return None
     tipo = str(nodo[0] or "").upper()
@@ -994,6 +1010,9 @@ def _encontrar_parte_texto(nodo, parte: str = ""):
         return None
     pn = parte if parte else "1"
     return (pn, f"text/{subtipo.lower()}")
+
+
+def parse_bodystructure(texto: str):
     """BODYSTRUCTURE crudo → estructura anidada de Python. [] si no se puede."""
     if not texto:
         return []
