@@ -763,16 +763,25 @@ class IMAPClient:
                         estructura = parse_bodystructure(crudo.decode("ascii", "replace"))
                         info = _encontrar_parte_texto(estructura)
                         if info:
-                            parte, mime = info
+                            parte, mime, enc = info
                             typ2, data2 = c.uid("fetch", str(uid), f"(BODY.PEEK[{parte}])")
                             if typ2 == "OK":
                                 crudo2 = _primer_literal(data2)
                                 if crudo2:
+                                    # Decodificar la transferencia (base64 / qp).
+                                    if enc == "BASE64":
+                                        import base64 as _b64
+                                        try:
+                                            crudo2 = _b64.b64decode(crudo2)
+                                        except Exception:
+                                            pass
+                                    elif enc == "QUOTED-PRINTABLE":
+                                        import quopri as _qp
+                                        try:
+                                            crudo2 = _qp.decodestring(crudo2)
+                                        except Exception:
+                                            pass
                                     texto = crudo2.decode("utf-8", "replace")
-                                    # quoted-printable / base64: IMAP devuelve el
-                                    # cuerpo ya decodificado si se pide sin
-                                    # encoding; si viene crudo, se deja tal cual
-                                    # (el servidor suele entregarlo decodificado).
                                     if mime == "text/html":
                                         if "<" in texto:
                                             return texto
@@ -964,19 +973,15 @@ def _a_expresion(tokens, i: int):
 
 def _encontrar_parte_texto(nodo, parte: str = ""):
     """
-    Recorre una estructura MIME y devuelve (numero_de_parte, mime) de la
-    primera parte `text/html` (preferida) o `text/plain`.
+    Recorre una estructura MIME y devuelve (numero_de_parte, mime, encoding) de
+    la primera parte `text/html` (preferida) o `text/plain`.
 
     Devuelve None si no hay ninguna parte de texto.
-
-    Los números de parte siguen la convención IMAP: los hijos de nivel superior
-    son "1", "2", "3"…; los nietos "1.1", "1.2"…
     """
+    _I_ENC = 5
     if not isinstance(nodo, list) or not nodo:
         return None
     if isinstance(nodo[0], list):
-        # Multiparte: recorrer los hijos en orden, pero prefiriendo text/html
-        # sobre text/plain (el HTML es el que se muestra si existe).
         hijos = [it for it in nodo if isinstance(it, list)]
         html_part = None
         plain_part = None
@@ -990,17 +995,7 @@ def _encontrar_parte_texto(nodo, parte: str = ""):
                     plain_part = res
         return html_part or plain_part
     # Hoja.
-    if len(nodo) < 2:
-        return None
-    tipo = str(nodo[0] or "").upper()
-    subtipo = str(nodo[1] or "").upper() if len(nodo) > 1 else ""
-    if tipo != "TEXT":
-        return None
-    if subtipo not in ("HTML", "PLAIN"):
-        return None
-    pn = parte if parte else "1"
-    return (pn, f"text/{subtipo.lower()}")
-    if len(nodo) < 2:
+    if len(nodo) < 7:
         return None
     tipo = str(nodo[0] or "").upper()
     subtipo = str(nodo[1] or "").upper()
@@ -1008,8 +1003,9 @@ def _encontrar_parte_texto(nodo, parte: str = ""):
         return None
     if subtipo not in ("HTML", "PLAIN"):
         return None
+    enc = str(nodo[_I_ENC] or "").upper() if len(nodo) > _I_ENC else ""
     pn = parte if parte else "1"
-    return (pn, f"text/{subtipo.lower()}")
+    return (pn, f"text/{subtipo.lower()}", enc)
 
 
 def parse_bodystructure(texto: str):
