@@ -369,9 +369,9 @@ def puntuar_sospecha(msg, primer_contacto, bloqueos=None):
     for term in _TERMINOS_PROMO:
         if term in texto:
             hits.append(term)
-    n_hits = min(len(set(hits)), 6)
+    n_hits = min(len(set(hits)), 5)
     if n_hits:
-        score += 5 * n_hits
+        score += 8 * n_hits
         razones.append(f"{n_hits} termino(s) promocional(es)")
 
     # Varios destinatarios (To+Cc) → pinta de envío masivo.
