@@ -264,9 +264,221 @@ def bloquear_desde_clasificacion(id_clasif, tipo, quien=""):
                     quien=quien)
 
 
+# ── Reputación del remitente (sin IA) ─────────────────────────────────────────
+#
+# Dos señales baratas que reemplazan lo que hacía Gemini:
+#   · primer contacto: un dominio que nunca nos ha escrito es más sospechoso.
+#   · lenguaje promocional: vocabulario de venta en frío en asunto/cuerpo.
+# Y auto-aprendizaje: cada rechazo suma al contador del dominio; al llegar a N
+# el dominio se bloquea solo.
+
+# Vocabulario de venta en frío (español + inglés). Se busca como subcadena en
+# asunto + extracto, en minúsculas, sin tildes.
+_TERMINOS_PROMO = (
+    # ES
+    "servicio", "servicios", "solucion", "soluciones", "oferta", "descuento",
+    "demostracion", "reunion", "precios", "cotizacion", "propuesta",
+    "colaboracion", "alianza", "campana", "boletin", "oportunidad",
+    "crecimiento", "ingresos", "llamada", "agenda", "prueba gratuita",
+    "caso de exito", "presentarnos", "contactar", "prospect", "ventas",
+    "marketing", "newsletter", "cancelar suscripcion", "descubra",
+    "mejore", "aumente", "roi", "lead", "funnel", "pipeline",
+    # EN
+    "services", "solutions", "offer", "discount", "demo", "meeting", "pricing",
+    "quote", "proposal", "partnership", "collaboration", "campaign",
+    "newsletter", "opportunity", "growth", "revenue", "schedule", "call",
+    "free trial", "case study", "introduce", "outreach", "follow up",
+    "touch base", "quick call", "15 minutes", "book a call", "calendly",
+    "zoom", "webinar", "testimonial", "unsubscribe", "opt out",
+    "limited time", "exclusive", "scale", "lead", "prospect",
+)
+
+_LIBRES = {"gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "live.com",
+           "icloud.com", "protonmail.com", "proton.me", "aol.com", "msn.com"}
+
+
+def _sin_tildes(s):
+    return (s or "").lower().translate(str.maketrans(
+        "áéíóúüñàèìòùâêîôûäëïöü", "aeiouunaeiouaeiouaeiou"))
+
+
+def upsert_remitente(dominio):
+    """
+    Registra/actualiza la reputación del dominio. Devuelve True si es la primera
+    vez que lo vemos (primer contacto).
+    """
+    dominio = (dominio or "").strip().lower()
+    if not dominio or "@" in dominio:
+        return False
+    try:
+        prev = una("SELECT Veces FROM HUB_MailboxRemitentes WHERE Dominio = %s",
+                   (dominio,))
+        if prev:
+            ejecuta("UPDATE HUB_MailboxRemitentes SET UltimaVez = GETDATE(), "
+                    "Veces = Veces + 1 WHERE Dominio = %s", (dominio,))
+            return False
+        ejecuta("INSERT INTO HUB_MailboxRemitentes (Dominio) VALUES (%s)", (dominio,))
+        return True
+    except Exception:
+        return False
+
+
+def puntuar_sospecha(msg, primer_contacto, bloqueos=None):
+    """
+    Puntaje 0-100 de "parece venta en frío" para un candidato huérfano.
+    Devuelve (puntaje, [razones]).
+    """
+    score = 0
+    razones = []
+    rem = (msg.get("RemitenteEmail") or "").strip().lower()
+    dominio = rem.split("@")[-1] if "@" in rem else ""
+    asunto = _sin_tildes(msg.get("Asunto") or "")
+    extracto = _sin_tildes(msg.get("Extracto") or "")
+    texto = asunto + " " + extracto
+    nombre = _sin_tildes(msg.get("RemitenteNombre") or "")
+
+    # Primer contacto: el dominio nunca nos había escrito.
+    if primer_contacto:
+        score += 20
+        razones.append("primer contacto")
+
+    # Dominio conocido (alguien ya aprobó un correo suyo): resta.
+    try:
+        r = una("SELECT EsConocido, Rechazos FROM HUB_MailboxRemitentes "
+                "WHERE Dominio = %s", (dominio,))
+        if r and r.get("EsConocido"):
+            score -= 20
+        if r and (r.get("Rechazos") or 0) >= 1:
+            score += 15
+            razones.append(f"{r['Rechazos']} rechazo(s) previo(s)")
+    except Exception:
+        pass
+
+    # Sin hilo: no es respuesta a nada (cold outreach).
+    if not (msg.get("InReplyTo") or "").strip():
+        score += 15
+        razones.append("sin hilo")
+
+    # "Re:" inventado: asunto empieza con Re: pero no hay In-Reply-To.
+    if asunto.lstrip().startswith("re:") and not (msg.get("InReplyTo") or "").strip():
+        score += 20
+        razones.append("\"Re:\" sin hilo")
+
+    # Lenguaje promocional.
+    hits = []
+    for term in _TERMINOS_PROMO:
+        if term in texto:
+            hits.append(term)
+    n_hits = min(len(set(hits)), 6)
+    if n_hits:
+        score += 5 * n_hits
+        razones.append(f"{n_hits} termino(s) promocional(es)")
+
+    # Varios destinatarios (To+Cc) → pinta de envío masivo.
+    n_dest = len(direcciones(msg.get("ParaTexto") or "") +
+                 direcciones(msg.get("CcTexto") or ""))
+    if n_dest >= 3:
+        score += 10
+        razones.append("varios destinatarios")
+
+    # Remitente genérico de ventas.
+    if nombre and any(g in nombre for g in ("sales", "ventas", "info", "contact",
+                                           "marketing", "support", "soporte")):
+        score += 15
+        razones.append("remitente generico")
+
+    # Proveedor gratuito escribiendo a correo corporativo sobre negocio.
+    if dominio in _LIBRES:
+        score += 10
+        razones.append("correo gratuito")
+
+    # Enlace en el extracto.
+    if "http://" in texto or "https://" in texto or "www." in texto:
+        score += 8
+        razones.append("incluye enlace")
+
+    # Asunto en mayúsculas o con signos de exclamación.
+    asunto_raw = (msg.get("Asunto") or "")
+    if asunto_raw and asunto_raw == asunto_raw.upper() and len(asunto_raw) > 8:
+        score += 8
+        razones.append("asunto en mayusculas")
+    if asunto_raw.count("!") >= 2 or asunto_raw.count("?") >= 2:
+        score += 5
+        razones.append("signos de exclamacion")
+
+    # Enviar a una dirección inexistente (typo) suele ser humano equivocado:
+    # baja un poco el puntaje si el destinatario era un typo probable.
+    # (Ya viene en el motivo; aquí no lo sabemos, así que no se toca.)
+
+    score = max(0, min(100, score))
+    return score, razones
+
+
+def _umbral_auto_rechazo():
+    try:
+        return int(_cfg("triaje_auto_rechazo_umbral", "75") or 75)
+    except Exception:
+        return 75
+
+
+def _umbral_auto_bloqueo():
+    try:
+        return int(_cfg("triaje_auto_bloqueo_rechazos", "3") or 3)
+    except Exception:
+        return 3
+
+
+def _registrar_rechazo(dominio, quien=""):
+    """
+    Suma un rechazo al dominio. Si llega al umbral, lo bloquea solo.
+    Devuelve (rechazos, bloqueado_auto).
+    """
+    dominio = (dominio or "").strip().lower()
+    if not dominio or "@" in dominio:
+        # Si vino un correo completo, reducir a dominio.
+        if "@" in dominio:
+            dominio = dominio.split("@")[-1]
+        else:
+            return 0, False
+    try:
+        upsert_remitente(dominio)
+        ejecuta("UPDATE HUB_MailboxRemitentes SET Rechazos = Rechazos + 1 "
+                "WHERE Dominio = %s", (dominio,))
+        r = una("SELECT Rechazos, BloqueadoAuto FROM HUB_MailboxRemitentes "
+                "WHERE Dominio = %s", (dominio,))
+        rechazos = int((r or {}).get("Rechazos") or 0)
+        ya = bool((r or {}).get("BloqueadoAuto"))
+        bloqueado = False
+        if rechazos >= _umbral_auto_bloqueo() and not ya:
+            bloquear(dominio, tipo="dominio",
+                     motivo=f"auto: {rechazos} rechazos del operador",
+                     quien=quien or "sistema", origen="auto")
+            ejecuta("UPDATE HUB_MailboxRemitentes SET BloqueadoAuto = 1 "
+                    "WHERE Dominio = %s", (dominio,))
+            bloqueado = True
+        return rechazos, bloqueado
+    except Exception:
+        return 0, False
+
+
+def _marcar_conocido(dominio):
+    """Marca el dominio como conocido (al aprobar un correo suyo)."""
+    dominio = (dominio or "").strip().lower()
+    if "@" in dominio:
+        dominio = dominio.split("@")[-1]
+    if not dominio:
+        return
+    try:
+        upsert_remitente(dominio)
+        ejecuta("UPDATE HUB_MailboxRemitentes SET EsConocido = 1 "
+                "WHERE Dominio = %s", (dominio,))
+    except Exception:
+        pass
+
+
 # ── Clasificación determinista ────────────────────────────────────────────────
 
-def clasificar(msg, bloqueos=None):
+def clasificar(msg, bloqueos=None, primer_contacto=False):
     """
     Devuelve un dict con categoria, confianza, motivo y (si aplica)
     destinatario. No llama a la IA.
@@ -316,11 +528,23 @@ def clasificar(msg, bloqueos=None):
     for d in candidatos:
         estado, idu, nombre = resolver(d)
         if estado in ("exempleado", "inexistente"):
-            return {"categoria": "huerfano", "tipo": estado, "confianza": 0.85,
-                    "metodo": "regla",
-                    "motivo": ("el destinatario ya no está en HUB_Users"
-                               if estado == "exempleado"
-                               else "la dirección no existe (probable error de tipeo)"),
+            tipo = estado
+            motivo_base = ("el destinatario ya no está en HUB_Users"
+                           if estado == "exempleado"
+                           else "la dirección no existe (probable error de tipeo)")
+            score, razones = puntuar_sospecha(msg, primer_contacto, bloqueos)
+            if score >= _umbral_auto_rechazo():
+                return {"categoria": "sospechoso", "tipo": tipo, "confianza": 0.7,
+                        "metodo": "regla",
+                        "motivo": f"sospecha {score}: " + ", ".join(razones),
+                        "sospecha": score, "razones": razones,
+                        "destinatario": d, "id_usuario": idu, "nombre": nombre}
+            motivo = motivo_base
+            if score >= 40:
+                motivo = motivo_base + f" · sospecha {score}: " + ", ".join(razones)
+            return {"categoria": "huerfano", "tipo": tipo, "confianza": 0.85,
+                    "metodo": "regla", "motivo": motivo,
+                    "sospecha": score, "razones": razones,
                     "destinatario": d, "id_usuario": idu, "nombre": nombre}
 
     if any(resolver(d)[0] == "activa" for d in candidatos):
@@ -398,16 +622,23 @@ def procesar_nuevos(ids):
             if not msg:
                 continue
 
-            r = clasificar(msg, bloqueos)
+            dom = (msg.get("RemitenteEmail") or "").split("@")[-1].lower() \
+                if "@" in (msg.get("RemitenteEmail") or "") else ""
+            primer_contacto = upsert_remitente(dom)
+
+            r = clasificar(msg, bloqueos, primer_contacto)
 
             destino = destino_de(None) if r["categoria"] == "huerfano" else None
             borrador = (plantilla(msg, r["destinatario"], destino, r.get("tipo"))
                         if r["categoria"] == "huerfano" else {"asunto": None, "texto": None})
 
-            # Solo los huérfanos entran a la cola de revisión. El resto se
-            # guarda como IGNORADA: sirve de estadística y de caché (no se
-            # vuelve a clasificar), pero no ensucia la pantalla del operador.
-            estado = "NUEVA" if r["categoria"] == "huerfano" else "IGNORADA"
+            # Solo los huérfanos entran a la cola de revisión. Los sospechosos
+            # (venta en frío) se auto-rechazan: se guardan como IGNORADA para
+            # auditoría, pero no ensucian la pantalla del operador.
+            if r["categoria"] == "sospechoso":
+                estado = "IGNORADA"
+            else:
+                estado = "NUEVA" if r["categoria"] == "huerfano" else "IGNORADA"
 
             ejecuta(
                 "INSERT INTO HUB_MailboxClasificacion "
@@ -471,13 +702,31 @@ def aprobar(id_clasif, id_usuario, revisado_por=""):
     ejecuta("UPDATE HUB_MailboxClasificacion SET Estado = 'APROBADA', "
             "Revisado = GETDATE(), RevisadoPor = %s WHERE Id = %s",
             (revisado_por or "", int(id_clasif)))
+    # Un correo aprobado significa que el remitente era real: su dominio deja
+    # de ser "primer contacto" sospechoso en el futuro.
+    try:
+        _marcar_conocido((k.get("RemitenteEmail") or "").split("@")[-1])
+    except Exception:
+        pass
     return True
 
 
 def rechazar(id_clasif, revisado_por=""):
+    k = _clasificacion(id_clasif)
     ejecuta("UPDATE HUB_MailboxClasificacion SET Estado = 'RECHAZADA', "
             "Revisado = GETDATE(), RevisadoPor = %s WHERE Id = %s AND Estado = 'NUEVA'",
             (revisado_por or "", int(id_clasif)))
+    # Auto-aprendizaje: cada rechazo suma al dominio. Al llegar al umbral, el
+    # dominio se bloquea solo y futuros correos de él van directo a Spam.
+    try:
+        if k and k.get("RemitenteEmail"):
+            dom = k["RemitenteEmail"].split("@")[-1]
+            rechazos, bloqueado = _registrar_rechazo(dom, revisado_por or "operador")
+            if bloqueado:
+                print(f"[triaje] dominio bloqueado automaticamente: {dom} "
+                      f"({rechazos} rechazos)", flush=True)
+    except Exception:
+        pass
     return True
 
 
@@ -496,7 +745,7 @@ def pendientes(limite=100):
 def resumen():
     """Conteos para la cabecera del panel."""
     datos = {"nueva": 0, "aprobada": 0, "rechazada": 0, "huerfanos_mes": 0,
-             "bloqueos": 0}
+             "bloqueos": 0, "auto_rechazados_mes": 0, "sospechosos_mes": 0}
     try:
         for f in filas("SELECT Estado, COUNT(*) AS n FROM HUB_MailboxClasificacion "
                        "GROUP BY Estado"):
@@ -505,6 +754,14 @@ def resumen():
         f = una("SELECT COUNT(*) AS n FROM HUB_MailboxClasificacion "
                 "WHERE Categoria = 'huerfano' AND Creado >= DATEADD(month, -1, GETDATE())")
         datos["huerfanos_mes"] = int((f or {}).get("n") or 0)
+        f = una("SELECT COUNT(*) AS n FROM HUB_MailboxClasificacion "
+                "WHERE Categoria = 'sospechoso' AND Creado >= DATEADD(month, -1, GETDATE())")
+        datos["sospechosos_mes"] = int((f or {}).get("n") or 0)
+        # Auto-rechazados = ignoradas cuyo motivo empieza con "sospecha".
+        f = una("SELECT COUNT(*) AS n FROM HUB_MailboxClasificacion "
+                "WHERE Estado = 'IGNORADA' AND Motivo LIKE 'sospecha%' "
+                "AND Creado >= DATEADD(month, -1, GETDATE())")
+        datos["auto_rechazados_mes"] = int((f or {}).get("n") or 0)
         f = una("SELECT COUNT(*) AS n FROM HUB_MailboxBloqueos WHERE Activo = 1")
         datos["bloqueos"] = int((f or {}).get("n") or 0)
     except Exception:

@@ -30,8 +30,12 @@ def _tarjeta(c, csrf):
     cat = (c.get("Categoria") or "").lower()
     icono = {"huerfano": "❓", "bulk": "📢", "rebote": "↩️",
              "interno": "🏠", "activo": "✅"}.get(cat, "•")
-    metodo = (c.get("Metodo") or "regla").lower()
-    etiqueta_ia = f'<span class="badge">{esc(metodo)}</span>'
+    import re as _re
+    motivo_txt = c.get("Motivo") or ""
+    m_susp = _re.search(r"sospecha\\s*(\\d+)", motivo_txt)
+    badge_susp = ""
+    if m_susp:
+        badge_susp = f' <span class="badge badge-warning">⚠ sospecha {m_susp.group(1)}</span>'
     conf = c.get("Confianza")
     conf_txt = f"{float(conf):.2f}" if conf is not None else "—"
 
@@ -43,7 +47,7 @@ def _tarjeta(c, csrf):
       <b>{icono} {esc(c.get('RemitenteEmail') or '')}</b>
       {etiqueta_ia}
       <span class="badge">{esc(cat)}</span>
-      <span class="badge">conf. {conf_txt}</span>
+      <span class="badge">conf. {conf_txt}</span>{badge_susp}
     </div>
     <div class="hint">{esc(str(c.get('Creado') or ''))}</div>
   </div>
@@ -82,6 +86,8 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido", ip="")
     <div><div class="hint">Rechazadas</div><b style="font-size:22px">{r.get('rechazada', 0)}</b></div>
     <div><div class="hint">Huérfanos (30 d)</div><b style="font-size:22px">{r.get('huerfanos_mes', 0)}</b></div>
     <div><div class="hint">Remitentes bloqueados</div><b style="font-size:22px">{r.get('bloqueos', 0)}</b></div>
+    <div><div class="hint">Auto-rechazadas (30 d)</div><b style="font-size:22px">{r.get('auto_rechazados_mes', 0)}</b></div>
+    <div><div class="hint">Sospechosos (30 d)</div><b style="font-size:22px">{r.get('sospechosos_mes', 0)}</b></div>
   </div>
 </div>"""
 
