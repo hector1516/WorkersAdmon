@@ -46,6 +46,29 @@ DESTINOS = {
 
 _RE_EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
+# Direcciones con forma de persona: `nombre.apellido`, `nombre.apellido2`,
+# opcionalmente con dígitos. Deja fuera alias funcionales (admon@, ventas@,
+# instagram@, temu25@) que NO son ex empleados y a los que sería absurdo
+# contestar "esa persona ya no trabaja aquí".
+_RE_PERSONA = re.compile(r"^[a-z]+(\.[a-z0-9]+)+$")
+
+# Prefijos que son un buzón, no una persona. Se pueden forzar manualmente con
+# HUB_MailboxDirecciones (Estado='activa').
+ROLES = {
+    "admon", "ifm", "instagram", "facebook", "ventas", "soporte", "admin",
+    "contacto", "info", "hola", "rrhh", "cxc", "robot", "sistema", "sistemas",
+    "facturas", "pagos", "compras", "no-reply", "noreply", "mailer-daemon",
+    "postmaster", "webmaster", "marketing", "boletines", "notificaciones",
+}
+
+
+def parece_persona(email):
+    """True si la parte local parece el nombre de una persona."""
+    local = (email or "").split("@")[0].lower()
+    if not local or local in ROLES:
+        return False
+    return bool(_RE_PERSONA.match(local))
+
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
@@ -81,10 +104,13 @@ def direcciones(texto):
 
 def resolver(email):
     """
-    (estado, id_usuario, nombre). Estados: activa | exempleado | desconocida.
+    (estado, id_usuario, nombre).
+    Estados: activa | exempleado | inexistente | rol | desconocida.
 
-    `HUB_MailboxDirecciones` manda si tiene un estado manual ('activa' o
-    'exempleado'); si está en 'auto' o no existe, se resuelve contra HUB_Users.
+    `exempleado` = está en HUB_Users con Activo = 0.
+    `inexistente` = no está, pero tiene forma de persona en nuestro dominio
+    (típico de un typo, o de alguien que se fue antes de que existiera la base).
+    `rol` = alias funcional (admon@, ventas@, …): no se responde.
     """
     e = (email or "").strip().lower()
     if not e:
@@ -98,10 +124,10 @@ def resolver(email):
     if u:
         return ("activa" if u.get("Activo") else "exempleado"), u.get("Id"), u.get("Nombre") or ""
 
-    # No está en la base de usuarios: si es de nuestro dominio, es de alguien
-    # que ya no está (criterio del usuario).
     if e.split("@")[-1] in DOMINIOS_PROPIOS:
-        return "exempleado", None, ""
+        # No está en la base: si parece una persona, es un typo o alguien que ya
+        # no está; si parece un buzón, es un alias funcional y no se toca.
+        return ("inexistente" if parece_persona(e) else "rol"), None, ""
     return "desconocida", None, ""
 
 
@@ -142,9 +168,12 @@ def clasificar(msg):
 
     for d in candidatos:
         estado, idu, nombre = resolver(d)
-        if estado == "exempleado":
-            return {"categoria": "huerfano", "confianza": 0.85, "metodo": "regla",
-                    "motivo": "el destinatario ya no está en HUB_Users",
+        if estado in ("exempleado", "inexistente"):
+            return {"categoria": "huerfano", "tipo": estado, "confianza": 0.85,
+                    "metodo": "regla",
+                    "motivo": ("el destinatario ya no está en HUB_Users"
+                               if estado == "exempleado"
+                               else "la dirección no existe (probable error de tipeo)"),
                     "destinatario": d, "id_usuario": idu, "nombre": nombre}
 
     if any(resolver(d)[0] == "activa" for d in candidatos):
@@ -220,19 +249,35 @@ def _ia(msg, destinatario):
 
 # ── Borrador ──────────────────────────────────────────────────────────────────
 
-def plantilla(msg, destinatario, destino):
-    """Asunto y cuerpo del borrador. Plantilla fija: la IA no redacta."""
+def plantilla(msg, destinatario, destino, tipo="exempleado"):
+    """
+    Asunto y cuerpo del borrador. Plantilla fija: la IA no redacta.
+
+    Dos textos distintos, porque no es lo mismo:
+      · `exempleado`  → la persona existió y ya no está.
+      · `inexistente` → la dirección nunca existió (casi siempre un typo).
+    """
     nombre = (msg.get("RemitenteNombre") or "").strip().split(" ")[0]
     saludo = f"Hola {nombre}" if nombre else "Hola"
     destino = destino or "contacto@ecc-sa.com.mx"
     asunto = (msg.get("Asunto") or "").strip()
-    texto = (
-        f"{saludo}:\n\n"
-        f"{destinatario} ya no forma parte del equipo de ECCSA.\n\n"
-        f"Para que te atiendan, escribe a {destino} o responde a este correo "
-        f"y lo canalizamos.\n\n"
-        f"Saludos,\nECCSA"
-    )
+
+    if tipo == "inexistente":
+        texto = (
+            f"{saludo}:\n\n"
+            f"La dirección {destinatario} no existe en ECCSA.\n\n"
+            f"Si buscabas a alguien del equipo, escribe a {destino} y te "
+            f"canalizamos.\n\n"
+            f"Saludos,\nECCSA"
+        )
+    else:
+        texto = (
+            f"{saludo}:\n\n"
+            f"{destinatario} ya no forma parte del equipo de ECCSA.\n\n"
+            f"Para que te atiendan, escribe a {destino} o responde a este correo "
+            f"y lo canalizamos.\n\n"
+            f"Saludos,\nECCSA"
+        )
     return {
         "asunto": (f"RE: {asunto}" if asunto else "Cambio de contacto")[:500],
         "texto": texto,
@@ -283,19 +328,24 @@ def procesar_nuevos(ids):
                         r["destino_slug"] = ia["destino"]
 
             destino = destino_de(r.get("destino_slug")) if r["categoria"] == "huerfano" else None
-            borrador = (plantilla(msg, r["destinatario"], destino)
+            borrador = (plantilla(msg, r["destinatario"], destino, r.get("tipo"))
                         if r["categoria"] == "huerfano" else {"asunto": None, "texto": None})
+
+            # Solo los huérfanos entran a la cola de revisión. El resto se
+            # guarda como IGNORADA: sirve de estadística y de caché (no se
+            # vuelve a clasificar), pero no ensucia la pantalla del operador.
+            estado = "NUEVA" if r["categoria"] == "huerfano" else "IGNORADA"
 
             ejecuta(
                 "INSERT INTO HUB_MailboxClasificacion "
                 "(IdMensaje, IdCuenta, RemitenteEmail, Destinatario, Categoria, "
                 " Confianza, Metodo, Motivo, DestinoSugerido, BorradorAsunto, "
                 " BorradorTexto, Estado, Modelo, TokensIn, TokensOut) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'NUEVA', %s, %s, %s)",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (msg["Id"], msg["IdCuenta"], msg.get("RemitenteEmail"),
                  r.get("destinatario"), r["categoria"], r.get("confianza"),
                  r["metodo"], (r.get("motivo") or "")[:400], destino,
-                 borrador["asunto"], borrador["texto"],
+                 borrador["asunto"], borrador["texto"], estado,
                  (ia or {}).get("modelo"), (ia or {}).get("tokens_in"),
                  (ia or {}).get("tokens_out")),
             )

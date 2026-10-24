@@ -54,6 +54,7 @@ def _tarjeta(c, csrf):
     destinatario huérfano: <b>{esc(c.get('Destinatario') or '—')}</b>
     → se sugiere <b>{esc(c.get('DestinoSugerido') or '—')}</b>
   </p>
+  <p class="hint" style="margin:4px 0">{esc(c.get('Motivo') or '')}</p>
   <p style="margin:6px 0"><b>Asunto:</b> {esc(c.get('Asunto') or '')}</p>
   <details>
     <summary class="hint">Ver el borrador de respuesta</summary>
