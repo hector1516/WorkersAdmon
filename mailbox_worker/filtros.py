@@ -189,17 +189,18 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
             return True
 
         if accion == "SPAM":
-            # El destino lo resuelve el llamador una vez por ciclo (destino_spam)
-            # y se pasa por `destino`. Mover a spam es un MOVE real, no un
-            # flag: el mensaje sale de Entrada y aparece en la carpeta de spam
-            # del proveedor, que es donde el usuario lo va a buscar.
-            if not destino:
+            # El destino lo resuelve el llamador una vez por ciclo. OJO: antes
+            # esta rama leía `destino` (la carpeta de archivo) y por eso una
+            # regla de SPAM sin una de ARCHIVAR no movía nada: el bug estaba
+            # desde el principio y se vio al conectar el bloqueo global.
+            destino_final = destino_spam or destino
+            if not destino_final:
                 print(f"[filtros] regla {regla.get('Id')}: SPAM sin carpeta de destino")
                 return False
             cliente.select_folder(carpeta)
-            cliente.move_message(uid, destino)
+            cliente.move_message(uid, destino_final)
             ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
-                    (destino, mid))
+                    (destino_final, mid))
             return True
 
         if accion == "ETIQUETAR":
@@ -257,7 +258,13 @@ def aplicar_reglas_de_cuenta(cliente, cuenta: dict, ids_nuevos=None) -> dict:
         "ORDER BY r.IdUsuario, r.Prioridad, r.Id",
         (cid,),
     )
-    if not reglas:
+
+    # La lista de bloqueo es GLOBAL: aplica a todas las cuentas, aunque el
+    # usuario que marcó el remitente no tenga asignado este buzón.
+    from .triaje import bloqueos_activos, esta_bloqueado
+    bloqueos = bloqueos_activos()
+
+    if not reglas and not bloqueos:
         return resumen
 
     candidatos = (_mensajes_por_id(ids_nuevos) if ids_nuevos
@@ -285,14 +292,27 @@ def aplicar_reglas_de_cuenta(cliente, cuenta: dict, ids_nuevos=None) -> dict:
     # Los candidatos son en español e inglés porque el buzón de Hostinger está
     # en español ("Correo no deseado") y el de Gmail en inglés ("Spam").
     destino_spam = ""
-    if any((r.get("Accion") or "").upper() == "SPAM" for r in reglas):
+    if bloqueos or any((r.get("Accion") or "").upper() == "SPAM" for r in reglas):
         destino_spam = _carpeta_por_nombre(cliente, (
             "spam", "junk", "junk e-mail", "correo no deseado", "no deseado",
             "desechados", "spam/quarantine",
         ))
 
+    # Regla sintética para el bloqueo: así el movimiento usa el mismo camino que
+    # una regla normal (MOVE real a la carpeta de spam) y no hay dos lógicas.
+    REGLA_BLOQUEO = {"Id": None, "Accion": "SPAM", "Etiqueta": "bloqueado"}
+
     for mensaje in candidatos:
         resumen["evaluados"] += 1
+
+        if bloqueos and esta_bloqueado(mensaje.get("RemitenteEmail"), bloqueos):
+            if aplicar_accion(cliente, cuenta, mensaje, REGLA_BLOQUEO,
+                              destino_spam, destino_spam):
+                resumen["aplicadas"] += 1
+            # Un remitente bloqueado no recibe auto-respuesta: contestarle
+            # confirmaría que la dirección existe.
+            continue
+
         for regla in reglas:
             if not coincide(mensaje, regla):
                 continue

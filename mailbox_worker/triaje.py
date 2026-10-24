@@ -158,16 +158,131 @@ def resolver(email):
     return "desconocida", None, ""
 
 
+# ── Bloqueos globales ─────────────────────────────────────────────────────────
+# Una entrada bloquea ese remitente (o todo su dominio) en LAS 13 cuentas, no
+# solo en la del usuario que lo marcó. Se evalúa antes que las reglas
+# personales y antes que cualquier clasificación.
+
+def bloqueos_activos():
+    """Todas las entradas activas: [{'Tipo': 'dominio'|'email', 'Valor': ...}]."""
+    try:
+        return filas("SELECT Id, Tipo, Valor FROM HUB_MailboxBloqueos WHERE Activo = 1")
+    except Exception:
+        return []
+
+
+def esta_bloqueado(email, bloqueos=None):
+    """True si el remitente (o su dominio) está en la lista."""
+    e = (email or "").strip().lower()
+    if not e:
+        return False
+    dominio = e.split("@")[-1] if "@" in e else ""
+    for b in (bloqueos if bloqueos is not None else bloqueos_activos()):
+        tipo = (b.get("Tipo") or "").strip().lower()
+        valor = (b.get("Valor") or "").strip().lower()
+        if not valor:
+            continue
+        if tipo == "email" and e == valor:
+            return True
+        if tipo == "dominio" and (dominio == valor or dominio.endswith("." + valor)):
+            return True
+    return False
+
+
+def _normalizar_entrada(linea):
+    """'Foo@Bar.com ' -> ('email','foo@bar.com'); '@bar.com' o 'bar.com' -> dominio."""
+    t = (linea or "").strip().lower().strip(",;<>()[]\"'")
+    if not t or t.startswith("#"):
+        return None
+    if t.startswith("@"):
+        t = t[1:]
+    if "@" in t:
+        if "." not in t.split("@")[-1]:
+            return None
+        return ("email", t)
+    # Dominio: sin espacios, con al menos un punto.
+    if " " in t or "." not in t:
+        return None
+    return ("dominio", t)
+
+
+def bloquear(valor, tipo=None, motivo="", quien="", origen="manual"):
+    """
+    Agrega un bloqueo. Si no se dice el tipo, se deduce del valor.
+    Devuelve (agregado: bool, tipo, valor).
+    """
+    normal = _normalizar_entrada(valor)
+    if not normal:
+        raise ValueError(f"no parece un correo ni un dominio: {valor!r}")
+    tipo_ded, valor_ded = normal
+    tipo = (tipo or tipo_ded).strip().lower()
+    if tipo not in ("email", "dominio"):
+        raise ValueError("el tipo tiene que ser email o dominio")
+    ejecuta(
+        "IF NOT EXISTS (SELECT 1 FROM HUB_MailboxBloqueos WHERE Tipo = %s AND Valor = %s) "
+        "INSERT INTO HUB_MailboxBloqueos (Tipo, Valor, Motivo, Origen, CreadoPor) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (tipo, valor_ded, tipo, valor_ded, (motivo or "")[:200], origen, quien or ""))
+    # Si ya existía, se reactiva (pudo haberse desbloqueado antes).
+    ejecuta("UPDATE HUB_MailboxBloqueos SET Activo = 1 WHERE Tipo = %s AND Valor = %s",
+            (tipo, valor_ded))
+    return True, tipo, valor_ded
+
+
+def importar_bloqueos(texto, quien=""):
+    """Importa una lista pegada: una entrada por línea. Devuelve el conteo."""
+    agregados = 0
+    invalidas = 0
+    for linea in (texto or "").splitlines():
+        if not linea.strip():
+            continue
+        try:
+            bloquear(linea, motivo="lista importada", quien=quien, origen="importada")
+            agregados += 1
+        except ValueError:
+            invalidas += 1
+    return agregados, invalidas
+
+
+def listar_bloqueos():
+    return filas("SELECT Id, Tipo, Valor, Motivo, Origen, Creado, CreadoPor "
+                  "FROM HUB_MailboxBloqueos WHERE Activo = 1 ORDER BY Creado DESC")
+
+
+def eliminar_bloqueo(id_bloqueo):
+    ejecuta("UPDATE HUB_MailboxBloqueos SET Activo = 0 WHERE Id = %s", (int(id_bloqueo),))
+
+
+def bloquear_desde_clasificacion(id_clasif, tipo, quien=""):
+    """Bloquea el remitente (o su dominio) de un mensaje de la cola."""
+    k = una("SELECT RemitenteEmail FROM HUB_MailboxClasificacion WHERE Id = %s",
+            (int(id_clasif),))
+    if not k or not k.get("RemitenteEmail"):
+        raise ValueError("ese mensaje no tiene remitente")
+    rem = k["RemitenteEmail"].strip().lower()
+    if tipo == "dominio":
+        rem = rem.split("@")[-1]
+    return bloquear(rem, tipo=tipo, motivo=f"marcado desde triaje #{id_clasif}",
+                    quien=quien)
+
+
 # ── Clasificación determinista ────────────────────────────────────────────────
 
-def clasificar(msg):
+def clasificar(msg, bloqueos=None):
     """
     Devuelve un dict con categoria, confianza, motivo y (si aplica)
     destinatario. No llama a la IA.
+
+    `bloqueos` se pasa ya cargado para no consultar la tabla una vez por
+    mensaje (el backfill procesa cientos de golpe).
     """
     rem = (msg.get("RemitenteEmail") or "").strip().lower()
     asunto = (msg.get("Asunto") or "").lower()
     dominio_rem = rem.split("@")[-1] if "@" in rem else ""
+
+    if esta_bloqueado(rem, bloqueos):
+        return {"categoria": "bloqueado", "confianza": 0.99, "metodo": "regla",
+                "motivo": "remitente en la lista de bloqueo"}
 
     if msg.get("AutoSubmitted") or msg.get("EsBulk") or msg.get("TieneLista"):
         return {"categoria": "bulk", "confianza": 0.95, "metodo": "regla",
@@ -366,6 +481,7 @@ def procesar_nuevos(ids):
     """
     if not ids or not _cfg_bool("triaje_activo", True):
         return 0
+    bloqueos = bloqueos_activos()
     n = 0
     for mid in ids:
         try:
@@ -375,7 +491,7 @@ def procesar_nuevos(ids):
             if not msg:
                 continue
 
-            r = clasificar(msg)
+            r = clasificar(msg, bloqueos)
             ia = None
             if r["categoria"] == "huerfano" and _ia_disponible():
                 ia = _ia(msg, r.get("destinatario"))

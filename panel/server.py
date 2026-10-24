@@ -789,6 +789,28 @@ class Handler(BaseHTTPRequestHandler):
             if accion == "rechazar":
                 triaje_mod.rechazar(idc, quien)
                 return self._redirect("/triaje?ok=" + urllib.parse.quote("Descartado."))
+            if accion in ("bloquear_remitente", "bloquear_dominio"):
+                tipo = "dominio" if accion == "bloquear_dominio" else "email"
+                _, tipo_real, valor = triaje_mod.bloquear_desde_clasificacion(
+                    idc, tipo, quien)
+                return self._redirect("/triaje?ok=" + urllib.parse.quote(
+                    f"Bloqueado {tipo_real}: {valor} (aplica a todas las cuentas)."))
+            if accion == "bloquear":
+                valor = form.get("valor", [""])[0]
+                tipo = form.get("tipo", [""])[0] or None
+                _, tipo_real, valor_real = triaje_mod.bloquear(
+                    valor, tipo=tipo, quien=quien)
+                return self._redirect("/triaje?ok=" + urllib.parse.quote(
+                    f"Bloqueado {tipo_real}: {valor_real} (aplica a todas las cuentas)."))
+            if accion == "importar":
+                lista = form.get("lista", [""])[0]
+                n, malas = triaje_mod.importar_bloqueos(lista, quien)
+                return self._redirect("/triaje?ok=" + urllib.parse.quote(
+                    f"{n} entradas importadas, {malas} ignoradas por no ser correo ni dominio."))
+            if accion == "desbloquear":
+                triaje_mod.eliminar_bloqueo(idc)
+                return self._redirect("/triaje?ok=" + urllib.parse.quote(
+                    "Bloqueo quitado; el remitente vuelve a entrar."))
         except Exception as exc:
             return self._redirect("/triaje?err=" + urllib.parse.quote(str(exc)))
         return self._redirect("/triaje?err=Acción desconocida")
