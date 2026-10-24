@@ -416,9 +416,9 @@ def puntuar_sospecha(msg, primer_contacto, bloqueos=None):
 
 def _umbral_auto_rechazo():
     try:
-        return int(_cfg("triaje_auto_rechazo_umbral", "75") or 75)
+        return int(_cfg("triaje_auto_rechazo_umbral", "50") or 50)
     except Exception:
-        return 75
+        return 50
 
 
 def _umbral_auto_bloqueo():
