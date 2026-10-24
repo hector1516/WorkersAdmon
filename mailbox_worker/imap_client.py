@@ -760,7 +760,13 @@ class IMAPClient:
                 if typ == "OK":
                     crudo = _primer_literal(data)
                     if crudo:
-                        estructura = parse_bodystructure(crudo.decode("ascii", "replace"))
+                        txt = crudo.decode("ascii", "replace")
+                        # La respuesta puede venir como "1554 (UID 1927 BODYSTRUCTURE (...))"
+                        # sin literal separado. Se extrae solo la parte estructurada.
+                        idx = txt.upper().find("BODYSTRUCTURE")
+                        if idx >= 0:
+                            txt = txt[idx + len("BODYSTRUCTURE"):]
+                        estructura = parse_bodystructure(txt.strip())
                         info = _encontrar_parte_texto(estructura)
                         if info:
                             parte, mime, enc = info
