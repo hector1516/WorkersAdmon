@@ -45,7 +45,6 @@ def _tarjeta(c, csrf):
   <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div>
       <b>{icono} {esc(c.get('RemitenteEmail') or '')}</b>
-      {etiqueta_ia}
       <span class="badge">{esc(cat)}</span>
       <span class="badge">conf. {conf_txt}</span>{badge_susp}
     </div>

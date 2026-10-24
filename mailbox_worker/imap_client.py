@@ -717,11 +717,14 @@ class IMAPClient:
         newsletter pesa 3-5 veces su texto plano, y en un ciclo de sincronización
         se pedirían todos esos bytes para que la mayoría nunca se abra.
 
-        Dos casos:
-          · HTML existe → `BODY.PEEK[1]` o la parte que lo declare.
-          · Solo texto plano → se devuelve el texto envuelto en un HTML
-            mínimo, preescapado. Es preferible a mostrar un iframe vacío: el
-            usuario igual tiene algo que leer.
+        Tres casos:
+          · HTML existe (mensaje simple o parte text/html de un multipart) →
+            se baja esa parte.
+          · Solo texto plano → se devuelve el texto envuelto en un HTML mínimo,
+            preescapado. Es preferible a mostrar un iframe vacío.
+          · Mensaje multipart sin parte HTML → se busca la parte text/plain
+            (NO el mensaje crudo: antes se caía en `cuerpo_texto`, que para un
+            multipart devuelve las fronteras MIME y el usuario veía "código").
 
         El texto se ESCAPA (`html.escape`) porque va dentro de un HTML. Un correo
         en texto plano que contenga `<script>` no debe poder ejecutarse en el
@@ -730,26 +733,60 @@ class IMAPClient:
         """
         c = self.connect()
 
-        # Primero se busca si hay una parte HTML, leyendo el Content-Type de
-        # cada parte de nivel superior: un round trip chico.
-        html = ""
+        # ── 1. Content-Type de nivel superior ───────────────────────────────
+        ct = ""
         try:
             typ, data = c.uid(
                 "fetch", str(uid),
                 "(BODY.PEEK[HEADER.FIELDS (CONTENT-TYPE)])")
             if typ == "OK":
                 crudo = _primer_literal(data) or b""
-                texto = crudo.decode("utf-8", "replace")
-                # El Content-Type de nivel superior; si es multipart, el HTML
-                # está en una de las partes y se busca abajo.
-                if "text/html" in texto.lower() and "multipart" not in texto.lower():
-                    html = self._html_de_parte(c, uid, "1")
+                ct = crudo.decode("utf-8", "replace").lower()
         except Exception:
-            html = ""
+            ct = ""
 
-        if html:
-            return html
+        es_multipart = "multipart" in ct
 
+        # ── 2. Mensaje simple con HTML ──────────────────────────────────────
+        if not es_multipart and "text/html" in ct:
+            html = self._html_de_parte(c, uid, "1")
+            if html:
+                return html
+
+        # ── 3. Mensaje multipart: buscar la parte text/html o text/plain ────
+        if es_multipart:
+            try:
+                typ, data = c.uid("fetch", str(uid), "(BODYSTRUCTURE)")
+                if typ == "OK":
+                    crudo = _primer_literal(data)
+                    if crudo:
+                        estructura = parse_bodystructure(crudo.decode("ascii", "replace"))
+                        info = _encontrar_parte_texto(estructura)
+                        if info:
+                            parte, mime = info
+                            typ2, data2 = c.uid("fetch", str(uid), f"(BODY.PEEK[{parte}])")
+                            if typ2 == "OK":
+                                crudo2 = _primer_literal(data2)
+                                if crudo2:
+                                    texto = crudo2.decode("utf-8", "replace")
+                                    # quoted-printable / base64: IMAP devuelve el
+                                    # cuerpo ya decodificado si se pide sin
+                                    # encoding; si viene crudo, se deja tal cual
+                                    # (el servidor suele entregarlo decodificado).
+                                    if mime == "text/html":
+                                        if "<" in texto:
+                                            return texto
+                                    else:
+                                        if texto.strip():
+                                            return (
+                                                '<html><head><meta charset="utf-8"></head><body>'
+                                                '<pre style="white-space:pre-wrap;font-family:sans-serif">'
+                                                f"{html_escape(texto)}</pre></body></html>"
+                                            )
+            except Exception:
+                pass
+
+        # ── 4. Fallback: mensaje simple de texto plano ──────────────────────
         texto = self.cuerpo_texto(uid)
         if not texto.strip():
             return ""
@@ -925,7 +962,38 @@ def _a_expresion(tokens, i: int):
     return "[" + ",".join(partes) + "]", i
 
 
-def parse_bodystructure(texto: str):
+def _encontrar_parte_texto(nodo, parte: str = ""):
+    """
+    Recorre una estructura MIME y devuelve (numero_de_parte, mime) de la
+    primera parte `text/html` (preferida) o `text/plain`.
+
+    Devuelve None si no hay ninguna parte de texto.
+
+    Los números de parte siguen la convención IMAP: los hijos de nivel superior
+    son "1", "2", "3"…; los nietos "1.1", "1.2"…
+    """
+    if not isinstance(nodo, list) or not nodo:
+        return None
+    if isinstance(nodo[0], list):
+        # Multiparte: recorrer los hijos en orden.
+        hijos = [it for it in nodo if isinstance(it, list)]
+        for idx, hijo in enumerate(hijos, start=1):
+            subparte = f"{parte}.{idx}" if parte else str(idx)
+            res = _encontrar_parte_texto(hijo, subparte)
+            if res:
+                return res
+        return None
+    # Hoja.
+    if len(nodo) < 2:
+        return None
+    tipo = str(nodo[0] or "").upper()
+    subtipo = str(nodo[1] or "").upper()
+    if tipo != "TEXT":
+        return None
+    if subtipo not in ("HTML", "PLAIN"):
+        return None
+    pn = parte if parte else "1"
+    return (pn, f"text/{subtipo.lower()}")
     """BODYSTRUCTURE crudo → estructura anidada de Python. [] si no se puede."""
     if not texto:
         return []
