@@ -550,7 +550,8 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
         "UPDATE HUB_MailboxMensajes SET RemitenteNombre = %s, RemitenteEmail = %s, "
         "ParaTexto = %s, CcTexto = %s, Asunto = %s, Extracto = %s, FechaCorreo = %s, "
         "Visto = %s, MessageId = %s, BytesCuerpo = %s, CuerpoGuardado = %s, "
-        "EsBulk = %s, AutoSubmitted = %s, TieneLista = %s, AuthResultado = %s "
+        "EsBulk = %s, AutoSubmitted = %s, TieneLista = %s, AuthResultado = %s, "
+        "InReplyTo = %s "
         "WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
         (cabeceras.get("from_name"), cabeceras.get("from_email"),
          cabeceras.get("to"), cabeceras.get("cc"), cabeceras.get("subject"),
@@ -560,7 +561,8 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
          int(cabeceras.get("es_bulk") or 0),
          int(cabeceras.get("auto_submitted") or 0),
          int(cabeceras.get("tiene_lista") or 0),
-         cabeceras.get("auth"), cid, carpeta, uid),
+         cabeceras.get("auth"), cabeceras.get("in_reply_to"),
+         cid, carpeta, uid),
     )
     if n > 0:
         return None
@@ -572,9 +574,9 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
         "(IdCuenta, UID, MessageId, Carpeta, RemitenteNombre, RemitenteEmail, ParaTexto, "
         " CcTexto, Asunto, Extracto, FechaCorreo, FechaIngesta, Visto, Marcado, Respondido, "
         " TieneAdjuntos, NumAdjuntos, ClaveCuerpo, BytesCuerpo, CuerpoGuardado, CuerpoTruncado, "
-        " EsBulk, AutoSubmitted, TieneLista, AuthResultado, Eliminado) "
+        " EsBulk, AutoSubmitted, TieneLista, AuthResultado, InReplyTo, Eliminado) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), %s, 0, 0, %s, %s, "
-        "        %s, %s, %s, %s, %s, %s, %s, %s, 0)",
+        "        %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)",
         (cid, uid, cabeceras.get("message_id"), carpeta,
          cabeceras.get("from_name"), cabeceras.get("from_email"),
          cabeceras.get("to"), cabeceras.get("cc"), cabeceras.get("subject"),
@@ -584,7 +586,7 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
          int(cabeceras.get("es_bulk") or 0),
          int(cabeceras.get("auto_submitted") or 0),
          int(cabeceras.get("tiene_lista") or 0),
-         cabeceras.get("auth")),
+         cabeceras.get("auth"), cabeceras.get("in_reply_to")),
     )
     nuevo_id = ultimo_id()
     cur.close()
