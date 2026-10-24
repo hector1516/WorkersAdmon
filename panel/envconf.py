@@ -130,6 +130,30 @@ def override_for(name, key):
     return load_overrides().get(name, {}).get(key)
 
 
+def aplicar_a_entorno(name, solo_faltantes=True):
+    """
+    Carga en `os.environ` los overrides persistidos de un worker.
+
+    El entrypoint aplica `/data/worker_env.json` a los `.conf` de supervisor,
+    así que el WORKER ve sus variables. El panel (`status_web`) es otro proceso
+    y NO las ve: por eso, al guardar una cuenta de correo,
+    `mailbox_worker.crypto.encrypt_secret` no encontraba
+    `MAILBOX_ENCRYPTION_KEY`, lanzaba RuntimeError y el POST /correo devolvía
+    500 ("no me deja cambiar la contraseña"). Pasó el 2026-10-23 con la cuenta
+    de Alfredo Rendón.
+
+    No pisa lo que ya venga del entorno del contenedor (`solo_faltantes`): si
+    alguien pasa la variable por `docker run -e`, esa manda.
+    """
+    aplicadas = []
+    for clave, valor in (load_overrides().get(name) or {}).items():
+        if solo_faltantes and os.getenv(clave):
+            continue
+        os.environ[clave] = str(valor)
+        aplicadas.append(clave)
+    return aplicadas
+
+
 # ─── acciones ─────────────────────────────────────────────────────────────────
 def write_env(name, updates):
     """

@@ -192,6 +192,27 @@ def _hilo_stream():
                     return
 
 
+def _hilo_pendientes():
+    """
+    Valida las cuentas PENDIENTE cada minuto.
+
+    El arranque ya las valida una vez, pero una cuenta creada o con la
+    contraseña editada DESPUÉS del arranque se quedaba en PENDIENTE hasta el
+    siguiente reinicio del worker — y el panel decía "hasta 5 minutos". Pasó el
+    2026-10-23 al cambiar la contraseña de Alfredo Rendón.
+
+    `validar_pendientes()` ya es barata y se protege sola: solo consulta las
+    PENDIENTE y no reintenta la misma cuenta antes de 6 h.
+    """
+    while not _parar.is_set():
+        try:
+            validar_pendientes()
+        except Exception as exc:
+            print(f"[{WORKER}] no pude validar las cuentas pendientes: {exc}",
+                  flush=True)
+        _parar.wait(60)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Arranque
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -268,6 +289,14 @@ def main():
     # El servidor de adjuntos primero: si la app llama antes de que esté listo,
     # la primera descarga de un adjunto falla con connection refused.
     threading.Thread(target=_hilo_stream, daemon=True, name=f"{WORKER}-stream").start()
+
+    # Validación de cuentas PENDIENTE en caliente. Antes solo se hacía una vez,
+    # al arrancar: una cuenta creada o editada desde el panel se quedaba
+    # PENDIENTE hasta el siguiente reinicio del worker, aunque el panel promete
+    # "hasta 5 minutos". `validar_pendientes()` ya se protege sola (solo mira
+    # las PENDIENTE y no reintenta la misma cuenta antes de 6 h).
+    threading.Thread(target=_hilo_pendientes, daemon=True,
+                     name=f"{WORKER}-pendientes").start()
 
     # La cache se limpia una vez por arranque y luego cada hora dentro del ciclo
     # del hilo supervisor. Los adjuntos de hace 6 h no se van a volver a pedir.
