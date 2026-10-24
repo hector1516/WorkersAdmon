@@ -8,7 +8,7 @@ sys.path.append("/")
 
 try:
     import eccsa_db as db
-    from views.vales_oxxogas import fetch_and_sync_oxxogas_emails
+    from oxxogas_sync import fetch_and_sync_oxxogas_emails
 except Exception as e:
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Core Import Error: {e}")
     sys.exit(1)
