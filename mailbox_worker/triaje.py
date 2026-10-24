@@ -70,6 +70,33 @@ def parece_persona(email):
     return bool(_RE_PERSONA.match(local))
 
 
+# Remitentes que son un boletín o un robot, aunque el asunto parezca normal.
+# Se detectan por la parte local y por el subdominio de envío: es la única
+# forma de descartarlos sin cabeceras (el correo viejo no las tiene) y sin IA.
+_RE_BULK_REM = re.compile(
+    r"(no-?reply|noreply|news|notif|update|alert|mailer|bounce|promo|marketing|"
+    r"bolet[ií]n|newsletter|info|ventas|soporte|support|factur|webmaster|"
+    r"postmaster|daemon|weekly|daily|digest)")
+_SUBDOMINIOS_BULK = ("news.", "info.", "mail.", "email.", "response.",
+                     "mx-news.", "campaign", "sendgrid", "mailchimp", "cmail")
+
+
+def remitente_masivo(email, nombre=""):
+    """True si el REMITENTE tiene pinta de boletín/robot."""
+    e = (email or "").strip().lower()
+    if not e or "@" not in e:
+        return True
+    local, dominio = e.split("@", 1)
+    if local in ROLES or _RE_BULK_REM.search(local):
+        return True
+    if any(d in dominio for d in _SUBDOMINIOS_BULK):
+        return True
+    # Sin nombre visible y con parte local que no es un nombre: casi siempre robot.
+    if not (nombre or "").strip() and not parece_persona(e):
+        return True
+    return False
+
+
 # ── Configuración ─────────────────────────────────────────────────────────────
 
 def _cfg(clave, defecto=""):
@@ -156,6 +183,13 @@ def clasificar(msg):
         return {"categoria": "bulk", "confianza": 0.8, "metodo": "regla",
                 "motivo": "falló autenticación (SPF/DKIM/DMARC)"}
 
+    # Remitente con pinta de boletín/robot. Va DESPUÉS de las cabeceras (que son
+    # la prueba dura) y ANTES de mirar el destinatario: un boletín a la dirección
+    # de alguien que ya se fue NO se responde, solo se ignora.
+    if remitente_masivo(rem, msg.get("RemitenteNombre")):
+        return {"categoria": "bulk", "confianza": 0.8, "metodo": "regla",
+                "motivo": "remitente con pinta de boletín o robot"}
+
     if dominio_rem in DOMINIOS_PROPIOS:
         return {"categoria": "interno", "confianza": 0.9, "metodo": "regla",
                 "motivo": "remitente del dominio propio"}
@@ -186,7 +220,15 @@ def clasificar(msg):
 
 # ── IA (opcional, con tope) ───────────────────────────────────────────────────
 
+# Cortacircuitos: si el proveedor responde 429 (cuota agotada), se apaga la IA
+# para el resto del proceso. Sin esto, un lote de 1000 mensajes hace 1000
+# llamadas fallidas y llena el log con el mismo error.
+_IA_AGOTADA = False
+
+
 def _ia_disponible():
+    if _IA_AGOTADA:
+        return False
     if not _cfg_bool("triaje_ia", True):
         return False
     tope = int(_cfg("triaje_ia_tope_dia", "25") or 25)
@@ -229,9 +271,21 @@ def _ia(msg, destinatario):
         )
         r = m.generate_content(
             prompt,
-            generation_config={"max_output_tokens": 120, "temperature": 0},
+            generation_config={
+                "max_output_tokens": 120,
+                "temperature": 0,
+                # Salida JSON estricta: sin esto el modelo a veces contesta con
+                # prosa y el parseo falla (nos pasó en la primera prueba).
+                "response_mime_type": "application/json",
+            },
         )
-        datos = json.loads((getattr(r, "text", "") or "{}").strip())
+        texto = (getattr(r, "text", "") or "").strip()
+        # Aun pidiendo JSON, se recorta al primer objeto: algunos modelos
+        # agregan una línea de contexto antes.
+        mj = re.search(r"\{.*\}", texto, re.S)
+        if not mj:
+            raise ValueError("respuesta sin JSON")
+        datos = json.loads(mj.group(0))
         uso = getattr(r, "usage_metadata", None)
         return {
             "persona": bool(datos.get("persona")),
@@ -242,8 +296,16 @@ def _ia(msg, destinatario):
             "tokens_out": int(getattr(uso, "candidates_token_count", 0) or 0),
         }
     except Exception as exc:
-        print(f"[triaje] IA no disponible: {type(exc).__name__}: {str(exc)[:160]}",
-              flush=True)
+        global _IA_AGOTADA
+        nombre = type(exc).__name__
+        if "ResourceExhausted" in nombre or "429" in str(exc)[:120]:
+            _IA_AGOTADA = True
+            print("[triaje] cuota de Gemini agotada: la IA queda apagada hasta "
+                  "el próximo arranque del worker (el triaje por reglas sigue).",
+                  flush=True)
+        else:
+            print(f"[triaje] IA no disponible: {nombre}: {str(exc)[:160]}",
+                  flush=True)
         return None
 
 
