@@ -1,0 +1,75 @@
+name: Build y publicar imagen
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ESTÁNDAR DE DESPLIEGUE — el mismo en las 6 apps.
+#
+#   1. Build + push a ghcr.io, AQUÍ en ubuntu-latest. El servidor NO compila.
+#   2. Este workflow NO toca el servidor: no hace `docker pull`, ni `docker rm`,
+#      ni `run_app.sh`. Arcane (docker.ecc-sa.com.mx) es el dueño del contenedor.
+#   3. El operador aplica: Arcane → Projects → workersadmon → Updates → Update.
+#
+# POR QUÉ NO SE BAJA LA IMAGEN ACÁ: Arcane resuelve "la imagen que debería estar
+# corriendo" por el tag local `:latest`. Un `docker pull` en el servidor mueve
+# ese tag y Arcane contesta `up_to_date` con producción atrasada. El único que
+# mueve `:latest` es Arcane, al aplicar el Update.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-workersadmon
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: hector1516/workersadmon
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login en ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Trae los navegadores de Playwright para los workers que los usan.
+          build-args: WITH_PLAYWRIGHT=1
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Resumen
+        run: |
+          {
+            echo "### WorkersAdmon · imagen publicada"
+            echo ""
+            echo "- commit: \`${{ github.sha }}\`"
+            echo "- imagen: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` → :latest + :sha"
+            echo "- build-arg: WITH_PLAYWRIGHT=1"
+            echo "- runner: \`${{ runner.name }}\` (nube — el servidor no compiló nada)"
+            echo ""
+            echo "Arcane la detecta en su próximo chequeo (cada hora en punto). Para aplicarla:"
+            echo "**Arcane → Projects → workersadmon → Updates → Update**"
+          } >> "$GITHUB_STEP_SUMMARY"

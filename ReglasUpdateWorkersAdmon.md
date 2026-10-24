@@ -26,8 +26,8 @@ construye la CI **en la nube** y Arcane es el único que administra el contenedo
 | Paquete | `workersadmon` |
 | Imagen | `ghcr.io/hector1516/workersadmon` |
 | Repositorio | [hector1516/WorkersAdmon](https://github.com/hector1516/WorkersAdmon) |
-| Workflow | `.github/workflows/deploy.yml` |
-| Jobs | desbloquear → build |
+| Workflow | `.github/workflows/build-image.yml` |
+| Jobs | build |
 | Puertos | 8000 → 8000 y 8200 → 8080 |
 | Salud | GET /healthz en 8080 interno |
 | ¿Toca el servidor? | No |
@@ -40,7 +40,7 @@ Antes de ir a Arcane, mira que los jobs estén en verde:
 https://github.com/hector1516/WorkersAdmon/actions
 ```
 
-deploy.yml · desbloquear → build
+build-image.yml · build
 
 Arcane: `https://docker.ecc-sa.com.mx` → **Projects → workersadmon → Updates**.
 Ahí debe aparecer la imagen nueva con un digest distinto. Ahí es donde aplicas.

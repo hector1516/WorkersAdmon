@@ -434,8 +434,10 @@ seguir al shell.
   - El runner `Admon-Runner` se cayó (servicio `Stopped`) y dejó el deploy en
     cola infinita; se arrancó con `net start actions.runner.hector1516-Admon.Admon-Runner`.
     Si vuelve a pasar: revisar ese servicio Windows en ServerVM.
-- CI (`.github/workflows/deploy.yml` + runner self-hosted para este repo):
-  fase posterior, mientras tanto el deploy es manual (`docker build` + `docker run`).
+- ~~CI~~ — **hecho**: `.github/workflows/build-image.yml` construye en
+  `ubuntu-latest` y publica en `ghcr.io/hector1516/workersadmon`; el servidor no
+  compila ni toca el contenedor, y Arcane aplica el `Update` (estándar de las 6
+  apps desde el 2026-10-23).
 - ~~Activar el primer worker~~ — los **10** están activos desde 2026-09-26.
 - Heartbeats: `telegram_worker` ya llama `worker_heartbeat.heartbeat()` cada
   ciclo; los demás usan su propio mecanismo o todavía no laten.

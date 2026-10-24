@@ -4,7 +4,9 @@
 # de estado. HOY NO LLEVA NINGÚN WORKER ACTIVADO (solo status_web).
 # ─────────────────────────────────────────────────────────────────────────────
 
-FROM python:3.11-slim AS builder
+# Base estándar del ecosistema: mirror.gcr.io (espejo pull-through de Docker
+# Hub). Docker Hub y ECR Public aplican cuotas por IP y ya tumbaron la CI.
+FROM mirror.gcr.io/library/python:3.11-slim AS builder
 
 WORKDIR /app
 
@@ -20,7 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir supervisor
 
 # ─── Etapa runtime ───────────────────────────────────────────────────────────
-FROM python:3.11-slim AS runtime
+FROM mirror.gcr.io/library/python:3.11-slim AS runtime
 
 WORKDIR /app
 
