@@ -391,6 +391,15 @@ class Handler(BaseHTTPRequestHandler):
                 user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
                 **self._shell_ctx()))
 
+        if path == "/firmas":
+            user, done = self._require()
+            if done:
+                return
+            ok, err = self._flash(query)
+            return self._html(firmas_view.render(
+                user, csrf=self._csrf(), flash_ok=ok, flash_err=err,
+                **self._shell_ctx()))
+
         if path == "/asistencia":
             user, done = self._require()
             if done:
