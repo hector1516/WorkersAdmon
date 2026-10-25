@@ -150,6 +150,12 @@ def _carpeta_por_nombre(cliente, candidatos) -> str:
     return candidatos[0]
 
 
+def _abrir_sesion_cuenta(cuenta: dict):
+    """Abre una sesión IMAP a una cuenta dada (para mover entre cuentas)."""
+    from .sync import _abrir
+    return _abrir(cuenta, probar=False)
+
+
 def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
                    destino_spam: str = "") -> bool:
     """
@@ -157,9 +163,17 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
 
     Cada acción aísla su excepción: una regla mal formada no puede tumbar el
     sync de la cuenta ni impedir las reglas siguientes del mismo mensaje.
+
+    Si la regla trae `IdCuentaDestino` y `CarpetaDestino`, el movimiento se hace
+    contra esa cuenta de destino (abriendo su propia sesión IMAP) en vez de la
+    cuenta origen. Esto permite reglas entre cuentas del mismo usuario.
     """
     accion = (regla.get("Accion") or "").upper()
     uid, carpeta, mid = mensaje.get("UID"), mensaje.get("Carpeta"), mensaje.get("Id")
+
+    # ¿Regla entre cuentas?
+    id_cuenta_destino = regla.get("IdCuentaDestino")
+    carpeta_destino_regla = regla.get("CarpetaDestino")
 
     try:
         if accion == "NO_HACER":
@@ -172,36 +186,69 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
             ejecuta("UPDATE HUB_MailboxMensajes SET Visto = 1 WHERE Id = %s", (mid,))
             return True
 
-        if accion == "ARCHIVAR":
-            cliente.select_folder(carpeta)
-            cliente.move_message(uid, destino)
-            ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
-                    (destino, mid))
-            return True
+        if accion in ("ARCHIVAR", "ELIMINAR", "SPAM"):
+            # Resolver carpeta de destino
+            if carpeta_destino_regla:
+                # Regla entre cuentas: abrir sesión a la cuenta destino
+                cuenta_dest = una(
+                    "SELECT Id, Alias, Email, ServidorIMAP, PuertoIMAP, "
+                    "TipoAuth, CredencialCifrada, CarpetaRaiz "
+                    "FROM HUB_MailboxCuentas WHERE Id = %s AND Estado = 'ACTIVA'",
+                    (id_cuenta_destino,),
+                )
+                if not cuenta_dest:
+                    print(f"[filtros] regla {regla.get('Id')}: cuenta destino {id_cuenta_destino} no encontrada o inactiva")
+                    return False
+                cliente_dest = _abrir_sesion_cuenta(cuenta_dest)
+                try:
+                    carpeta_final = _carpeta_por_nombre(cliente_dest, (carpeta_destino_regla,))
+                    cliente_dest.select_folder(carpeta_final)
+                    cliente_dest.move_message(uid, carpeta_final)
+                finally:
+                    try:
+                        cliente_dest.close()
+                    except Exception:
+                        pass
+                # Actualizar la base: el mensaje ahora vive en la cuenta destino
+                if accion == "ELIMINAR":
+                    ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s, IdCuenta = %s WHERE Id = %s",
+                            (carpeta_final, id_cuenta_destino, mid))
+                else:
+                    ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s, IdCuenta = %s WHERE Id = %s",
+                            (carpeta_final, id_cuenta_destino, mid))
+                return True
 
-        if accion == "ELIMINAR":
-            cliente.select_folder(carpeta)
-            cliente.delete_message(uid)
-            # No se borra la fila: queda con `Eliminado=1` para que la app lo
-            # muestre tachado y el usuario pueda deshacer antes de la retención.
-            ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s WHERE Id = %s",
-                    (destino, mid))
-            return True
+            # Misma cuenta (comportamiento original)
+            if accion == "ARCHIVAR":
+                cliente.select_folder(carpeta)
+                cliente.move_message(uid, destino)
+                ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
+                        (destino, mid))
+                return True
 
-        if accion == "SPAM":
-            # El destino lo resuelve el llamador una vez por ciclo. OJO: antes
-            # esta rama leía `destino` (la carpeta de archivo) y por eso una
-            # regla de SPAM sin una de ARCHIVAR no movía nada: el bug estaba
-            # desde el principio y se vio al conectar el bloqueo global.
-            destino_final = destino_spam or destino
-            if not destino_final:
-                print(f"[filtros] regla {regla.get('Id')}: SPAM sin carpeta de destino")
-                return False
-            cliente.select_folder(carpeta)
-            cliente.move_message(uid, destino_final)
-            ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
-                    (destino_final, mid))
-            return True
+            if accion == "ELIMINAR":
+                cliente.select_folder(carpeta)
+                cliente.delete_message(uid)
+                # No se borra la fila: queda con `Eliminado=1` para que la app lo
+                # muestre tachado y el usuario pueda deshacer antes de la retención.
+                ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s WHERE Id = %s",
+                        (destino, mid))
+                return True
+
+            if accion == "SPAM":
+                # El destino lo resuelve el llamador una vez por ciclo. OJO: antes
+                # esta rama leía `destino` (la carpeta de archivo) y por eso una
+                # regla de SPAM sin una de ARCHIVAR no movía nada: el bug estaba
+                # desde el principio y se vio al conectar el bloqueo global.
+                destino_final = destino_spam or destino
+                if not destino_final:
+                    print(f"[filtros] regla {regla.get('Id')}: SPAM sin carpeta de destino")
+                    return False
+                cliente.select_folder(carpeta)
+                cliente.move_message(uid, destino_final)
+                ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
+                        (destino_final, mid))
+                return True
 
         if accion == "ETIQUETAR":
             etiqueta = (regla.get("Etiqueta") or "").strip()[:60]

@@ -1,0 +1,406 @@
+<!-- ============================================================================
+   EDITOR DE FIRMAS ECCSA — Componente autónomo (HTML/JS/CSS)
+   Compatible con PWA (móvil) y escritorio.
+   Se incluye en cualquier página de Admon o Field.
+   
+   INTEGRACIÓN:
+   1. Copiar este archivo en static/ de la app (Admon o Field)
+   2. Incluirlo en la página: <link rel="stylesheet"> + <script> o simplemente
+      copiar el bloque <style> y <script> en la plantilla HTML
+   3. Configurar CONFIG.idUsuario y CONFIG.usuario con los datos del usuario
+      autenticado (desde la sesión de la app host)
+   4. Los endpoints API deben estar expuestos por WorkersAdmon (panel/views/firmas.py)
+   ============================================================================ -->
+
+<div id="eccsa-firma-editor" style="font-family:Segoe UI,Tahoma,Geneva,sans-serif;">
+  <div class="ef-header">
+    <h2>✍️ Editor de Firma de Correo</h2>
+    <p class="ef-sub">Crea tu firma profesional para todos tus correos de ECCSA</p>
+  </div>
+
+  <div class="ef-grid">
+    <!-- Columna izquierda: plantillas y datos -->
+    <div class="ef-panel">
+      <div class="ef-section">
+        <h3>📋 Plantilla</h3>
+        <div class="ef-templates" id="ef-templates">
+          <!-- Las plantillas se inyectan por JS -->
+        </div>
+      </div>
+
+      <div class="ef-section">
+        <h3>👤 Tus datos</h3>
+        <label>Nombre</label>
+        <input type="text" id="ef-nombre" placeholder="Héctor Peña">
+
+        <label>Cargo</label>
+        <input type="text" id="ef-cargo" placeholder="Ingeniero de Sistemas">
+
+        <label>Teléfono</label>
+        <input type="tel" id="ef-telefono" placeholder="+52 81 1234 5678">
+
+        <label>Correo</label>
+        <input type="email" id="ef-correo" placeholder="hector.pena@ecc-sa.com.mx">
+
+        <label>Dirección</label>
+        <input type="text" id="ef-direccion" placeholder="Monterrey, Nuevo León, México">
+
+        <label>Web</label>
+        <input type="url" id="ef-web" value="www.ecc-sa.com.mx">
+
+        <label>Foto (opcional)</label>
+        <input type="file" id="ef-foto" accept="image/*">
+        <div class="ef-foto-preview" id="ef-foto-preview"></div>
+      </div>
+
+      <div class="ef-section ef-frase-section">
+        <label>💭 Frase aleatoria</label>
+        <button type="button" class="ef-btn-frase" id="ef-btn-frase">Nueva frase</button>
+        <p class="ef-frase-actual" id="ef-frase-actual"></p>
+      </div>
+
+      <div class="ef-actions">
+        <button type="button" class="ef-btn ef-btn-primary" id="ef-btn-vista-previa">👁️ Vista previa</button>
+        <button type="button" class="ef-btn ef-btn-success" id="ef-btn-guardar">💾 Guardar firma</button>
+      </div>
+    </div>
+
+    <!-- Columna derecha: vista previa -->
+    <div class="ef-panel ef-preview-panel">
+      <div class="ef-section">
+        <h3>👁️ Vista previa</h3>
+      </div>
+      <div class="ef-preview" id="ef-preview">
+        <!-- La firma se renderiza aquí -->
+      </div>
+      <div class="ef-preview-nota">
+        La firma se verá igual en Outlook, Gmail, Apple Mail y cualquier cliente de correo.
+      </div>
+    </div>
+  </div>
+
+  <div class="ef-mensaje" id="ef-mensaje"></div>
+</div>
+
+<style>
+  #eccsa-firma-editor { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  #eccsa-firma-editor * { box-sizing: border-box; }
+
+  .ef-header { margin-bottom: 24px; }
+  .ef-header h2 { margin: 0; color: #1E293B; font-size: 24px; }
+  .ef-header .ef-sub { color: #64748B; margin-top: 4px; }
+
+  .ef-grid { display: grid; grid-template-columns: 420px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .ef-grid { grid-template-columns: 1fr; } }
+
+  .ef-panel { background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 20px; }
+  .ef-preview-panel { min-height: 500px; display: flex; flex-direction: column; }
+
+  .ef-section { margin-bottom: 20px; }
+  .ef-section:last-child { margin-bottom: 0; }
+  .ef-section h3 { margin: 0 0 12px 0; font-size: 16px; color: #1E293B; }
+
+  /* Plantillas */
+  .ef-templates { display: flex; flex-direction: column; gap: 8px; }
+  .ef-tpl-btn {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border: 1px solid #E2E8F0; border-radius: 8px;
+    background: #FFFFFF; color: #334155; font-size: 13px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .ef-tpl-btn:hover { border-color: #FF6B00; background: #FFF7ED; }
+  .ef-tpl-btn.activo { border-color: #FF6B00; background: #FFF7ED; color: #FF6B00; font-weight: 600; }
+  .ef-tpl-icon { font-size: 18px; width: 24px; }
+  .ef-tpl-info .ef-tpl-nombre { font-weight: 600; color: #1E293B; }
+  .ef-tpl-info .ef-tpl-desc { font-size: 11px; color: #64748B; }
+
+  /* Formulario */
+  .ef-panel label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; margin-top: 10px; }
+  .ef-panel input[type="text"],
+  .ef-panel input[type="email"],
+  .ef-panel input[type="url"],
+  .ef-panel input[type="tel"] {
+    width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px;
+    font-size: 13px; color: #1E293B; background: #FFFFFF;
+  }
+  .ef-panel input[type="text"]:focus,
+  .ef-panel input[type="email"]:focus,
+  .ef-panel input[type="url"]:focus,
+  .ef-panel input[type="tel"]:focus {
+    outline: none; border-color: #FF6B00; box-shadow: 0 0 0 3px rgba(255,107,0,0.1);
+  }
+
+  /* Foto */
+  .ef-foto-preview { margin-top: 8px; width: 80px; height: 80px; border: 1px dashed #CBD5E1; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #94A3B8; font-size: 11px; }
+  .ef-foto-preview img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; }
+
+  /* Frase */
+  .ef-frase-section { background: #F8FAFC; border-radius: 8px; padding: 12px 16px; }
+  .ef-btn-frase {
+    background: #FFFFFF; border: 1px solid #CBD5E1; color: #1E293B;
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  }
+  .ef-btn-frase:hover { border-color: #FF6B00; color: #FF6B00; }
+  .ef-frase-actual { margin-top: 8px; font-size: 12px; color: #64748B; font-style: italic; }
+
+  /* Botones */
+  .ef-actions { display: flex; gap: 10px; margin-top: 4px; }
+  .ef-btn { padding: 10px 18px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .ef-btn-primary { background: #1E293B; color: #FFFFFF; }
+  .ef-btn-primary:hover { background: #0F172A; }
+  .ef-btn-success { background: #FF6B00; color: #FFFFFF; }
+  .ef-btn-success:hover { background: #E65F00; }
+
+  /* Vista previa */
+  .ef-preview { flex: 1; border: 1px solid #E2E8F0; border-radius: 10px; padding: 20px; background: #FFFFFF; overflow: auto; display: flex; align-items: flex-start; justify-content: center; }
+  .ef-preview-empty { color: #94A3B8; font-size: 13px; text-align: center; padding: 40px; }
+  .ef-preview-nota { font-size: 11px; color: #94A3B8; margin-top: 8px; text-align: center; }
+
+  /* Mensaje */
+  .ef-mensaje { margin-top: 16px; padding: 10px 14px; border-radius: 6px; font-size: 13px; display: none; }
+  .ef-mensaje.ok { background: #DCFCE7; color: #166534; border: 1px solid #86EFAC; display: block; }
+  .ef-mensaje.error { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; display: block; }
+</style>
+
+<script>
+(function(){
+  'use strict';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // CONFIGURACIÓN — Ajusta estas URLs a tu entorno
+  // La app host (Admon o Field) debe setear CONFIG.idUsuario y CONFIG.usuario
+  // ════════════════════════════════════════════════════════════════════════════
+  const CONFIG = {
+    apiListarFirmas:   '/api/mailbox/firmas/listar',
+    apiGuardarFirma:   '/api/mailbox/firmas/guardar',
+    apiListarPlantillas: '/api/mailbox/firmas/plantillas',
+    apiSubirFoto:      '/api/mailbox/firmas/subir-foto',
+    idUsuario:         null, // Se debe setear desde la app host
+    usuario:           {
+      nombre: '', cargo: '', telefono: '', correo: '', direccion: '', web: 'www.ecc-sa.com.mx', fotoUrl: ''
+    }
+  };
+
+  let estado = {
+    plantillaSeleccionada: null,
+    fotoFile: null,
+    fraseActual: ''
+  };
+
+  function init(){
+    cargarPlantillas();
+    cargarFraseAleatoria();
+    configurarEventos();
+    renderVistaPrevia();
+  }
+
+  async function cargarPlantillas(){
+    const contenedor = document.getElementById('ef-templates');
+    try {
+      const resp = await fetch(CONFIG.apiListarPlantillas);
+      const plantillas = await resp.json();
+      renderPlantillas(plantillas || []);
+    } catch (e) {
+      renderPlantillas([]);
+    }
+  }
+
+  function renderPlantillas(plantillas){
+    const contenedor = document.getElementById('ef-templates');
+    contenedor.innerHTML = '';
+
+    const defaults = [
+      { nombre: 'Corporativa ECCSA', desc: 'Tabla con logo a la izquierda', categoria: 'corporativa' },
+      { nombre: 'Moderna ECCSA', desc: 'Barra lateral naranja', categoria: 'moderna' },
+      { nombre: 'Simple ECCSA', desc: 'Mínima y elegante', categoria: 'simple' },
+    ];
+
+    (plantillas.length ? plantillas : defaults).forEach((p, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ef-tpl-btn' + (i === 0 ? ' activo' : '');
+      btn.innerHTML = `
+        <span class="ef-tpl-icon">📄</span>
+        <div class="ef-tpl-info">
+          <div class="ef-tpl-nombre">${p.nombre}</div>
+          <div class="ef-tpl-desc">${p.desc || ''}</div>
+        </div>
+      `;
+      btn.onclick = () => {
+        document.querySelectorAll('.ef-tpl-btn').forEach(b => b.classList.remove('activo'));
+        btn.classList.add('activo');
+        estado.plantillaSeleccionada = p;
+        renderVistaPrevia();
+      };
+      contenedor.appendChild(btn);
+    });
+  }
+
+  async function cargarFraseAleatoria(){
+    try {
+      const resp = await fetch('/api/mailbox/firmas/frase-aleatoria');
+      const data = await resp.json();
+      if (data.frase) {
+        estado.fraseActual = data.frase;
+        document.getElementById('ef-frase-actual').textContent = data.frase;
+      }
+    } catch (e) {
+      estado.fraseActual = 'El éxito es la suma de pequeños esfuerzos repetidos día tras día. — ECCSA';
+      document.getElementById('ef-frase-actual').textContent = estado.fraseActual;
+    }
+    renderVistaPrevia();
+  }
+
+  document.getElementById('ef-btn-frase').onclick = async () => {
+    const btn = document.getElementById('ef-btn-frase');
+    btn.textContent = 'Cargando...';
+    btn.disabled = true;
+    await cargarFraseAleatoria();
+    btn.textContent = 'Nueva frase';
+    btn.disabled = false;
+  };
+
+  function obtenerDatosUsuario(){
+    const u = CONFIG.usuario;
+    return {
+      nombre: document.getElementById('ef-nombre').value || u.nombre || '',
+      cargo: document.getElementById('ef-cargo').value || u.cargo || '',
+      telefono: document.getElementById('ef-telefono').value || u.telefono || '',
+      correo: document.getElementById('ef-correo').value || u.correo || '',
+      direccion: document.getElementById('ef-direccion').value || u.direccion || 'Monterrey, Nuevo León, México',
+      web: document.getElementById('ef-web').value || u.web || 'www.ecc-sa.com.mx',
+      fotoUrl: u.fotoUrl || '',
+      frase: estado.fraseActual,
+    };
+  }
+
+  function renderVistaPrevia(){
+    const preview = document.getElementById('ef-preview');
+    const datos = obtenerDatosUsuario();
+
+    let html = '<div style="font-family:Segoe UI,Tahoma,Geneva,sans-serif;font-size:13px;color:#333333;">';
+    html += '<!-- Firma ECCSA -->\n';
+    html += '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">';
+    html += '<tr><td align="left" valign="top" style="padding:0 0 10px 0;">';
+    html += '<table role="presentation" cellspacing="0" cellpadding="0" border="0">';
+    html += '<tr>';
+    html += '<td align="left" valign="middle" style="padding-right:12px;">';
+    html += '<img src="cid:eccsa-logo" width="48" height="48" alt="ECCSA" style="display:block;border:0;" />';
+    html += '</td>';
+    html += '<td align="left" valign="middle" style="font-family:Segoe UI,Tahoma,Geneva,sans-serif;font-size:14px;color:#1E293B;">';
+    html += `<div style="font-weight:bold;color:#FF6B00;font-size:15px;">${escapeHtml(datos.nombre)}</div>`;
+    html += `<div style="font-size:12px;color:#64748B;">${escapeHtml(datos.cargo)}</div>`;
+    html += '</td></tr></table></td></tr>';
+    html += '<tr><td align="left" valign="top" style="padding:8px 0 0 0;border-top:1px solid #FF6B00;">';
+    html += '<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>';
+    html += `<td align="left" valign="top" style="padding-right:16px;"><div style="font-size:12px;color:#64748B;">📞 ${escapeHtml(datos.telefono)}</div></td>`;
+    html += `<td align="left" valign="top" style="padding-right:16px;"><div style="font-size:12px;color:#64748B;">✉️ ${escapeHtml(datos.correo)}</div></td>`;
+    html += `<td align="left" valign="top"><div style="font-size:12px;color:#64748B;">🌐 ${escapeHtml(datos.web)}</div></td>`;
+    html += '</tr></table></td></tr>';
+    html += '<tr><td align="left" valign="top" style="padding:6px 0 0 0;"><div style="font-size:11px;color:#94A3B8;">${escapeHtml(datos.direccion)}</div></td></tr>';
+    html += '<tr><td align="left" valign="top" style="padding:10px 0 0 0;"><div style="font-size:12px;color:#64748B;font-style:italic;">"${escapeHtml(datos.frase)}"</div></td></tr>';
+    html += '</table></div>';
+
+    preview.innerHTML = html;
+  }
+
+  function escapeHtml(texto){
+    if (!texto) return '';
+    return String(texto)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  const inputFoto = document.getElementById('ef-foto');
+  const previewFoto = document.getElementById('ef-foto-preview');
+
+  inputFoto.onchange = function(e){
+    const file = e.target.files[0];
+    if (!file) return;
+    estado.fotoFile = file;
+    const reader = new FileReader();
+    reader.onload = function(ev){
+      previewFoto.innerHTML = `<img src="${ev.target.result}" alt="foto" />`;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  function configurarEventos(){
+    ['ef-nombre','ef-cargo','ef-telefono','ef-correo','ef-direccion','ef-web'].forEach(id => {
+      document.getElementById(id).addEventListener('input', renderVistaPrevia);
+    });
+
+    document.getElementById('ef-btn-vista-previa').onclick = renderVistaPrevia;
+
+    document.getElementById('ef-btn-guardar').onclick = async () => {
+      const btn = document.getElementById('ef-btn-guardar');
+      const btnOriginal = btn.textContent;
+      btn.textContent = 'Guardando...';
+      btn.disabled = true;
+
+      try {
+        const datos = obtenerDatosUsuario();
+        const htmlFirma = document.getElementById('ef-preview').innerHTML;
+
+        let fotoUrl = datos.fotoUrl;
+        if (estado.fotoFile) {
+          const formData = new FormData();
+          formData.append('foto', estado.fotoFile);
+          formData.append('id_usuario', CONFIG.idUsuario);
+          const respFoto = await fetch(CONFIG.apiSubirFoto, {
+            method: 'POST',
+            body: formData,
+          });
+          if (respFoto.ok) {
+            const dataFoto = await respFoto.json();
+            fotoUrl = dataFoto.url || fotoUrl;
+          }
+        }
+
+        const payload = {
+          id_usuario: CONFIG.idUsuario,
+          nombre: 'Firma ' + (datos.nombre || 'usuario'),
+          html: htmlFirma,
+          texto: htmlFirma.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+          predeterminada: true,
+        };
+
+        const resp = await fetch(CONFIG.apiGuardarFirma, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (resp.ok) {
+          mostrarMensaje('Firma guardada correctamente. Se aplicará a tus próximos correos.', 'ok');
+        } else {
+          mostrarMensaje('Error al guardar la firma.', 'error');
+        }
+      } catch (e) {
+        mostrarMensaje('Error: ' + e.message, 'error');
+      } finally {
+        btn.textContent = btnOriginal;
+        btn.disabled = false;
+      }
+    };
+  }
+
+  function mostrarMensaje(texto, tipo){
+    const el = document.getElementById('ef-mensaje');
+    el.textContent = texto;
+    el.className = 'ef-mensaje ' + (tipo === 'ok' ? 'ok' : 'error');
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 5000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
+</script>
