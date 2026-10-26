@@ -45,7 +45,7 @@ import email.policy
 import email.utils
 import imaplib
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from email.header import decode_header, make_header
 from html import escape as html_escape
 from typing import Optional
@@ -195,11 +195,9 @@ def _fmt_date(dt: datetime) -> str:
     return dt.strftime("%d-%b-%Y %H:%M:%S +0000")
 
 
-# Monterrey, NL, México: UTC-6 fijo (México abolió el horario de verano en 2022
-# para la mayoría del país, incluyendo Nuevo León). Se usa para convertir las
-# fechas de los correos (que vienen en la zona del remitente o en UTC) a hora
-# local antes de guardarlas en la BD.
-_TZ_MTY = timezone(timedelta(hours=-6))
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tz_mx import TZ_MX, to_mx, now_mx
 
 
 def _parse_fecha(valor) -> Optional[datetime]:
@@ -209,12 +207,7 @@ def _parse_fecha(valor) -> Optional[datetime]:
         dt = email.utils.parsedate_to_datetime(str(valor))
         if dt is None:
             return None
-        if dt.tzinfo is None:
-            # Sin zona horaria: se asume que el remitente la escribió en su
-            # hora local. No hay forma de saber cuál, así que se trata como
-            # UTC-6 (Monterrey) para no mostrar una hora 6 horas adelantada.
-            dt = dt.replace(tzinfo=_TZ_MTY)
-        return dt.astimezone(_TZ_MTY).replace(tzinfo=None)
+        return to_mx(dt)
     except Exception:
         return None
 
@@ -713,7 +706,7 @@ class IMAPClient:
             # Si el Date es inválido se usa la hora de ingesta, no epoch 1970:
             # un mensaje sin fecha usable se ordenaría como el más viejo del
             # mundo y se purgaría en el primer ciclo de retención.
-            "date": fecha or datetime.now(),
+            "date": fecha or now_mx(),
             "seen": "\\SEEN" in flags,
             "flagged": "\\FLAGGED" in flags,
             "answered": "\\ANSWERED" in flags,

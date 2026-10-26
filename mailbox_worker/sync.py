@@ -32,13 +32,17 @@ import hashlib
 import os
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from . import almacen
 from .config import settings
 from .crypto import decrypt_secret
 from .db import ejecuta, filas, get_connection, una, ultimo_id
 from .imap_client import IMAPClient, IMAPError
+
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tz_mx import now_mx
 
 _EMAIL_RE = re.compile(r"[^\s<>,;]+@[^\s<>,;]+\.[A-Za-z]{2,}")
 
@@ -90,7 +94,7 @@ def validar_pendientes():
         "SELECT Id, Email, ServidorIMAP, PuertoIMAP, TipoAuth, CredencialCifrada "
         "FROM HUB_MailboxCuentas WHERE Estado = 'PENDIENTE'"
     )
-    ahora = datetime.now()
+    ahora = now_mx()
     for c in pendientes:
         previo = una("SELECT UltimoSync FROM HUB_MailboxCuentas WHERE Id = %s", (c["Id"],))
         if previo and previo.get("UltimoSync") and previo["UltimoSync"] > ahora - timedelta(hours=6):
@@ -493,7 +497,7 @@ def _sincronizar_carpeta(cliente: IMAPClient, cuenta: dict, carpeta: str) -> tup
 def _fecha_desde(cuenta: dict) -> str:
     """Desde qué fecha buscar. La ventana de retención de la cuenta manda."""
     dias = int(cuenta.get("VentanaDias") or 90)
-    return (datetime.now() - timedelta(days=dias)).strftime("%d-%b-%Y")
+    return (now_mx() - timedelta(days=dias)).strftime("%d-%b-%Y")
 
 
 def _indexar(cliente: IMAPClient, cuenta: dict, carpeta: str, uid: int):
@@ -544,7 +548,7 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
     es notoriously difícil de depurar.
     """
     cid = cuenta["Id"]
-    fecha = cabeceras.get("date") or datetime.now()
+    fecha = cabeceras.get("date") or now_mx()
 
     n = ejecuta(
         "UPDATE HUB_MailboxMensajes SET RemitenteNombre = %s, RemitenteEmail = %s, "
@@ -793,7 +797,7 @@ def _retencion(cuenta: dict) -> int:
     cid = cuenta["Id"]
     purgados = 0
 
-    corte_cuerpo = datetime.now() - timedelta(hours=settings.horas_cuerpo)
+    corte_cuerpo = now_mx() - timedelta(hours=settings.horas_cuerpo)
     for f in filas(
         "SELECT TOP (%s) Id, ClaveCuerpo FROM HUB_MailboxMensajes "
         "WHERE IdCuenta = %s AND FechaCorreo < %s AND CuerpoGuardado = 1",
@@ -805,7 +809,7 @@ def _retencion(cuenta: dict) -> int:
                 "ClaveCuerpo = NULL WHERE Id = %s", (f["Id"],))
         purgados += 1
 
-    corte_indice = datetime.now() - timedelta(days=settings.dias_indice)
+    corte_indice = now_mx() - timedelta(days=settings.dias_indice)
     for f in filas(
         "SELECT TOP (%s) Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND FechaCorreo < %s",
         (500, cid, corte_indice),
