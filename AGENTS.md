@@ -343,6 +343,7 @@ socket.
 
 ## Convenciones
 
+- **Zona horaria**: usar SIEMPRE `now_mx()` de `tz_mx.py`. Nunca `datetime.now()` sin zona, `utcnow() - N`, ni depender de `TZ`. Ver `ESTANDARIZACION-TZ.md`.
 - Español en UI y comentarios; comentarios explicativos en el código.
 - Emojis en títulos/tarjetas de UI.
 - Estructura de un worker: docstring → imports → constantes con env var →
