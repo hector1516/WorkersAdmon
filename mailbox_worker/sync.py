@@ -569,27 +569,42 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
 
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO HUB_MailboxMensajes "
-        "(IdCuenta, UID, MessageId, Carpeta, RemitenteNombre, RemitenteEmail, ParaTexto, "
-        " CcTexto, Asunto, Extracto, FechaCorreo, FechaIngesta, Visto, Marcado, Respondido, "
-        " TieneAdjuntos, NumAdjuntos, ClaveCuerpo, BytesCuerpo, CuerpoGuardado, CuerpoTruncado, "
-        " EsBulk, AutoSubmitted, TieneLista, AuthResultado, InReplyTo, Eliminado) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), %s, 0, 0, %s, %s, "
-        "        %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)",
-        (cid, uid, cabeceras.get("message_id"), carpeta,
-         cabeceras.get("from_name"), cabeceras.get("from_email"),
-         cabeceras.get("to"), cabeceras.get("cc"), cabeceras.get("subject"),
-         extracto, fecha, 1 if cabeceras.get("seen") else 0,
-         1 if adjuntos else 0, len(adjuntos), clave, bytes_cuerpo,
-         1 if cuerpo_guardado else 0, 1 if cuerpo_truncado else 0,
-         int(cabeceras.get("es_bulk") or 0),
-         int(cabeceras.get("auto_submitted") or 0),
-         int(cabeceras.get("tiene_lista") or 0),
-         cabeceras.get("auth"), cabeceras.get("in_reply_to")),
-    )
-    nuevo_id = ultimo_id()
+    try:
+        cur.execute(
+            "INSERT INTO HUB_MailboxMensajes "
+            "(IdCuenta, UID, MessageId, Carpeta, RemitenteNombre, RemitenteEmail, ParaTexto, "
+            " CcTexto, Asunto, Extracto, FechaCorreo, FechaIngesta, Visto, Marcado, Respondido, "
+            " TieneAdjuntos, NumAdjuntos, ClaveCuerpo, BytesCuerpo, CuerpoGuardado, CuerpoTruncado, "
+            " EsBulk, AutoSubmitted, TieneLista, AuthResultado, InReplyTo, Eliminado) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, GETDATE(), %s, 0, 0, %s, %s, "
+            "        %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)",
+            (cid, uid, cabeceras.get("message_id"), carpeta,
+             cabeceras.get("from_name"), cabeceras.get("from_email"),
+             cabeceras.get("to"), cabeceras.get("cc"), cabeceras.get("subject"),
+             extracto, fecha, 1 if cabeceras.get("seen") else 0,
+             1 if adjuntos else 0, len(adjuntos), clave, bytes_cuerpo,
+             1 if cuerpo_guardado else 0, 1 if cuerpo_truncado else 0,
+             int(cabeceras.get("es_bulk") or 0),
+             int(cabeceras.get("auto_submitted") or 0),
+             int(cabeceras.get("tiene_lista") or 0),
+             cabeceras.get("auth"), cabeceras.get("in_reply_to")),
+        )
+        nuevo_id = ultimo_id()
+    except Exception as exc:
+        # Error 2601: llave duplicada en (IdCuenta, Carpeta, UID).
+        # Otra instancia del worker (o un ciclo previo) ya insertó este mensaje.
+        # No es un error grave: el mensaje ya está indexado.
+        if "2601" in str(exc) or "duplicate key" in str(exc).lower() or "UX_HUB_MailboxMensajes_Uid" in str(exc):
+            print(f"[sync] mensaje ya indexado (Cuenta={cid}, Carpeta={carpeta}, UID={uid}), se omite.", flush=True)
+            nuevo_id = None
+        else:
+            raise
     cur.close()
+
+    # Si el mensaje ya existía (llave duplicada), no hay adjuntos que insertar:
+    # ya están en la base desde la primera indexación.
+    if nuevo_id is None:
+        return None
 
     for a in adjuntos:
         cur = conn.cursor()
