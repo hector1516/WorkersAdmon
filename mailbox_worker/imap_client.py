@@ -195,6 +195,13 @@ def _fmt_date(dt: datetime) -> str:
     return dt.strftime("%d-%b-%Y %H:%M:%S +0000")
 
 
+# Monterrey, NL, México: UTC-6 fijo (México abolió el horario de verano en 2022
+# para la mayoría del país, incluyendo Nuevo León). Se usa para convertir las
+# fechas de los correos (que vienen en la zona del remitente o en UTC) a hora
+# local antes de guardarlas en la BD.
+_TZ_MTY = timezone(timedelta(hours=-6))
+
+
 def _parse_fecha(valor) -> Optional[datetime]:
     if not valor:
         return None
@@ -203,8 +210,11 @@ def _parse_fecha(valor) -> Optional[datetime]:
         if dt is None:
             return None
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            # Sin zona horaria: se asume que el remitente la escribió en su
+            # hora local. No hay forma de saber cuál, así que se trata como
+            # UTC-6 (Monterrey) para no mostrar una hora 6 horas adelantada.
+            dt = dt.replace(tzinfo=_TZ_MTY)
+        return dt.astimezone(_TZ_MTY).replace(tzinfo=None)
     except Exception:
         return None
 
