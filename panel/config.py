@@ -159,9 +159,6 @@ TABS = [
      "enabled": True, "perm": "AccesoUsuarios", "modulo": "Triaje",
      "desc": "Correo a direcciones que ya no existen: clasificación, "
              "borrador de respuesta y envío con aprobación."},
-    {"id": "firmas", "label": "✍️ Firmas", "href": "/firmas",
-     "enabled": True, "perm": "AccesoUsuarios", "modulo": "Firmas",
-     "desc": "Crea y edita tu firma de correo para todos tus buzones."},
 ]
 
 

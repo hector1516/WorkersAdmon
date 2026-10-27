@@ -42,7 +42,7 @@ from .views import apps as apps_view
 from .views import asistencia as asis_view
 from .views import config as config_view
 from .views import correo as correo_view
-from .views import firmas as firmas_view
+
 from .views import triaje as triaje_view
 from .views import home as home_view
 from .views import notifications as notif_view
@@ -391,15 +391,6 @@ class Handler(BaseHTTPRequestHandler):
                 user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
                 **self._shell_ctx()))
 
-        if path == "/firmas":
-            user, done = self._require()
-            if done:
-                return
-            ok, err = self._flash(query)
-            return self._html(firmas_view.render(
-                user, csrf=self._csrf(), flash_ok=ok, flash_err=err,
-                **self._shell_ctx()))
-
         if path == "/asistencia":
             user, done = self._require()
             if done:
@@ -439,21 +430,11 @@ class Handler(BaseHTTPRequestHandler):
                 user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
                 **self._shell_ctx()))
 
-        # ── API de firmas de Mailbox (GET) ────────────────────────────────
-        if path.startswith("/api/mailbox/firmas/"):
-            return firmas_view.manejar_ruta(self)
-
         return self._send(404, "No encontrado", "text/plain")
 
     # ── POST ─────────────────────────────────────────────────────────────────
     def do_POST(self):
         path, _query = self._parts()
-
-        # ── API de firmas de Mailbox (POST) ────────────────────────────────
-        # Se maneja ANTES de leer el form porque subir-foto usa multipart
-        # y consume el body crudo.
-        if path.startswith("/api/mailbox/firmas/"):
-            return firmas_view.manejar_ruta(self)
 
         form = self._read_form()
 
