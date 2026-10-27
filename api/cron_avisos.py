@@ -16,7 +16,10 @@ import traceback
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-MX_OFFSET = datetime.timedelta(hours=6)  # México UTC-6 fijo
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tz_mx import now_mx
+
 KM_DIA = 0  # lunes
 KM_HORA = 8  # 8:00 AM
 REP_INTERVALO = 3600  # revisar reportes cada hora
@@ -24,7 +27,7 @@ SLEEP_CHUNK = 300  # revisar reloj cada 5 min
 
 
 def ahora_mx():
-    return datetime.datetime.utcnow() - MX_OFFSET
+    return now_mx()
 
 
 def lunes_actual_00():
