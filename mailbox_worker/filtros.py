@@ -33,7 +33,7 @@ los mismos reintentos que un correo del usuario.
 """
 
 import re
-from datetime import datetime
+
 
 from .db import ejecuta, filas, una
 
@@ -518,7 +518,10 @@ def dentro_de_horario() -> bool:
     Corregirla cuando alguém reporte que su auto-respuesta llegó a las 9:15 de
     un lunes siendo las 8:15 reales.
     """
-    ahora = datetime.now()
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from tz_mx import now_mx
+    ahora = now_mx()
     if ahora.weekday() >= 5:          # sábado, domingo
         return False
     return 9 <= ahora.hour < 18

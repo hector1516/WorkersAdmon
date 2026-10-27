@@ -32,10 +32,14 @@ purga de suscripciones que no se han usado en mucho.
 
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from .config import settings
 from .db import ejecuta, filas, una
+
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tz_mx import now_mx
 
 log = logging.getLogger("push")
 
@@ -149,7 +153,7 @@ def purgar_muertas() -> int:
         n = ejecuta(
             "UPDATE HUB_MailboxSuscripciones SET Activo = 0 "
             "WHERE Activo = 1 AND (UltimoUso IS NULL OR UltimoUso < %s)",
-            (datetime.now() - timedelta(days=_SUSCRIPCION_MUERTA_DIAS),),
+            (now_mx() - timedelta(days=_SUSCRIPCION_MUERTA_DIAS),),
         )
         if n:
             log.info("[push] %s suscripción(es) inactiva(s) por no usarse", n)
