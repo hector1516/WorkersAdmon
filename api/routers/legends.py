@@ -32,36 +32,14 @@ from db import get_connection
 router = APIRouter()
 
 # ── Configuracion de metricas ──
-METRICAS = {
-    "reporte_firmado":  10,
-    "kilometro":         5,
-    "ticket_oxxogas":    3,
-    "vale_generado":    -2,
-    "comida_reporte":   -1,
-    "firma_remota":      8,
-    "servicio":          0,  # Calculado dinamicamente por registrar_puntos_servicio
-    "racha_dia":         3,
-}
-
-NIVELES = [
-    ("Diamante", 3500),
-    ("Oro",      1500),
-    ("Plata",     500),
-    ("Bronce",      0),
-]
-
-ICONO_NIVEL = {
-    "Diamante": "💎",
-    "Oro":      "🥇",
-    "Plata":    "🥈",
-    "Bronce":   "🥉",
-}
+# Estandarizado: usa legends_core como fuente de verdad (compartido con Admon)
+from legends_core import METRICAS, NIVELES, ICONO_NIVEL, NIVEL_POR_NOMBRE
 
 
 def _calcular_nivel(puntos: int) -> str:
-    for nombre, min_pts in NIVELES:
-        if puntos >= min_pts:
-            return nombre
+    for n in NIVELES:
+        if puntos >= n["min"]:
+            return n["nombre"]
     return "Bronce"
 
 
@@ -587,7 +565,7 @@ def get_metrics_config():
     return {
         "nombre_puntos": "ECCSA Points",
         "metricas": METRICAS,
-        "niveles": {n: p for n, p in NIVELES},
+        "niveles": {n["nombre"]: n["min"] for n in NIVELES},
         "iconos": ICONO_NIVEL,
     }
 
