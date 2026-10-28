@@ -18,13 +18,14 @@ except ImportError:
     print("[file_indexer] ERROR: pysmb no instalado. Ejecuta: pip install pysmb")
     sys.exit(1)
 
-# Configuración SMB
-SMB_USER = "eccsa"
-SMB_PASS = "eyccazo"
-SMB_SERVER = "FILESERVER"
-SMB_IP = "10.188.141.15"
-SMB_DOMAIN = ""
-SMB_CLIENT = "field_indexer"  # nombre de este cliente
+SMB_USER = os.getenv("SMB_USER", "eccsa")
+SMB_PASS = os.getenv("SMB_PASSWORD", "")
+if not SMB_PASS:
+    raise RuntimeError("SMB_PASSWORD no definida — no se puede conectar al file server")
+SMB_SERVER = os.getenv("SMB_SERVER", "FILESERVER")
+SMB_IP = os.getenv("SMB_IP", "10.188.141.15")
+SMB_DOMAIN = os.getenv("SMB_DOMAIN", "")
+SMB_CLIENT = "workers_indexer"  # nombre de este cliente
 
 SHARES = [
     {"share": "Docs", "base": "/Shared", "servidor": "Shared"},

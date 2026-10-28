@@ -135,7 +135,11 @@ def download_files(req: DownloadRequest, user: dict = Depends(require_user)):
     except ImportError:
         raise HTTPException(status_code=500, detail="pysmb no instalado")
 
-    smb_conn = SMBConnection("eccsa", "eyccazo", "field_api", "FILESERVER",
+    smb_user = os.getenv("SMB_USER", "eccsa")
+    smb_pass = os.getenv("SMB_PASSWORD", "")
+    if not smb_pass:
+        raise RuntimeError("SMB_PASSWORD no definida")
+    smb_conn = SMBConnection(smb_user, smb_pass, "workers_api", "FILESERVER",
                              domain="", use_ntlm_v2=True, is_direct_tcp=True)
     if not smb_conn.connect("10.188.141.15", 445, timeout=30):
         raise HTTPException(status_code=503, detail="No se pudo conectar al FileServer")
