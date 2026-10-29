@@ -219,17 +219,55 @@ def alertar_reporte_firmado(folio, cliente, usuario_firma):
 
 
 def alertar_reporte_por_id(id_reporte):
-    """Resuelve folio/cliente/contacto y encola REPORTE_SERVICIO."""
+    """Resuelve folio/cliente/contacto y encola REPORTE_SERVICIO con PDF adjunto."""
     try:
         conn = get_connection()
         with conn.cursor(as_dict=True) as cur:
             cur.execute(
-                "SELECT Folio, Cliente, Contacto FROM ReportesServicio WHERE IdReporte = %s",
+                "SELECT r.*, c.Cliente AS ClienteNombre "
+                "FROM ReportesServicio r "
+                "LEFT JOIN clientes c ON r.Cliente = c.IdCliente "
+                "WHERE r.IdReporte = %s",
                 (int(id_reporte),),
             )
-            row = cur.fetchone()
-        if not row:
-            return 0
-        return alertar_reporte_firmado(row["Folio"], row["Cliente"], row.get("Contacto") or "Cliente")
+            report = cur.fetchone()
+            if not report:
+                return 0
+
+            # Obtener técnicos adicionales
+            tecnicos = []
+            try:
+                cur.execute("""
+                    SELECT u.Nombre FROM ReportesServicioTecnicos t
+                    INNER JOIN HUB_Users u ON t.IdUsuario = u.Id
+                    WHERE t.IdReporte = %s ORDER BY u.Nombre
+                """, (int(id_reporte),))
+                tecnicos = [r["Nombre"] for r in cur.fetchall()]
+            except Exception:
+                pass
+
+            report["TecnicosAdicionales"] = tecnicos
+
+        # Generar PDF
+        adjunto = None
+        adj_nombre = None
+        try:
+            from pdf_generator import generate_service_report_pdf
+            pdf_bytes = generate_service_report_pdf(dict(report))
+            if pdf_bytes:
+                adjunto = pdf_bytes
+                adj_nombre = f"{report.get('Folio', 'reporte')}.pdf"
+        except Exception as e:
+            print(f"Error generando PDF para alerta Telegram ({report.get('Folio')}): {e}")
+
+        folio = report.get("Folio", "")
+        cliente = report.get("Cliente", "")
+        usuario_firma = report.get("Contacto") or "Cliente"
+
+        fecha, hora = _now_mx()
+        return _queue("REPORTE_SERVICIO", {
+            "Folio": folio, "Cliente": cliente, "UsuarioFirma": usuario_firma,
+            "FechaFirma": fecha, "HoraFirma": hora,
+        }, adjunto=adjunto, adjunto_nombre=adj_nombre)
     except Exception:
         return 0
