@@ -53,9 +53,8 @@ jobs:
           context: .
           build-args: |
             CACHEBUST=${{ github.run_id }}
+            WITH_PLAYWRIGHT=1
           push: true
-          # Trae los navegadores de Playwright para los workers que los usan.
-          build-args: WITH_PLAYWRIGHT=1
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
