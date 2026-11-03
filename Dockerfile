@@ -66,8 +66,8 @@ COPY docker/bin/workers_list /usr/local/bin/workers_list
 RUN chmod +x /usr/local/bin/enable_worker /usr/local/bin/disable_worker /usr/local/bin/workers_list
 
 # Código (snapshot de la capa de datos + workers en standby)
-ARG CACHEBUST=2
-RUN echo "Cache bust: $CACHEBUST - $(date)"
+ARG CACHEBUST=3
+RUN echo "Cache bust: $CACHEBUST - $(date) - $(cat mailbox_worker/sync.py | md5sum)"
 COPY . .
 
 RUN sed -i 's/\r$//' /app/docker/entrypoint.sh && \
