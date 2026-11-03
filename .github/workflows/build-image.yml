@@ -51,6 +51,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            CACHEBUST=${{ github.run_id }}
           push: true
           # Trae los navegadores de Playwright para los workers que los usan.
           build-args: WITH_PLAYWRIGHT=1
