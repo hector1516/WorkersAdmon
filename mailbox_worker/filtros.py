@@ -170,6 +170,7 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
     """
     accion = (regla.get("Accion") or "").upper()
     uid, carpeta, mid = mensaje.get("UID"), mensaje.get("Carpeta"), mensaje.get("Id")
+    cid = cuenta["Id"]
 
     # ¿Regla entre cuentas?
     id_cuenta_destino = regla.get("IdCuentaDestino")
@@ -209,54 +210,65 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
                         cliente_dest.close()
                     except Exception:
                         pass
-                # Verificar si ya existe en la cuenta destino (evitar duplicate key)
-                existe = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s AND Id != %s",
-                             (id_cuenta_destino, carpeta_final, uid, mid))
-                if existe:
-                    # Ya existe: actualizar el original y eliminar la fila duplicada
-                    if accion == "ELIMINAR":
-                        ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1 WHERE Id = %s", (existe["Id"],))
-                    ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
-                    return True
-
                 # Actualizar la base: el mensaje ahora vive en la cuenta destino
-                if accion == "ELIMINAR":
-                    ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s, IdCuenta = %s WHERE Id = %s",
-                            (carpeta_final, id_cuenta_destino, mid))
-                else:
-                    ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s, IdCuenta = %s WHERE Id = %s",
-                            (carpeta_final, id_cuenta_destino, mid))
+                try:
+                    if accion == "ELIMINAR":
+                        ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s, IdCuenta = %s WHERE Id = %s",
+                                (carpeta_final, id_cuenta_destino, mid))
+                    else:
+                        ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s, IdCuenta = %s WHERE Id = %s",
+                                (carpeta_final, id_cuenta_destino, mid))
+                except Exception as upd_exc:
+                    upd_str = str(upd_exc).lower()
+                    if ("duplicate key" in upd_str or "2601" in str(upd_exc)
+                            or "ux_hub_mailboxmensajes_uid" in upd_str
+                            or "cannot insert duplicate" in upd_str):
+                        fila = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
+                                   (id_cuenta_destino, carpeta_final, uid))
+                        if fila:
+                            if accion == "ELIMINAR":
+                                ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1 WHERE Id = %s", (fila["Id"],))
+                        ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
+                        return True
+                    raise
                 return True
 
             # Misma cuenta (comportamiento original)
             if accion == "ARCHIVAR":
-                # Verificar si ya existe en el destino (evitar duplicate key)
-                existe = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s AND Id != %s",
-                             (cid, destino, uid, mid))
-                if existe:
-                    # Ya existe en el destino: eliminar la fila original
-                    ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
-                    return True
                 cliente.select_folder(carpeta)
                 cliente.move_message(uid, destino)
-                ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
-                        (destino, mid))
+                try:
+                    ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
+                            (destino, mid))
+                except Exception as upd_exc:
+                    upd_str = str(upd_exc).lower()
+                    if ("duplicate key" in upd_str or "2601" in str(upd_exc)
+                            or "ux_hub_mailboxmensajes_uid" in upd_str
+                            or "cannot insert duplicate" in upd_str):
+                        ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
+                        return True
+                    raise
                 return True
 
             if accion == "ELIMINAR":
                 cliente.select_folder(carpeta)
                 cliente.delete_message(uid)
-                # Verificar si ya existe en el destino (evitar duplicate key)
-                existe = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s AND Id != %s",
-                             (cid, destino, uid, mid))
-                if existe:
-                    ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1 WHERE Id = %s", (existe["Id"],))
-                    ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
-                    return True
-                # No se borra la fila: queda con `Eliminado=1` para que la app lo
-                # muestre tachado y el usuario pueda deshacer antes de la retención.
-                ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s WHERE Id = %s",
-                        (destino, mid))
+                try:
+                    ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s WHERE Id = %s",
+                            (destino, mid))
+                except Exception as upd_exc:
+                    upd_str = str(upd_exc).lower()
+                    if ("duplicate key" in upd_str or "2601" in str(upd_exc)
+                            or "ux_hub_mailboxmensajes_uid" in upd_str
+                            or "cannot insert duplicate" in upd_str):
+                        # Buscar la fila existente y marcarla como eliminada
+                        fila = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
+                                   (cid, destino, uid))
+                        if fila:
+                            ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1 WHERE Id = %s", (fila["Id"],))
+                        ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
+                        return True
+                    raise
                 return True
 
             if accion == "SPAM":
@@ -264,16 +276,20 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
                 if not destino_final:
                     print(f"[filtros] regla {regla.get('Id')}: SPAM sin carpeta de destino")
                     return False
-                # Verificar si ya existe en el destino (evitar duplicate key)
-                existe = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s AND Id != %s",
-                             (cid, destino_final, uid, mid))
-                if existe:
-                    ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
-                    return True
                 cliente.select_folder(carpeta)
                 cliente.move_message(uid, destino_final)
-                ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
-                        (destino_final, mid))
+                try:
+                    ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
+                            (destino_final, mid))
+                except Exception as upd_exc:
+                    upd_str = str(upd_exc).lower()
+                    if ("duplicate key" in upd_str or "2601" in str(upd_exc)
+                            or "ux_hub_mailboxmensajes_uid" in upd_str
+                            or "cannot insert duplicate" in upd_str):
+                        # El mensaje ya está en el destino: eliminar el original
+                        ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
+                        return True
+                    raise
                 return True
 
         if accion == "ETIQUETAR":
@@ -294,11 +310,14 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
 
     except Exception as exc:
         exc_str = str(exc).lower()
+        exc_args_str = " ".join(str(a).lower() for a in (getattr(exc, "args", ()) or ()))
         # Llave duplicada: el mensaje ya está en la carpeta destino.
         # No es un error grave: simplemente se omite el movimiento.
         if ("duplicate key" in exc_str or "2601" in str(exc)
                 or "ux_hub_mailboxmensajes_uid" in exc_str
-                or "cannot insert duplicate" in exc_str):
+                or "cannot insert duplicate" in exc_str
+                or "duplicate key" in exc_args_str
+                or "2601" in exc_args_str):
             return False
         print(f"[filtros] regla {regla.get('Id')} ({accion}) sobre el mensaje {mid}: "
               f"{type(exc).__name__}: {exc}")
