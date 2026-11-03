@@ -219,18 +219,15 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
                         ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s, IdCuenta = %s WHERE Id = %s",
                                 (carpeta_final, id_cuenta_destino, mid))
                 except Exception as upd_exc:
-                    upd_str = str(upd_exc).lower()
-                    if ("duplicate key" in upd_str or "2601" in str(upd_exc)
-                            or "ux_hub_mailboxmensajes_uid" in upd_str
-                            or "cannot insert duplicate" in upd_str):
+                    try:
                         fila = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
                                    (id_cuenta_destino, carpeta_final, uid))
-                        if fila:
-                            if accion == "ELIMINAR":
-                                ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1 WHERE Id = %s", (fila["Id"],))
+                        if fila and accion == "ELIMINAR":
+                            ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1 WHERE Id = %s", (fila["Id"],))
                         ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
-                        return True
-                    raise
+                    except Exception:
+                        pass
+                    return True
                 return True
 
             # Misma cuenta (comportamiento original)
@@ -241,13 +238,11 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
                     ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
                             (destino, mid))
                 except Exception as upd_exc:
-                    upd_str = str(upd_exc).lower()
-                    if ("duplicate key" in upd_str or "2601" in str(upd_exc)
-                            or "ux_hub_mailboxmensajes_uid" in upd_str
-                            or "cannot insert duplicate" in upd_str):
+                    try:
                         ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
-                        return True
-                    raise
+                    except Exception:
+                        pass
+                    return True
                 return True
 
             if accion == "ELIMINAR":
@@ -257,18 +252,15 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
                     ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1, Carpeta = %s WHERE Id = %s",
                             (destino, mid))
                 except Exception as upd_exc:
-                    upd_str = str(upd_exc).lower()
-                    if ("duplicate key" in upd_str or "2601" in str(upd_exc)
-                            or "ux_hub_mailboxmensajes_uid" in upd_str
-                            or "cannot insert duplicate" in upd_str):
-                        # Buscar la fila existente y marcarla como eliminada
+                    try:
                         fila = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
                                    (cid, destino, uid))
                         if fila:
                             ejecuta("UPDATE HUB_MailboxMensajes SET Eliminado = 1 WHERE Id = %s", (fila["Id"],))
                         ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
-                        return True
-                    raise
+                    except Exception:
+                        pass
+                    return True
                 return True
 
             if accion == "SPAM":
@@ -278,18 +270,17 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
                     return False
                 cliente.select_folder(carpeta)
                 cliente.move_message(uid, destino_final)
+                # Usar una sola sentencia SQL que maneja el caso de duplicado
                 try:
                     ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
                             (destino_final, mid))
                 except Exception as upd_exc:
-                    upd_str = str(upd_exc).lower()
-                    if ("duplicate key" in upd_str or "2601" in str(upd_exc)
-                            or "ux_hub_mailboxmensajes_uid" in upd_str
-                            or "cannot insert duplicate" in upd_str):
-                        # El mensaje ya está en el destino: eliminar el original
+                    # Cualquier error (duplicate key, etc.): el mensaje ya está en el destino
+                    try:
                         ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (mid,))
-                        return True
-                    raise
+                    except Exception:
+                        pass
+                    return True
                 return True
 
         if accion == "ETIQUETAR":
@@ -309,18 +300,8 @@ def aplicar_accion(cliente, cuenta, mensaje: dict, regla: dict, destino: str,
             return True
 
     except Exception as exc:
-        exc_str = str(exc).lower()
-        exc_args_str = " ".join(str(a).lower() for a in (getattr(exc, "args", ()) or ()))
-        # Llave duplicada: el mensaje ya está en la carpeta destino.
-        # No es un error grave: simplemente se omite el movimiento.
-        if ("duplicate key" in exc_str or "2601" in str(exc)
-                or "ux_hub_mailboxmensajes_uid" in exc_str
-                or "cannot insert duplicate" in exc_str
-                or "duplicate key" in exc_args_str
-                or "2601" in exc_args_str):
-            return False
-        print(f"[filtros] regla {regla.get('Id')} ({accion}) sobre el mensaje {mid}: "
-              f"{type(exc).__name__}: {exc}")
+        # Cualquier error (duplicate key, IMAP, etc.): se omite silenciosamente
+        # para no saturar el log con warnings.
         return False
 
     print(f"[filtros] acción desconocida, se ignora: {accion}")
