@@ -17,6 +17,14 @@ except Exception:  # pragma: no cover
     st = None
 
 
+def get_current_week_start():
+    """Retorna el lunes de la semana actual (offset-naive)."""
+    from datetime import datetime, timedelta
+    hoy = datetime.now().date()
+    lunes = hoy - timedelta(days=hoy.weekday())
+    return datetime(lunes.year, lunes.month, lunes.day)
+
+
 def fetch_and_sync_oxxogas_emails(user_id=None):
     """Conecta a Gmail via IMAP usando la App Password guardada del usuario y descarga las facturas de OxxoGas."""
     if not user_id and st is not None:

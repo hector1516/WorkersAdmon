@@ -157,20 +157,39 @@ def sync_vales():
             print("[govale_sync] No hay vales en Go Vale")
             return 0
 
+        # Guardar HTML de la pagina para diagnostico
+        try:
+            page_html = page.content()
+            with open('/data/govale_debug.html', 'w', encoding='utf-8') as f:
+                f.write(page_html)
+            print("[govale_sync] HTML de la pagina guardado en /data/govale_debug.html")
+        except Exception as e:
+            print(f"[govale_sync] No se pudo guardar HTML: {e}")
+
         # Buscar todos los elementos de vales en la pagina
         # Go Vale muestra vales como tarjetas con el QR como texto
-        voucher_elements = page.query_selector_all('.voucher-card, .card-voucher, [class*="voucher"], tr[class*="row"]')
-
-        if not voucher_elements:
-            # Fallback: buscar por la tabla/lista de vales
-            voucher_elements = page.query_selector_all('mat-row, .mat-row, .cdk-row')
+        # Selectores ampliados para cubrir diferentes estructuras de la pagina
+        selectors = [
+            '.voucher-card', '.card-voucher', '[class*="voucher"]',
+            'tr[class*="row"]', 'mat-row', '.mat-row', '.cdk-row',
+            '.vale', '[class*="vale"]', '.card', '.item',
+            'tr', 'li', 'div[class*="item"]', 'div[class*="row"]',
+        ]
+        voucher_elements = []
+        for sel in selectors:
+            try:
+                elems = page.query_selector_all(sel)
+                if elems and len(elems) > len(voucher_elements):
+                    voucher_elements = elems
+            except Exception:
+                pass
 
         if not voucher_elements:
             # Último recurso: intentar extraer datos del body_text
             print("[govale_sync] No se encontraron elementos de vales, intentando extraer del texto...")
             voucher_elements = []
 
-        print(f"[govale_sync] Encontrados {len(voucher_elements)} elementos de vales")
+        print(f"[govale_sync] Encontrados {len(voucher_elements)} elementos de vales (mejor selector)")
 
         for elem in voucher_elements:
             try:
@@ -228,26 +247,46 @@ def sync_vales():
         # Intentar extraer vales via JavaScript (mas confiable)
         if nuevos == 0:
             print("[govale_sync] Intentando extraer vales via JavaScript...")
+            # Guardar el texto de la pagina para diagnostico
+            try:
+                body_text_saved = page.evaluate("() => document.body.innerText")
+                with open('/data/govale_page_text.txt', 'w', encoding='utf-8') as f:
+                    f.write(body_text_saved)
+                print("[govale_sync] Texto de la pagina guardado en /data/govale_page_text.txt")
+            except Exception as e:
+                print(f"[govale_sync] No se pudo guardar texto: {e}")
+
             js_vales = page.evaluate("""() => {
                 const vales = [];
                 // Buscar en localStorage/sessionStorage datos de vales
                 for (let i = 0; i < sessionStorage.length; i++) {
                     const key = sessionStorage.key(i);
-                    if (key.includes('voucher') || key.includes('Voucher')) {
+                    if (key.toLowerCase().includes('voucher') || key.toLowerCase().includes('vale')) {
                         try {
                             const val = JSON.parse(sessionStorage.getItem(key));
-                            if (val && val.qrCode) vales.push(val);
+                            if (val && (val.qrCode || val.qr_code || val.code)) {
+                                vales.push({qrCode: val.qrCode || val.qr_code || val.code, 
+                                           monto: val.initialAmount || val.monto || val.amount || 0,
+                                           saldo: val.balance || val.saldo || 0,
+                                           estatus: val.voucherStatus || val.estatus || 'Desconocido'});
+                            }
                         } catch(e) {}
                     }
                 }
-                // Buscar en el DOM textos que parezcan QR codes
+                // Buscar en el DOM textos que parezcan QR codes (mas patrones)
                 const allText = document.body.innerText;
-                const qrPattern = /[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}(?:-[A-Z0-9]{3})*/g;
-                const matches = allText.match(qrPattern) || [];
-                matches.forEach(m => {
-                    if (!vales.find(v => v.qrCode === m)) {
-                        vales.push({qrCode: m});
-                    }
+                const qrPatterns = [
+                    /[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}(?:-[A-Z0-9]{3})*/g,
+                    /[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}(?:-[A-Z0-9]{4})*/g,
+                    /[A-Z]{2,4}[0-9]{4,8}/g,
+                ];
+                qrPatterns.forEach(pattern => {
+                    const matches = allText.match(pattern) || [];
+                    matches.forEach(m => {
+                        if (!vales.find(v => v.qrCode === m)) {
+                            vales.push({qrCode: m});
+                        }
+                    });
                 });
                 return vales;
             }""")
