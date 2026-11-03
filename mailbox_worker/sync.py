@@ -550,27 +550,33 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
     cid = cuenta["Id"]
     fecha = cabeceras.get("date") or now_mx()
 
-    n = ejecuta(
-        "UPDATE HUB_MailboxMensajes SET RemitenteNombre = %s, RemitenteEmail = %s, "
-        "ParaTexto = %s, CcTexto = %s, Asunto = %s, Extracto = %s, FechaCorreo = %s, "
-        "Visto = %s, MessageId = %s, BytesCuerpo = %s, CuerpoGuardado = %s, "
-        "EsBulk = %s, AutoSubmitted = %s, TieneLista = %s, AuthResultado = %s, "
-        "InReplyTo = %s "
-        "WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
-        (cabeceras.get("from_name"), cabeceras.get("from_email"),
-         cabeceras.get("to"), cabeceras.get("cc"), cabeceras.get("subject"),
-         extracto, fecha, 1 if cabeceras.get("seen") else 0,
-         cabeceras.get("message_id"), bytes_cuerpo,
-         1 if cuerpo_guardado else 0,
-         int(cabeceras.get("es_bulk") or 0),
-         int(cabeceras.get("auto_submitted") or 0),
-         int(cabeceras.get("tiene_lista") or 0),
-         cabeceras.get("auth"), cabeceras.get("in_reply_to"),
-         cid, carpeta, uid),
-    )
-    if n > 0:
+    # Verificar si el mensaje ya existe (evita la condición de carrera).
+    # Si existe, hacer UPDATE; si no, INSERT.
+    existe = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
+                 (cid, carpeta, uid))
+    if existe:
+        # Mensaje ya indexado: actualizar datos y retornar None (no es nuevo).
+        ejecuta(
+            "UPDATE HUB_MailboxMensajes SET RemitenteNombre = %s, RemitenteEmail = %s, "
+            "ParaTexto = %s, CcTexto = %s, Asunto = %s, Extracto = %s, FechaCorreo = %s, "
+            "Visto = %s, MessageId = %s, BytesCuerpo = %s, CuerpoGuardado = %s, "
+            "EsBulk = %s, AutoSubmitted = %s, TieneLista = %s, AuthResultado = %s, "
+            "InReplyTo = %s "
+            "WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
+            (cabeceras.get("from_name"), cabeceras.get("from_email"),
+             cabeceras.get("to"), cabeceras.get("cc"), cabeceras.get("subject"),
+             extracto, fecha, 1 if cabeceras.get("seen") else 0,
+             cabeceras.get("message_id"), bytes_cuerpo,
+             1 if cuerpo_guardado else 0,
+             int(cabeceras.get("es_bulk") or 0),
+             int(cabeceras.get("auto_submitted") or 0),
+             int(cabeceras.get("tiene_lista") or 0),
+             cabeceras.get("auth"), cabeceras.get("in_reply_to"),
+             cid, carpeta, uid),
+        )
         return None
 
+    # No existe: insertar
     conn = get_connection()
     cur = conn.cursor()
     try:
@@ -595,18 +601,24 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
         )
         nuevo_id = ultimo_id()
     except Exception as exc:
-        # Error 2601: llave duplicada en (IdCuenta, Carpeta, UID).
-        # Otra instancia del worker (o un ciclo previo) ya insertó este mensaje.
-        # No es un error grave: el mensaje ya está indexado.
-        if "2601" in str(exc) or "duplicate key" in str(exc).lower() or "UX_HUB_MailboxMensajes_Uid" in str(exc):
+        # Race condition: otra instancia insertó entre el SELECT y el INSERT.
+        exc_str = str(exc).lower()
+        if "duplicate key" in exc_str or "2601" in str(exc) or "ux_hub_mailboxmensajes_uid" in exc_str:
             print(f"[sync] mensaje ya indexado (Cuenta={cid}, Carpeta={carpeta}, UID={uid}), se omite.", flush=True)
-            nuevo_id = None
+            # Obtener el Id existente
+            fila = una("SELECT Id FROM HUB_MailboxMensajes WHERE IdCuenta = %s AND Carpeta = %s AND UID = %s",
+                       (cid, carpeta, uid))
+            if fila:
+                return fila.get("Id")
+            return None
         else:
             raise
-    cur.close()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
 
-    # Si el mensaje ya existía (llave duplicada), no hay adjuntos que insertar:
-    # ya están en la base desde la primera indexación.
     if nuevo_id is None:
         return None
 
@@ -622,10 +634,6 @@ def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
                  int(a.get("size") or 0), 1 if a.get("cid") else 0),
             )
         except Exception as exc:
-            # La clave única es (IdMensaje, Parte). Si BODYSTRUCTURE declaró dos
-            # partes con el mismo número (algunos servidores con multiparte
-            # raro), la segunda se salta y se sigue. Perder una fila del
-            # manifiesto es mejor que perder el mensaje entero.
             print(f"[sync] adjunto {a.get('parte')} no se pudo guardar: {exc}", flush=True)
         cur.close()
 
