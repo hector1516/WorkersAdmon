@@ -11,7 +11,7 @@
  *   · /api/status, /healthz, login y passkey → network-only (nunca en caché).
  *   · Estáticos (iconos, logo, manifest) → caché primero con revalidación.
  */
-const CACHE = 'workers-v1';
+const CACHE = 'workers-v2';
 const OFFLINE = '/offline';
 const APP_SHELL = [
 	OFFLINE,
