@@ -168,7 +168,10 @@ def sincronizar_cuenta(cuenta: dict) -> dict:
         cliente = _abrir(cuenta)
 
         if not settings.dry_run:
-            resumen["operaciones"] = aplicar_operaciones(cliente, cuenta)
+            try:
+                resumen["operaciones"] = aplicar_operaciones(cliente, cuenta)
+            except Exception as exc:
+                print(f"[sync] operaciones de {cuenta['Email']}: {exc}", flush=True)
 
         # Los ids de lo NUEVO de este ciclo. Las reglas se aplican solo a estos:
         # si se les pasara el backlog, la regla "archivar los de no-reply" movería
@@ -539,16 +542,20 @@ def _indexar(cliente: IMAPClient, cuenta: dict, carpeta: str, uid: int):
 def _insertar(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
               adjuntos, cuerpo_guardado, cuerpo_truncado):
     """Devuelve el `Id` del mensaje: el nuevo si se insertó, None si se actualizó."""
-    """
-    Inserta el mensaje y su manifiesto de adjuntos.
-
-    Es un UPSERT por (cuenta, carpeta, UID), que es UNIQUE en la base. SQL
-    Server 2014 no tiene ON DUPLICATE KEY: se intenta el UPDATE y, si no hubo
-    filas, el INSERT. MERGE haría lo mismo en una sentencia, pero con triggers
-    es notoriously difícil de depurar.
-    """
     cid = cuenta["Id"]
     fecha = cabeceras.get("date") or now_mx()
+
+    try:
+        return _insertar_impl(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
+                             adjuntos, cuerpo_guardado, cuerpo_truncado, cid, fecha)
+    except Exception as exc:
+        # Cualquier error (duplicate key, etc.): el mensaje ya está indexado.
+        print(f"[sync] mensaje ya indexado (Cuenta={cid}, Carpeta={carpeta}, UID={uid}), se omite.", flush=True)
+        return None
+
+
+def _insertar_impl(cuenta, carpeta, uid, clave, cabeceras, extracto, bytes_cuerpo,
+                   adjuntos, cuerpo_guardado, cuerpo_truncado, cid, fecha):
 
     # Verificar si el mensaje ya existe (evita la condición de carrera).
     # Si existe, hacer UPDATE; si no, INSERT.
@@ -737,8 +744,13 @@ def aplicar_operaciones(cliente: IMAPClient, cuenta: dict) -> int:
                         (op["IdMensaje"],))
             else:
                 cliente.move_message(mensaje["UID"], op["Valor"])
-                ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
-                        (op["Valor"], op["IdMensaje"]))
+                try:
+                    ejecuta("UPDATE HUB_MailboxMensajes SET Carpeta = %s WHERE Id = %s",
+                            (op["Valor"], op["IdMensaje"]))
+                except Exception as upd_exc:
+                    # Duplicate key: el mensaje ya está en el destino
+                    ejecuta("DELETE FROM HUB_MailboxMensajes WHERE Id = %s", (op["IdMensaje"],))
+                    pass
 
             _cerrar_operacion(op["Id"], "APLICADA", "")
             aplicadas += 1

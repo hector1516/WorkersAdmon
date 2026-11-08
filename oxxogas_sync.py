@@ -227,18 +227,36 @@ def fetch_and_sync_oxxogas_emails(user_id=None):
                     except Exception:
                         pass
 
+            # Buscar la solicitud de vale correspondiente (match por usuario + fecha + monto)
+            id_solicitud_vale = None
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor(as_dict=True) as cur:
+                        cur.execute("""
+                            SELECT TOP 1 Id FROM HUB_SolicitudVales
+                            WHERE IdSolicitante = %s
+                              AND FechaSolicitud >= DATEADD(day, -3, %s)
+                              AND FechaSolicitud <= DATEADD(day, 3, %s)
+                            ORDER BY ABS(DATEDIFF(day, FechaSolicitud, %s))
+                        """, (int(user_id), email_date, email_date, email_date))
+                        sol = cur.fetchone()
+                        if sol:
+                            id_solicitud_vale = sol["Id"]
+            except Exception as e:
+                print(f"Error buscando solicitud: {e}")
+
              # Insert vale record in database
             try:
                 with db.get_connection() as conn:
                     with conn.cursor() as cur:
                         cur.execute("""
                             INSERT INTO HUB_OxxoGasVales 
-                            (MessageId, Fecha, Remitente, Asunto, Monto, PdfName, PdfContent, XmlName, XmlContent, IdUsuario, XmlFolio, XmlEstacion, XmlLitros, XmlConcepto) 
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            (MessageId, Fecha, Remitente, Asunto, Monto, PdfName, PdfContent, XmlName, XmlContent, IdUsuario, XmlFolio, XmlEstacion, XmlLitros, XmlConcepto, IdSolicitudVale) 
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """, (msg_id, email_date.strftime("%Y-%m-%d %H:%M:%S"), sender[:255], subject[:255], 
                               monto, pdf_name[:255] if pdf_name else None, pdf_data, 
                               xml_name[:255] if xml_name else None, xml_data, int(user_id),
-                              xml_folio, xml_estacion, xml_litros, xml_concepto))
+                              xml_folio, xml_estacion, xml_litros, xml_concepto, id_solicitud_vale))
                         conn.commit()
                 synced_count += 1
             except Exception as e:
