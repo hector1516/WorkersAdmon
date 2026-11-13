@@ -23,6 +23,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import eccsa_db as db
 from tz_mx import now_mexico as now_mx
 
+# Telegram
+try:
+    import telegram_alerts as tg
+except Exception:
+    tg = None
+
 # Intervalo de verificación (segundos)
 INTERVALO_SEG = int(os.environ.get('ESTATUS_CHECK_SEG', '300'))  # 5 min por defecto
 
@@ -184,18 +190,57 @@ def _guardar_check(conn, servicio_id, resultado, estatus_anterior):
                 "VALUES (%s, %s, %s, 'activa', %s, 'api')",
                 (servicio_id, f"Cambio a {estatus}", detalle[:500], ahora),
             )
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Servicio {servicio_id} cambió de {estatus_anterior} a {estatus}: {detalle[:100]}")
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Servicio {servicio_id} cambio de {estatus_anterior} a {estatus}: {detalle[:100]}")
+            # Enviar alerta Telegram
+            cur2 = conn.cursor(as_dict=True)
+            cur2.execute("SELECT Nombre FROM HUB_EstatusServicios WHERE Id = %s", (servicio_id,))
+            svc_row = cur2.fetchone()
+            cur2.close()
+            svc_nombre = svc_row["Nombre"] if svc_row else f"Servicio {servicio_id}"
+            _enviar_alerta_telegram(svc_nombre, estatus_anterior, estatus, detalle)
         elif estatus == "verde" and estatus_anterior in ("amarillo", "rojo"):
             cur.execute(
                 "UPDATE HUB_EstatusIncidencias SET Estatus = 'resuelta', FechaResolucion = %s "
                 "WHERE IdServicio = %s AND Estatus = 'activa'",
                 (ahora, servicio_id),
             )
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] ✅ Servicio {servicio_id} recuperado a verde")
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Servicio {servicio_id} recuperado a verde")
+            cur2 = conn.cursor(as_dict=True)
+            cur2.execute("SELECT Nombre FROM HUB_EstatusServicios WHERE Id = %s", (servicio_id,))
+            svc_row = cur2.fetchone()
+            cur2.close()
+            svc_nombre = svc_row["Nombre"] if svc_row else f"Servicio {servicio_id}"
+            _enviar_alerta_telegram(svc_nombre, estatus_anterior, estatus, detalle)
 
     conn.commit()
     cur.close()
 
+
+
+def _enviar_alerta_telegram(servicio_nombre, estatus_anterior, estatus_nuevo, detalle):
+    """Envia alerta por Telegram cuando un servicio cambia de estatus."""
+    try:
+        # Obtener chat_ids activos
+        conn = db.get_connection()
+        cur = conn.cursor(as_dict=True)
+        cur.execute("SELECT ChatId FROM HUB_TelegramUsuarios WHERE Activo = 1")
+        chat_ids = [r["ChatId"] for r in cur.fetchall() if r.get("ChatId")]
+        cur.close()
+        conn.close()
+
+        if not chat_ids:
+            return
+
+        emoji = {"verde": "green", "amarillo": "yellow", "rojo": "red", "gris": "gray"}.get(estatus_nuevo, "")
+        texto = f"Servicio: {servicio_nombre}\nEstatus: {estatus_anterior} -> {estatus_nuevo}\nDetalle: {detalle[:200]}"
+
+        for cid in chat_ids:
+            try:
+                db.send_telegram_message(cid, texto, None, None)
+            except Exception as e:
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Error enviando Telegram a {cid}: {e}")
+    except Exception as e:
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Error en alerta Telegram: {e}")
 
 def _verificar_todos():
     conn = db.get_connection()
