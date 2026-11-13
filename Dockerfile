@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         netcat-openbsd \
         fonts-dejavu-core \
         fonts-noto-color-emoji \
+        docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
