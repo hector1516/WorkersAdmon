@@ -2,7 +2,7 @@ import os
 import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, catalogos, kilometros, reportes, tickets, vales, sync, push, passkeys, dispositivo, online, files, legends, conocimiento, dashboard, weather, remisiones
+from routers import auth, catalogos, kilometros, reportes, tickets, vales, sync, push, passkeys, dispositivo, online, files, legends, conocimiento, dashboard, weather, remisiones, audit, debug
 
 app = FastAPI(title="Field API", version="1.8.0")
 
@@ -52,6 +52,8 @@ app.include_router(conocimiento.router, prefix="/api/conocimiento", tags=["conoc
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(weather.router, prefix="/api/weather", tags=["weather"])
 app.include_router(remisiones.router, prefix="/api/remisiones", tags=["remisiones"])
+app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
+app.include_router(debug.router, prefix="/api/debug", tags=["debug"])
 
 # legends_audit corre como proceso propio en supervisor (1 sola instancia).
 # NO iniciarlo aquí: uvicorn --workers 2 ejecutaría 2 audits en paralelo
