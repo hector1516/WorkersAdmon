@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
         fonts-noto-color-emoji \
         docker.io \
+        libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
