@@ -1694,3 +1694,277 @@ def generate_orden_compra_pdf(folio):
         fecha_oc = fecha_oc.date()
     pdf_storage.save_pdf("oc", folio, pdf_bytes, fecha_oc)
     return pdf_bytes
+def generate_horas_extras_reporte_pdf(nombre, registros, total_horas, sueldo_semana, periodo_inicio, periodo_fin, notas=None, folio=None):
+    """Genera PDF de reporte de horas extras replicando formato Excel 'Tiempo Extra'.
+
+    Columnas: Dia, Fecha, Hora Extra, Hora Acc, Descripcion, Entrada, Salida,
+    Comida, Viaje, Cliente, Calificacion, Nota.
+    Incluye firma fisica y monto informativo.
+    """
+    import io
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+
+    buffer = io.BytesIO()
+    # Landscape for wide table
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(letter),
+        leftMargin=20,
+        rightMargin=20,
+        topMargin=25,
+        bottomMargin=25
+    )
+
+    styles = getSampleStyleSheet()
+    style_title = ParagraphStyle('HETitle', fontName='Helvetica-Bold', fontSize=14, leading=17, textColor=colors.HexColor('#EB6C24'), alignment=1)
+    style_body = ParagraphStyle('HEBody', fontName='Helvetica', fontSize=8, leading=10, textColor=colors.black)
+    style_bold = ParagraphStyle('HEBold', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.black)
+    style_th = ParagraphStyle('HETH', fontName='Helvetica-Bold', fontSize=7, leading=9, textColor=colors.HexColor('#1E293B'))
+    style_td = ParagraphStyle('HETD', fontName='Helvetica', fontSize=7, leading=9, textColor=colors.HexColor('#334155'))
+    style_sig = ParagraphStyle('HESig', fontName='Helvetica', fontSize=8, leading=11, alignment=1)
+
+    story = []
+
+    # Header
+    logo_path = "/eccsa_logo.png" if os.path.exists("/eccsa_logo.png") else "eccsa_logo.png"
+    left_cell = []
+    if os.path.exists(logo_path):
+        try:
+            left_cell.append(RLImage(logo_path, width=140, height=42))
+            left_cell.append(Spacer(1, 2))
+        except Exception:
+            pass
+    left_cell.append(Paragraph("<b>Oscar Noe Castillo Zavala - CAZO670914BK8</b>", ParagraphStyle('OwnerHE', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6, leading=7, textColor=colors.HexColor('#1E293B'))))
+
+    title_text = "REPORTE DE HORAS EXTRAS<br/><font size=8 color='#64748B'>ECCSA Automation</font>"
+    if folio:
+        title_text = "REPORTE DE HORAS EXTRAS<br/><font size=8 color='#64748B'>" + str(folio) + " - ECCSA Automation</font>"
+    title_cell = Paragraph(title_text, style_title)
+
+    header_table = Table([[left_cell, title_cell]], colWidths=[200, 560])
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(header_table)
+
+    divider = Table([[""]], colWidths=[760])
+    divider.setStyle(TableStyle([
+        ('LINEBELOW', (0,0), (-1,-1), 1.5, colors.HexColor('#EB6C24')),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+    ]))
+    story.append(divider)
+    story.append(Spacer(1, 10))
+
+    # Employee info
+    gen_ts = datetime.datetime.now()
+    if isinstance(periodo_inicio, str):
+        try:
+            periodo_inicio = datetime.datetime.strptime(periodo_inicio[:10], "%Y-%m-%d").date()
+        except Exception:
+            pass
+    if isinstance(periodo_fin, str):
+        try:
+            periodo_fin = datetime.datetime.strptime(periodo_fin[:10], "%Y-%m-%d").date()
+        except Exception:
+            pass
+    pi_str = periodo_inicio.strftime("%d/%m/%Y") if hasattr(periodo_inicio, 'strftime') else str(periodo_inicio)
+    pf_str = periodo_fin.strftime("%d/%m/%Y") if hasattr(periodo_fin, 'strftime') else str(periodo_fin)
+
+    info_data = [
+        [Paragraph("<b>Colaborador:</b>", style_bold), Paragraph(str(nombre), style_body)],
+        [Paragraph("<b>Periodo:</b>", style_bold), Paragraph(pi_str + " al " + pf_str, style_body)],
+        [Paragraph("<b>Total horas extras:</b>", style_bold), Paragraph(f"{total_horas:.2f} horas", style_body)],
+        [Paragraph("<b>Sueldo semanal:</b>", style_bold), Paragraph(f"${sueldo_semana:,.2f}", style_body)],
+        [Paragraph("<b>Fecha de generacion:</b>", style_bold), Paragraph(gen_ts.strftime("%d/%m/%Y %H:%M:%S"), style_body)],
+    ]
+    if notas:
+        info_data.append([Paragraph("<b>Notas:</b>", style_bold), Paragraph(str(notas), style_body)])
+    info_table = Table(info_data, colWidths=[150, 610])
+    info_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+        ('TOPPADDING', (0,0), (-1,-1), 2),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 8))
+
+    # Records table (Excel format)
+    def _fmt_fecha(f):
+        try:
+            if isinstance(f, datetime.datetime):
+                return f.strftime("%d/%m/%Y")
+            if isinstance(f, datetime.date):
+                return f.strftime("%d/%m/%Y")
+            return datetime.datetime.strptime(str(f)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+        except Exception:
+            return str(f)[:10]
+
+    def _fmt_hora(t):
+        if t is None:
+            return "-"
+        try:
+            if isinstance(t, str):
+                return t[:5]
+            return t.strftime("%H:%M")
+        except Exception:
+            return str(t)[:5]
+
+    def _fmt_num(v, default=0.0):
+        try:
+            return float(v if v is not None else default)
+        except Exception:
+            return default
+
+    # Build rows with accumulated hours
+    rows = []
+    acc = 0.0
+    tot_d = 0.0  # dobles
+    tot_t = 0.0  # triples
+    for r in registros:
+        he = _fmt_num(r.get('HorasExtrasCalculadas') or r.get('HoraExtra'))
+        acc += he
+        dia = ""
+        try:
+            f = r.get('Fecha')
+            if isinstance(f, (datetime.datetime, datetime.date)):
+                dia = f.strftime("%A")
+            else:
+                dia = datetime.datetime.strptime(str(f)[:10], "%Y-%m-%d").strftime("%A")
+        except Exception:
+            dia = ""
+        # Map English day names to Spanish
+        dias_map = {'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miercoles',
+                    'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sabado', 'Sunday': 'Domingo'}
+        dia = dias_map.get(dia, dia)
+
+        comida = r.get('HorasComida') or r.get('Comida')
+        comida_str = "NA" if comida is None or str(comida).upper() == 'NA' else f"{_fmt_num(comida):.2f}"
+        viaje = r.get('HorasTraslado') or r.get('Viaje')
+        viaje_str = str(viaje) if viaje is not None else "-"
+        calif = r.get('Calificacion')
+        calif_str = str(calif) if calif is not None else ""
+        nota = r.get('Nota') or r.get('Notas') or ""
+        desc = r.get('Descripcion') or r.get('descripcion') or ""
+        cliente = r.get('Cliente') or r.get('cliente') or ""
+
+        rows.append([
+            Paragraph(dia, style_td),
+            Paragraph(_fmt_fecha(r.get('Fecha')), style_td),
+            Paragraph(f"{he:.2f}", style_td),
+            Paragraph(f"{acc:.2f}", style_td),
+            Paragraph(str(desc)[:40], style_td),
+            Paragraph(_fmt_hora(r.get('HoraEntrada') or r.get('Entrada')), style_td),
+            Paragraph(_fmt_hora(r.get('HoraSalida') or r.get('Salida')), style_td),
+            Paragraph(comida_str, style_td),
+            Paragraph(viaje_str[:15], style_td),
+            Paragraph(str(cliente)[:12], style_td),
+            Paragraph(calif_str, style_td),
+            Paragraph(str(nota)[:20], style_td),
+        ])
+        tot_d += he
+
+    # Totals row
+    rows.append([
+        Paragraph("<b>TOTAL</b>", ParagraphStyle('HETot', parent=style_td, fontName='Helvetica-Bold')),
+        Paragraph("", style_td), Paragraph(f"<b>{tot_d:.2f}</b>", style_td),
+        Paragraph(f"<b>{acc:.2f}</b>", style_td),
+        Paragraph("", style_td), Paragraph("", style_td), Paragraph("", style_td),
+        Paragraph("", style_td), Paragraph("", style_td), Paragraph("", style_td),
+        Paragraph("", style_td), Paragraph("", style_td),
+    ])
+
+    header_row = [
+        Paragraph("Dia", style_th), Paragraph("Fecha", style_th),
+        Paragraph("Hora Extra", style_th), Paragraph("Hora Acc", style_th),
+        Paragraph("Descripcion", style_th), Paragraph("Entrada", style_th),
+        Paragraph("Salida", style_th), Paragraph("Comida", style_th),
+        Paragraph("Viaje", style_th), Paragraph("Cliente", style_th),
+        Paragraph("Calif.", style_th), Paragraph("Nota", style_th),
+    ]
+    table_data = [header_row] + rows
+
+    col_widths = [55, 60, 45, 45, 120, 40, 40, 40, 50, 55, 30, 80]
+    reg_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    reg_table.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F8FAFC')),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 3),
+        ('RIGHTPADDING', (0,0), (-1,-1), 3),
+        ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#FFF7ED')),
+        ('LINEABOVE', (0,-1), (-1,-1), 1, colors.HexColor('#EB6C24')),
+    ]))
+    story.append(reg_table)
+    story.append(Spacer(1, 12))
+
+    # Summary
+    # Calculate monto (informativo)
+    dias_trabajo = 6
+    horas_jornada = 8.0
+    sueldo_hora = (sueldo_semana / dias_trabajo / horas_jornada) if (dias_trabajo > 0 and horas_jornada > 0) else 0
+    he_dobles_max = 9.0
+    he_dobles = min(total_horas, he_dobles_max)
+    he_triples = max(0, total_horas - he_dobles_max)
+    monto_dobles = he_dobles * sueldo_hora * 2
+    monto_triples = he_triples * sueldo_hora * 3
+    monto_total = monto_dobles + monto_triples
+
+    resumen_data = [
+        [Paragraph("<b>Numero de registros:</b>", style_bold), Paragraph(str(len(registros)), style_body)],
+        [Paragraph("<b>Horas extras totales:</b>", style_bold), Paragraph(f"{total_horas:.2f} horas", style_body)],
+        [Paragraph("<b>Horas dobles (2x):</b>", style_bold), Paragraph(f"{he_dobles:.2f} horas", style_body)],
+        [Paragraph("<b>Horas triples (3x):</b>", style_bold), Paragraph(f"{he_triples:.2f} horas", style_body)],
+        [Paragraph("<b>Monto estimado dobles:</b>", style_bold), Paragraph(f"${monto_dobles:,.2f}", style_body)],
+        [Paragraph("<b>Monto estimado triples:</b>", style_bold), Paragraph(f"${monto_triples:,.2f}", style_body)],
+        [Paragraph("<b>Monto estimado total:</b>", style_bold), Paragraph(f"${monto_total:,.2f}", style_body)],
+        [Paragraph("<b>Sueldo semanal base:</b>", style_bold), Paragraph(f"${sueldo_semana:,.2f}", style_body)],
+        [Paragraph("<b>Sueldo por hora:</b>", style_bold), Paragraph(f"${sueldo_hora:,.2f}", style_body)],
+    ]
+    resumen_table = Table(resumen_data, colWidths=[200, 560])
+    resumen_table.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#FFF7ED')),
+        ('BOX', (0,0), (-1,-1), 0.75, colors.HexColor('#EB6C24')),
+        ('INNERGRID', (0,0), (-1,-1), 0.25, colors.HexColor('#FDBA74')),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(resumen_table)
+    story.append(Spacer(1, 20))
+
+    # Signature block (physical signature)
+    sig_story = []
+    sig_story.append(Paragraph("________________________________________", style_sig))
+    sig_story.append(Paragraph("<b>Firma del Colaborador</b>", style_sig))
+    sig_story.append(Paragraph(f"Nombre: {nombre}", ParagraphStyle('SigName', parent=style_sig, fontSize=8, textColor=colors.HexColor('#475569'))))
+    sig_story.append(Paragraph("Fecha: _______________", ParagraphStyle('SigDate', parent=style_sig, fontSize=8, textColor=colors.HexColor('#475569'))))
+    story.append(KeepTogether(sig_story))
+    story.append(Spacer(1, 15))
+
+    # LFT reference note
+    lft_note = Paragraph(
+        "<font size=7 color='#64748B'>Conforme a la Ley Federal del Trabajo (LFT) vigente. "
+        "Jornada maxima: 8h diurnas, 7h nocturnas, 7.5h mixtas (Art. 60-61). "
+        "Horas extras: max 3h/dia, 3 veces/semana (Art. 66). "
+        "Pago: dobles las primeras 9h/semana, triples las siguientes (Art. 68). "
+        "Prima dominical: 25% adicional (Art. 71). "
+        "Calculo informativo - el pago real se determina al firmar este documento.</font>",
+        ParagraphStyle('LFTNote', parent=styles['Normal'], fontName='Helvetica', fontSize=7, leading=9, textColor=colors.HexColor('#64748B'))
+    )
+    story.append(lft_note)
+
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    return pdf_bytes

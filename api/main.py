@@ -2,7 +2,7 @@ import os
 import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, catalogos, kilometros, reportes, tickets, vales, sync, push, passkeys, dispositivo, online, files, legends, conocimiento, dashboard, weather, remisiones, audit, debug
+from routers import auth, catalogos, kilometros, reportes, tickets, vales, sync, push, passkeys, dispositivo, online, files, legends, conocimiento, dashboard, weather, remisiones, audit, debug, horas_extras
 
 app = FastAPI(title="Field API", version="1.8.0")
 
@@ -39,6 +39,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(catalogos.router, prefix="/api/catalogos", tags=["catalogos"])
 app.include_router(kilometros.router, prefix="/api/kilometros", tags=["kilometros"])
 app.include_router(reportes.router, prefix="/api/reportes", tags=["reportes"])
+app.include_router(horas_extras.router, prefix="/api/horas-extras", tags=["horas-extras"])
 app.include_router(tickets.router, prefix="/api/tickets", tags=["tickets"])
 app.include_router(vales.router, prefix="/api/vales", tags=["vales"])
 app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
