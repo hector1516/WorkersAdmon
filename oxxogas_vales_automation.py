@@ -662,6 +662,16 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         body_text = page.query_selector('body').inner_text() if page.query_selector('body') else ''
         page_url = page.url
 
+        # Verificacion: si la pagina sigue mostrando el dashboard
+        # con 0 Vales Activos, el click no funciono.
+        if 'Vales Activos' in body_text:
+            import re as _re
+            _va = _re.search(r'(\d+)\s*Vales Activos', body_text)
+            if _va and int(_va.group(1)) == 0:
+                print('[govale] 0 Vales Activos. El vale NO se genero.')
+                if not folio_oxxogas:
+                    success = False
+
         folio_oxxogas = ''
         qr_code = ''
         qr_url = ''
@@ -683,12 +693,9 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         m = FOLIO_POR_FECHA.search(body_text)
         if m:
             folio_oxxogas = m.group(1)
-        else:
-            # Respaldo: numero suelto de 6-15 digitos en las primeras filas.
-            for cand in re.findall(r'(?<![\d.])\d{6,15}(?![\d.])', body_text[:2000]):
-                if not cand.startswith(('19', '20')):   # no es un año
-                    folio_oxxogas = cand
-                    break
+        # Sin fallback: si el regex no matchea, el vale NO se genero.
+        # El fallback anterior capturaba el numero de referencia del cliente
+        # (VD003526) como si fuera un folio de vale, generando falsos positivos.
         if not folio_oxxogas:
             print('[govale] NO se pudo extraer el folio del listado; '
                   'el vale puede haberse creado pero no se puede referenciar')
@@ -713,12 +720,9 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         # Telegram.
         success = bool(folio_oxxogas)
         if not success:
-            if 'vouchers' in page_url and '/1' not in page_url:
-                success = True
-            elif any(w in body_text.lower() for w in ['éxito', 'generado', 'exitoso', 'correctamente']):
-                success = True
+            print('[govale] No se extrajo folio del listado. El vale NO se genero.')
 
-        if success:
+        if success and folio_oxxogas:
             # Guardar en BD con todos los datos.
             #
             # El folio es lo que hace falta: identifica el vale en Go Vale. Sin
