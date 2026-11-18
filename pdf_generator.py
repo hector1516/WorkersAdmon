@@ -1780,7 +1780,6 @@ def generate_horas_extras_reporte_pdf(nombre, registros, total_horas, sueldo_sem
         [Paragraph("<b>Colaborador:</b>", style_bold), Paragraph(str(nombre), style_body)],
         [Paragraph("<b>Periodo:</b>", style_bold), Paragraph(pi_str + " al " + pf_str, style_body)],
         [Paragraph("<b>Total horas extras:</b>", style_bold), Paragraph(f"{total_horas:.2f} horas", style_body)],
-        [Paragraph("<b>Sueldo semanal:</b>", style_bold), Paragraph(f"${sueldo_semana:,.2f}", style_body)],
         [Paragraph("<b>Fecha de generacion:</b>", style_bold), Paragraph(gen_ts.strftime("%d/%m/%Y %H:%M:%S"), style_body)],
     ]
     if notas:
@@ -1906,28 +1905,10 @@ def generate_horas_extras_reporte_pdf(nombre, registros, total_horas, sueldo_sem
     story.append(reg_table)
     story.append(Spacer(1, 12))
 
-    # Summary
-    # Calculate monto (informativo)
-    dias_trabajo = 6
-    horas_jornada = 8.0
-    sueldo_hora = (sueldo_semana / dias_trabajo / horas_jornada) if (dias_trabajo > 0 and horas_jornada > 0) else 0
-    he_dobles_max = 9.0
-    he_dobles = min(total_horas, he_dobles_max)
-    he_triples = max(0, total_horas - he_dobles_max)
-    monto_dobles = he_dobles * sueldo_hora * 2
-    monto_triples = he_triples * sueldo_hora * 3
-    monto_total = monto_dobles + monto_triples
-
+    # Summary (solo horas extras, sin salario)
     resumen_data = [
         [Paragraph("<b>Numero de registros:</b>", style_bold), Paragraph(str(len(registros)), style_body)],
         [Paragraph("<b>Horas extras totales:</b>", style_bold), Paragraph(f"{total_horas:.2f} horas", style_body)],
-        [Paragraph("<b>Horas dobles (2x):</b>", style_bold), Paragraph(f"{he_dobles:.2f} horas", style_body)],
-        [Paragraph("<b>Horas triples (3x):</b>", style_bold), Paragraph(f"{he_triples:.2f} horas", style_body)],
-        [Paragraph("<b>Monto estimado dobles:</b>", style_bold), Paragraph(f"${monto_dobles:,.2f}", style_body)],
-        [Paragraph("<b>Monto estimado triples:</b>", style_bold), Paragraph(f"${monto_triples:,.2f}", style_body)],
-        [Paragraph("<b>Monto estimado total:</b>", style_bold), Paragraph(f"${monto_total:,.2f}", style_body)],
-        [Paragraph("<b>Sueldo semanal base:</b>", style_bold), Paragraph(f"${sueldo_semana:,.2f}", style_body)],
-        [Paragraph("<b>Sueldo por hora:</b>", style_bold), Paragraph(f"${sueldo_hora:,.2f}", style_body)],
     ]
     resumen_table = Table(resumen_data, colWidths=[200, 560])
     resumen_table.setStyle(TableStyle([
