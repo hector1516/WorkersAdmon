@@ -26,6 +26,7 @@ INTERVALO = int(os.getenv("VALES_INTERVALO", "15"))
 
 def get_vales_pendientes_generacion():
     """Vales APROBADO sin QR generado, en orden de llegada (FIFO)."""
+    conn = None
     try:
         conn = db.get_connection()
         with conn.cursor(as_dict=True) as cur:
@@ -37,13 +38,19 @@ def get_vales_pendientes_generacion():
             """)
             return [r["Id"] for r in cur.fetchall()]
     except Exception as e:
-        print(f"[vales_worker] Error consultando vales: {e}")
-        return []
-    finally:
+        print(f"[vales_worker] Error consultando vales: {e}", flush=True)
+        # Forzar reconexion
         try:
-            conn.close()
+            db._local.conn = None
         except Exception:
             pass
+        return []
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def generar_vale_sincrono(solicitud_id):
@@ -74,15 +81,27 @@ def generar_vale_sincrono(solicitud_id):
 
 def main():
     print("[vales_worker] Iniciado — revisión cada 5 min", flush=True)
+    fallos_consecutivos = 0
+    MAX_FALLOS = 5
     while True:
         try:
             vales = get_vales_pendientes_generacion()
+            fallos_consecutivos = 0
             if vales:
                 print(f"[vales_worker] {len(vales)} vale(s) pendientes de generación: {vales}", flush=True)
                 for vid in vales:
                     generar_vale_sincrono(vid)
         except Exception as e:
-            print(f"[vales_worker] Error en ciclo: {e}", flush=True)
+            fallos_consecutivos += 1
+            print(f"[vales_worker] Error en ciclo ({fallos_consecutivos}/{MAX_FALLOS}): {e}", flush=True)
+            # Forzar reconexion en el siguiente ciclo
+            try:
+                db._local.conn = None
+            except Exception:
+                pass
+            if fallos_consecutivos >= MAX_FALLOS:
+                print(f"[vales_worker] {MAX_FALLOS} fallos consecutivos. Saliendo para que supervisor reinicie.", flush=True)
+                sys.exit(1)
         time.sleep(INTERVALO)
 
 
