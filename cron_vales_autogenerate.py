@@ -44,7 +44,8 @@ def get_vales_pendientes_generacion():
             db._local.conn = None
         except Exception:
             pass
-        return []
+        # Re-lanzar para que el loop principal cuente el fallo y reinicie si es necesario
+        raise
     finally:
         if conn is not None:
             try:
@@ -85,8 +86,26 @@ def main():
     MAX_FALLOS = 5
     while True:
         try:
+            # Health check: verificar que la BD responde antes de consultar
+            try:
+                _hc = db.get_connection()
+                _hc.cursor().execute("SELECT 1")
+                _hc.close()
+            except Exception as hc_err:
+                print(f"[vales_worker] Health check BD fallido: {hc_err}", flush=True)
+                try:
+                    db._local.conn = None
+                except Exception:
+                    pass
+                raise
             vales = get_vales_pendientes_generacion()
             fallos_consecutivos = 0
+            # Heartbeat: escribir timestamp para monitoreo externo
+            try:
+                with open("/data/vales_worker_heartbeat", "w") as hf:
+                    hf.write(str(time.time()))
+            except Exception:
+                pass
             if vales:
                 print(f"[vales_worker] {len(vales)} vale(s) pendientes de generación: {vales}", flush=True)
                 for vid in vales:

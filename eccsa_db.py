@@ -33,7 +33,7 @@ def get_connection():
         conn = None
     if conn is None:
         last_err = None
-        for intento in range(3):
+        for intento in range(5):
             try:
                 conn = pymssql.connect(**DB_CONFIG, login_timeout=30, timeout=60)
                 _local.conn = conn
@@ -42,9 +42,9 @@ def get_connection():
                 last_err = e
                 _local.conn = None
                 conn = None
-                if intento < 2:
+                if intento < 4:
                     import time
-                    time.sleep(5 * (intento + 1))
+                    time.sleep(3 * (intento + 1))
         raise last_err
 
 # --- Cache wrapper (works in Streamlit and standalone workers) ---
