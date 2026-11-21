@@ -2,6 +2,10 @@
 
 # WorkersAdmon ⚙️
 
+> ⚠️ **LEGACY (ServerVM `10.188.141.31`):** lo que sigue describe el host
+> viejo, que **ya no se usa**. Las apps se despliegan en WebbApps con Arcane
+> (ver `AGENTS.md` de la raíz, §2). **No ejecutes estos pasos en ServerVM.**
+
 Contenedor Docker **`workersadmon`** con los workers de fondo de ECCSA y la
 página de estado de los mismos. **Separado por completo de `field`, `admon` y
 `hub_python`** — su propio repo, su propia imagen, su propia red y sus propios
