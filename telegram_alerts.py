@@ -406,7 +406,7 @@ def alertar_vale_generado(solicitud_id):
         with db.get_connection() as conn:
             with conn.cursor(as_dict=True) as cur:
                 cur.execute("""
-                    SELECT s.Placa, s.CodigoQR, s.MontoUnit,
+                    SELECT s.Placa, s.IdValeGoVale, s.MontoUnit, s.Cantidad,
                            a.MarcaModelo, cl.Cliente, u.Nombre AS Solicitante
                     FROM HUB_SolicitudVales s
                     LEFT JOIN HUB_Automoviles a ON s.IdAutomovil = a.Id
@@ -416,17 +416,20 @@ def alertar_vale_generado(solicitud_id):
                 """, (int(solicitud_id),))
                 sol = cur.fetchone()
                 if sol:
-                    vehiculo = f"{sol.get('MarcaModelo', '')} ({sol.get('Placas', '')})" if sol.get('MarcaModelo') else '-'
+                    vehiculo = f"{sol.get('MarcaModelo', '')} ({sol.get('Placa', '')})" if sol.get('MarcaModelo') else '-'
                     empresa = sol.get('Cliente', '-') or '-'
                     solicitante = sol.get('Solicitante', '-') or '-'
-                    folio = sol.get('CodigoQR', '') or ''
+                    folio = sol.get('IdValeGoVale', '') or ''
+                    _monto = float(sol.get('MontoUnit') or 0) * int(sol.get('Cantidad') or 1)
+                else:
+                    _monto = 0
 
         datos = {
             'Solicitante': solicitante,
             'Vehiculo': vehiculo,
             'Empresa': empresa,
             'Folio': folio,
-            'Monto': f"${float(500):,.2f}",
+            'Monto': f"${_monto:,.2f}",
             'Fecha': fecha,
             'Hora': hora,
         }

@@ -488,6 +488,55 @@ def _avisar_vale_generado(sol, folio_oxxogas):
     return True
 
 
+def _llenar_campo(page, etiquetas, valor, max_ancestros=4):
+    """Llena un input buscando por placeholder/aria-label o etiqueta en ancestros.
+
+    Mas robusto que mirar solo parentElement.textContent: prueba varias
+    estrategias y VERIFICA que el valor quedo escrito (input_value()).
+    Retorna True si lo lleno.
+    """
+    etiquetas = [e.lower() for e in etiquetas]
+    val = str(valor)
+    try:
+        inputs = page.query_selector_all('input')
+    except Exception:
+        return False
+    for inp in inputs:
+        try:
+            if not inp.is_visible() or inp.is_disabled():
+                continue
+        except Exception:
+            continue
+        ph = (inp.get_attribute('placeholder') or '').lower()
+        al = (inp.get_attribute('aria-label') or '').lower()
+        if any(e in ph or e in al for e in etiquetas):
+            try:
+                inp.click()
+                time.sleep(0.3)
+                inp.fill(val)
+                if inp.input_value() == val:
+                    return True
+            except Exception:
+                pass
+            continue
+        try:
+            ctx = inp.evaluate(
+                "(e, n) => { let cur = e; for (let i = 0; i < n && cur; i++) { cur = cur.parentElement; } return cur ? cur.textContent.toLowerCase() : ''; }",
+                max_ancestros)
+        except Exception:
+            ctx = ''
+        if any(e in ctx for e in etiquetas):
+            try:
+                inp.click()
+                time.sleep(0.3)
+                inp.fill(val)
+                if inp.input_value() == val:
+                    return True
+            except Exception:
+                pass
+    return False
+
+
 def crear_vale(solicitud_id, user=None, pwd=None):
     """Crea un vale navegando la UI de Go Vale con Playwright (Angular Material).
     Usa la tabla de mapeo HUB_OxxoGas_Mapeo para empresa/contacto.
@@ -566,7 +615,7 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             page.wait_for_selector('.mat-mdc-select-trigger', timeout=30000)
         except Exception:
             _capturar_debug(page, "govale_form_fail")
-            return {'error': 'No se pudo cargar el formulario de Generar Vale.',
+            return {'error': 'UI de Go Vale cambio: no aparecio el formulario (mat-select). Revisar selectores.',
                     'reintentable': True}
         marcar_progreso(solicitud_id, 45, "Abriendo el formulario…")
 
@@ -604,46 +653,28 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             print(f"[govale] WARNING: Solo {len(triggers2)} mat-selects, contacto no disponible")
             _capturar_debug(page, "govale_debug_triggers")
 
-        # 3. Llenar importe
-        inputs = page.query_selector_all('input[type="text"]')
-        for inp in inputs:
-            if inp.is_visible():
-                parent_text = inp.evaluate('e => e.parentElement.textContent.trim()')
-                if 'Importe' in parent_text or '$' in parent_text:
-                    inp.click()
-                    time.sleep(0.5)
-                    inp.fill(str(int(monto)))
-                    print(f"[govale] Importe: ${monto}")
-                    break
+        # 3. Llenar importe (robusto: placeholder/aria-label/ancestros + verifica)
+        if _llenar_campo(page, ['importe', 'monto', '$'], int(monto)):
+            print(f"[govale] Importe: ${monto}")
+        else:
+            print('[govale] WARNING: no se pudo llenar Importe (UI cambio?)')
+        time.sleep(0.5)
 
-        time.sleep(1)
+        # 4. Llenar cantidad
+        if _llenar_campo(page, ['cantidad', 'máximo', 'maximo'], cantidad):
+            print(f"[govale] Cantidad: {cantidad}")
+        else:
+            print('[govale] WARNING: no se pudo llenar Cantidad (UI cambio?)')
+        time.sleep(0.5)
 
-        # 3. Llenar cantidad
-        for inp in inputs:
-            if inp.is_visible() and not inp.is_disabled():
-                ph = inp.get_attribute('placeholder') or ''
-                if 'Máximo' in ph or '9' in ph:
-                    inp.click()
-                    time.sleep(0.5)
-                    inp.fill(str(cantidad))
-                    print(f"[govale] Cantidad: {cantidad}")
-                    break
+        # 5. Llenar concepto
+        if _llenar_campo(page, ['concepto', 'descripción', 'descripcion'], concepto[:100]):
+            print(f"[govale] Concepto: {concepto[:50]}")
+        else:
+            print('[govale] WARNING: no se pudo llenar Concepto (UI cambio?)')
+        time.sleep(0.5)
 
-        time.sleep(1)
-
-        # 4. Llenar concepto
-        for inp in inputs:
-            if inp.is_visible():
-                parent_text = inp.evaluate('e => e.parentElement.textContent.trim()')
-                if 'Concepto' in parent_text:
-                    inp.click()
-                    time.sleep(0.5)
-                    inp.fill(concepto[:100])
-                    print(f"[govale] Concepto: {concepto[:50]}")
-                    break
-
-        time.sleep(1)
-        marcar_progreso(solicitud_id, 65, "Llenando los datos…")
+        marcar_progreso(solicitud_id, 65, "Llenando los datos...")
 
         # 5. Click "Generar Vale"
         gen_btn = page.query_selector('button:has-text("Generar Vale")')
@@ -655,26 +686,27 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             print("[govale] Click en Generar Vale")
             marcar_progreso(solicitud_id, 95, "Confirmando el folio…")
         else:
-            return {'error': 'Botón Generar Vale deshabilitado.', 'reintentable': True}
+            return {'error': 'Boton Generar Vale deshabilitado (campos incompletos o UI cambio).', 'reintentable': True}
 
         # 7. Verificar resultado y extraer folio/QR
         _capturar_debug(page, "govale_result")
         body_text = page.query_selector('body').inner_text() if page.query_selector('body') else ''
         page_url = page.url
 
+        folio_oxxogas = ''
+        qr_code = ''
+        qr_url = ''
+
         # Verificacion: si la pagina sigue mostrando el dashboard
         # con 0 Vales Activos, el click no funciono.
+        # IMPORTANTE: folio_oxxogas debe estar definido ANTES de este bloque.
+        vale_activos_cero = False
         if 'Vales Activos' in body_text:
             import re as _re
             _va = _re.search(r'(\d+)\s*Vales Activos', body_text)
             if _va and int(_va.group(1)) == 0:
                 print('[govale] 0 Vales Activos. El vale NO se genero.')
-                if not folio_oxxogas:
-                    success = False
-
-        folio_oxxogas = ''
-        qr_code = ''
-        qr_url = ''
+                vale_activos_cero = True
 
         # Extraer el folio. La pagina de resultado es el LISTADO de vales, no
         # una confirmacion: cada fila trae el folio en grande y debajo la
@@ -718,7 +750,7 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         # ignoraba y vales YA creados se reportaban como fallidos y se revertían
         # a PENDIENTE, dejando la barra de progreso trabada y sin avisar por
         # Telegram.
-        success = bool(folio_oxxogas)
+        success = bool(folio_oxxogas) and not vale_activos_cero
         if not success:
             print('[govale] No se extrajo folio del listado. El vale NO se genero.')
 

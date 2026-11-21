@@ -744,7 +744,16 @@ def enviar_resumen(app=APP_ADMON):
     for id_usuario, propias in por_usuario.items():
         correos = _correos_de([id_usuario], app=app)
         if not correos:
-            marcar([f["Id"] for f in propias], "ENVIADO", "sin suscripcion activa")
+            # Sin push: fallback a Telegram por cada usuario del resumen
+            ok_fb = 0
+            for f in propias:
+                if _telegram_fallback(f["IdUsuario"], f["Titulo"], f["Mensaje"]):
+                    ok_fb += 1
+            if ok_fb > 0:
+                enviados += 1
+                marcar([f["Id"] for f in propias], "ENVIADO", "push fallo; Telegram")
+            else:
+                marcar([f["Id"] for f in propias], "FALLADO", "sin push ni Telegram")
             continue
         n = len(propias)
         plural = "s" if n != 1 else ""
@@ -780,6 +789,30 @@ def _correos_de(ids_usuario, app=APP_ADMON):
         (app,),
     )
     return [f["Email"] for f in filas]
+
+def _telegram_fallback(id_usuario, titulo, mensaje):
+    """Fallback: encola el aviso por Telegram si el usuario tiene chat vinculado.
+
+    Se usa cuando el push falla (sin suscripcion o endpoint caducado). Asi el
+    tecnico/admins que SI tienen Telegram reciben el aviso aunque la PWA no
+    tenga push activo. No rompe nada si el usuario no tiene Telegram.
+    """
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute(
+                    "SELECT ChatId, Activo FROM HUB_TelegramUsuarios WHERE IdUsuario = %s",
+                    (int(id_usuario),)
+                )
+                row = cur.fetchone()
+        if not row or not row.get("Activo") or not row.get("ChatId"):
+            return False
+        texto = f"{titulo}\n{mensaje}"
+        return db.queue_telegram_alerta('VALE_QR_GENERADO', int(row['ChatId']), texto[:4000])
+    except Exception as e:
+        print(f"[notif] telegram fallback fallo (user {id_usuario}): {e}")
+        return False
+
 
 
 # ── Ciclo de despacho ─────────────────────────────────────────────────────────
@@ -829,14 +862,21 @@ def despachar(app=APP_ADMON):
             "tag": f"{app}-{f['Tipo'].lower()}",
             "url": f.get("Url") or "/",
         }
-        ok, _fallo = db.send_push_notification_to_users(
-            f["Titulo"], f["Mensaje"], _correos_de([f["IdUsuario"]], app=app),
-            extra=extra, app=app)
+        correos = _correos_de([f["IdUsuario"]], app=app)
+        ok = 0
+        if correos:
+            ok, _fallo = db.send_push_notification_to_users(
+                f["Titulo"], f["Mensaje"], correos, extra=extra, app=app)
         if ok > 0:
             enviados += 1
             marcar([f["Id"]], "ENVIADO")
         else:
-            marcar([f["Id"]], "FALLADO", "sin dispositivos que acepten")
+            # Fallback: push fallo o no hay suscripcion -> intentar Telegram
+            if _telegram_fallback(f["IdUsuario"], f["Titulo"], f["Mensaje"]):
+                enviados += 1
+                marcar([f["Id"]], "ENVIADO", "push fallo; enviado por Telegram")
+            else:
+                marcar([f["Id"]], "FALLADO", "sin push ni Telegram")
 
     # Ya estamos en horario y se vació lo viejo: se anota el día para que el
     # resumen de mañana no se dispare otra vez por lo mismo.

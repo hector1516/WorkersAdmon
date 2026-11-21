@@ -80,12 +80,83 @@ def generar_vale_sincrono(solicitud_id):
     return True
 
 
+
+def detectar_vales_atascados(minutos=15):
+    """Vales APROBADO que llevan demasiado tiempo sin generarse."""
+    try:
+        conn = db.get_connection()
+        with conn.cursor(as_dict=True) as cur:
+            cur.execute("""
+                SELECT Id, DATEDIFF(MINUTE, FechaAprobado, GETDATE()) AS Minutos
+                FROM HUB_SolicitudVales
+                WHERE Estatus = 'APROBADO'
+                  AND FechaAprobado IS NOT NULL
+                  AND DATEDIFF(MINUTE, FechaAprobado, GETDATE()) >= %s
+                ORDER BY FechaAprobado ASC
+            """, (int(minutos),))
+            return [(r["Id"], r["Minutos"]) for r in cur.fetchall()]
+    except Exception as e:
+        print(f"[vales_worker] Error detectando atascados: {e}", flush=True)
+        return []
+
+
+def alertar_vales_atascados(stuck):
+    """Avisa por Telegram a los admins de vales (max 1 vez/hora)."""
+    if not stuck:
+        return
+    try:
+        conn = db.get_connection()
+        with conn.cursor(as_dict=True) as cur:
+            cur.execute("SELECT Valor FROM HUB_Config WHERE Clave = 'vales_alerta_atascados'")
+            row = cur.fetchone()
+            ultimo = row["Valor"] if row else ""
+        from datetime import datetime, timedelta
+        ahora = datetime.now()
+        if ultimo:
+            try:
+                ult = datetime.strptime(ultimo, "%Y-%m-%d %H:%M:%S")
+                if (ahora - ult) < timedelta(hours=1):
+                    return
+            except Exception:
+                pass
+        ids = ", ".join("#%d (%d min)" % (v[0], v[1]) for v in stuck[:10])
+        texto = ("ALERTA vales OxxoGas\n%d vale(s) APROBADO sin generar: %s\n"
+                 "Revisa el worker vales_worker (posible caida o BD)." % (len(stuck), ids))
+        with conn.cursor(as_dict=True) as cur:
+            cur.execute("""
+                SELECT t.ChatId
+                FROM HUB_TelegramUsuarios t
+                JOIN HUB_Users u ON u.Id = t.IdUsuario
+                WHERE t.Activo = 1 AND u.AccesoAdminVales = 1
+            """)
+            chats = [r["ChatId"] for r in cur.fetchall()]
+        for cid in chats:
+            db.queue_telegram_alerta('VALE_QR_GENERADO', int(cid), texto[:4000])
+        with conn.cursor() as cur:
+            cur.execute("""
+                IF EXISTS (SELECT 1 FROM HUB_Config WHERE Clave = 'vales_alerta_atascados')
+                    UPDATE HUB_Config SET Valor = %s, Actualizado = GETDATE() WHERE Clave = 'vales_alerta_atascados'
+                ELSE
+                    INSERT INTO HUB_Config (Clave, Valor, Actualizado) VALUES ('vales_alerta_atascados', %s, GETDATE())
+            """, (ahora.strftime("%Y-%m-%d %H:%M:%S"), ahora.strftime("%Y-%m-%d %H:%M:%S")))
+            conn.commit()
+        conn.close()
+        print(f"[vales_worker] Alerta de atascados enviada ({len(stuck)} vales, {len(chats)} chats)", flush=True)
+    except Exception as e:
+        print(f"[vales_worker] No se pudo alertar atascados: {e}", flush=True)
 def main():
     print("[vales_worker] Iniciado — revisión cada 5 min", flush=True)
     fallos_consecutivos = 0
     MAX_FALLOS = 5
     while True:
         try:
+            # Heartbeat al INICIO del ciclo: si el worker se cuelga,
+            # el watchdog lo detecta porque deja de actualizarse.
+            try:
+                with open("/data/vales_worker_heartbeat", "w") as _hf:
+                    _hf.write(str(time.time()))
+            except Exception:
+                pass
             # Health check: verificar que la BD responde antes de consultar
             try:
                 _hc = db.get_connection()
@@ -100,16 +171,17 @@ def main():
                 raise
             vales = get_vales_pendientes_generacion()
             fallos_consecutivos = 0
-            # Heartbeat: escribir timestamp para monitoreo externo
-            try:
-                with open("/data/vales_worker_heartbeat", "w") as hf:
-                    hf.write(str(time.time()))
-            except Exception:
-                pass
             if vales:
                 print(f"[vales_worker] {len(vales)} vale(s) pendientes de generación: {vales}", flush=True)
                 for vid in vales:
                     generar_vale_sincrono(vid)
+            # Detectar vales atascados (APROBADO > 15 min) y avisar a admins
+            try:
+                stuck = detectar_vales_atascados(15)
+                if stuck:
+                    alertar_vales_atascados(stuck)
+            except Exception as e:
+                print(f"[vales_worker] Error chequeo atascados: {e}", flush=True)
         except Exception as e:
             fallos_consecutivos += 1
             print(f"[vales_worker] Error en ciclo ({fallos_consecutivos}/{MAX_FALLOS}): {e}", flush=True)

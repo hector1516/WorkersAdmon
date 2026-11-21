@@ -3712,6 +3712,51 @@ def save_push_subscription(user_email, endpoint, p256dh_key, auth_key):
         print(f"save_push_subscription error: {e}")
         return False
 
+def deactivate_push_subscription(endpoint):
+    """Marca inactiva una suscripcion push caducada (410/404).
+
+    Se desactiva en la tabla NUEVA (HUB_PushSuscripciones, que es la que lee
+    get_push_subscriptions_by_emails con app) y se borra de la vieja. Antes
+    solo borraba de la vieja, asi que la suscripcion muerta seguia contando en
+    la nueva y el aviso se marcaba FALLADO para siempre.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE HUB_PushSuscripciones SET Activo = 0 WHERE Endpoint = %s",
+                    (endpoint,)
+                )
+                cur.execute(
+                    "DELETE FROM HUB_PushSubscriptions WHERE Endpoint = %s",
+                    (endpoint,)
+                )
+                conn.commit()
+                return True
+    except Exception as e:
+        print(f"deactivate_push_subscription error: {e}")
+        return False
+
+
+def purge_stale_push_subscriptions(dias=90):
+    """Desactiva suscripciones push sin uso en N dias (limpieza periodica)."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE HUB_PushSuscripciones
+                    SET Activo = 0
+                    WHERE Activo = 1
+                      AND (UltimoUso IS NULL AND Creado < DATEADD(day, -%s, GETDATE())
+                           OR UltimoUso < DATEADD(day, -%s, GETDATE()))
+                """, (int(dias), int(dias)))
+                conn.commit()
+                return cur.rowcount
+    except Exception as e:
+        print(f"purge_stale_push_subscriptions error: {e}")
+        return 0
+
+
 def remove_push_subscription(endpoint):
     """Remove a push subscription by endpoint."""
     try:
@@ -3889,7 +3934,7 @@ def send_push_notification(titulo, mensaje, extra=None):
             sent += 1
         except WebPushException as e:
             if e.response and e.response.status_code in (410, 404):
-                remove_push_subscription(sub['Endpoint'])
+                deactivate_push_subscription(sub['Endpoint'])
             failed += 1
         except Exception as e:
             print(f"send push error for {sub.get('UserEmail','?')}: {e}")

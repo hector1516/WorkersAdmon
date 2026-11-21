@@ -227,21 +227,33 @@ def fetch_and_sync_oxxogas_emails(user_id=None):
                     except Exception:
                         pass
 
-            # Buscar la solicitud de vale correspondiente (match por usuario + fecha + monto)
+            # Buscar la solicitud de vale correspondiente.
+            #
+            # El CFDI de OxxoGas llega a UNA sola cuenta (la de la empresa), asi
+            # que IdUsuario del email NO es el tecnico que compro. El monto del
+            # CFDI tampoco coincide con el vale ($500): el vale es un QR que se
+            # canjea y el CFDI cobra los litros reales. Por eso NO se puede
+            # matchear por usuario ni por monto de forma fiable.
+            #
+            # Regla CONSERVADORA: enlazar solo si hay EXACTAMENTE UNA solicitud
+            # sin enlazar en una ventana de +-2 dias. Si hay 0 o mas de 1, se
+            # deja NULL y el registro del ticket en Field lo enlaza despues.
             id_solicitud_vale = None
             try:
                 with db.get_connection() as conn:
                     with conn.cursor(as_dict=True) as cur:
                         cur.execute("""
-                            SELECT TOP 1 Id FROM HUB_SolicitudVales
-                            WHERE IdSolicitante = %s
-                              AND FechaSolicitud >= DATEADD(day, -3, %s)
-                              AND FechaSolicitud <= DATEADD(day, 3, %s)
-                            ORDER BY ABS(DATEDIFF(day, FechaSolicitud, %s))
-                        """, (int(user_id), email_date, email_date, email_date))
-                        sol = cur.fetchone()
-                        if sol:
-                            id_solicitud_vale = sol["Id"]
+                            SELECT Id, FechaSolicitud
+                            FROM HUB_SolicitudVales s
+                            WHERE s.FechaSolicitud >= DATEADD(day, -2, %s)
+                              AND s.FechaSolicitud <= DATEADD(day, 2, %s)
+                              AND s.Id NOT IN (
+                                  SELECT IdSolicitudVale FROM HUB_OxxoGasVales
+                                  WHERE IdSolicitudVale IS NOT NULL)
+                        """, (email_date, email_date))
+                        candidatos = cur.fetchall()
+                        if len(candidatos) == 1:
+                            id_solicitud_vale = candidatos[0]["Id"]
             except Exception as e:
                 print(f"Error buscando solicitud: {e}")
 
