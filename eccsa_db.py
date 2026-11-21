@@ -6686,8 +6686,8 @@ def evaluar_criterios_vale(id_solicitante, id_automovil):
     """Evalúa si una solicitud cumple criterios para auto-aprobación.
     Retorna (aprobado: bool, motivos: list[str])
     Criterios:
-      1. Cooldown usuario 2 días (desde último vale GENERADO del usuario)
-      2. Cooldown vehículo 2 días (desde último vale GENERADO del vehículo)
+      1. Cooldown usuario 1 días (desde último vale GENERADO del usuario)
+      2. Cooldown vehículo 1 día (desde último vale GENERADO del vehículo)
       3. Máx 4 vales/semana por usuario
       4. 1 vale/día por vehículo (ya validado en crear_solicitud_vale)
     """
@@ -6695,7 +6695,7 @@ def evaluar_criterios_vale(id_solicitante, id_automovil):
     try:
         with get_connection() as conn:
             with conn.cursor(as_dict=True) as cur:
-                # Criterio 1: Cooldown usuario 2 días
+                # Criterio 1: Cooldown usuario 1 día
                 cur.execute("""
                     SELECT TOP 1 FechaAprobado
                     FROM HUB_SolicitudVales
@@ -6706,10 +6706,10 @@ def evaluar_criterios_vale(id_solicitante, id_automovil):
                 if row and row.get('FechaAprobado'):
                     from datetime import datetime, timedelta
                     dias_desde = (datetime.now() - row['FechaAprobado']).days
-                    if dias_desde < 2:
-                        motivos.append(f"Cooldown usuario: último vale hace {dias_desde} días (requiere 2)")
+                    if dias_desde < 1:
+                        motivos.append(f"Cooldown usuario: último vale hace {dias_desde} días (requiere 1)")
 
-                # Criterio 2: Cooldown vehículo 2 días
+                # Criterio 2: Cooldown vehículo 1 día
                 cur.execute("""
                     SELECT TOP 1 FechaAprobado
                     FROM HUB_SolicitudVales
@@ -6720,8 +6720,8 @@ def evaluar_criterios_vale(id_solicitante, id_automovil):
                 if row and row.get('FechaAprobado'):
                     from datetime import datetime, timedelta
                     dias_desde = (datetime.now() - row['FechaAprobado']).days
-                    if dias_desde < 2:
-                        motivos.append(f"Cooldown vehículo: último vale hace {dias_desde} días (requiere 2)")
+                    if dias_desde < 1:
+                        motivos.append(f"Cooldown vehículo: último vale hace {dias_desde} días (requiere 1)")
 
                 # Criterio 3: Máx 4 vales/semana por usuario
                 cur.execute("""

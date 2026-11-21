@@ -14,7 +14,7 @@ def _evaluar_criterios(conn, id_usuario: int, id_automovil: int):
     """
     motivos = []
     with conn.cursor(as_dict=True) as cur:
-        # Cooldown usuario 2 días
+        # Cooldown usuario 1 días
         cur.execute("""
             SELECT TOP 1 FechaAprobado FROM HUB_SolicitudVales
             WHERE IdSolicitante = %s AND Estatus = 'GENERADO'
@@ -23,10 +23,10 @@ def _evaluar_criterios(conn, id_usuario: int, id_automovil: int):
         row = cur.fetchone()
         if row and row.get("FechaAprobado"):
             dias = (datetime.now() - row["FechaAprobado"]).days
-            if dias < 2:
-                motivos.append(f"Cooldown usuario: último vale hace {dias} día(s) (requiere 2)")
+            if dias < 1:
+                motivos.append(f"Cooldown usuario: último vale hace {dias} día(s) (requiere 1)")
 
-        # Cooldown vehículo 2 días
+        # Cooldown vehículo 1 días
         cur.execute("""
             SELECT TOP 1 FechaAprobado FROM HUB_SolicitudVales
             WHERE IdAutomovil = %s AND Estatus = 'GENERADO'
@@ -35,8 +35,8 @@ def _evaluar_criterios(conn, id_usuario: int, id_automovil: int):
         row = cur.fetchone()
         if row and row.get("FechaAprobado"):
             dias = (datetime.now() - row["FechaAprobado"]).days
-            if dias < 2:
-                motivos.append(f"Cooldown vehículo: último vale hace {dias} día(s) (requiere 2)")
+            if dias < 1:
+                motivos.append(f"Cooldown vehículo: último vale hace {dias} día(s) (requiere 1)")
 
         # Máx 4 vales/semana por usuario
         cur.execute("""
