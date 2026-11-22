@@ -37,6 +37,8 @@ INTERVALO = int(os.getenv("VALES_INTERVALO", "15"))
 # emitió (sin confirmarlo), sin esto se emitía otro vale cada 15 s.
 REINTENTO_SEG = int(os.getenv("VALES_REINTENTO_SEG", "120"))
 
+_ultimo_aviso_sync = 0.0
+
 
 def get_vales_pendientes_generacion():
     """Vales APROBADO sin QR generado, en orden de llegada (FIFO)."""
@@ -164,6 +166,35 @@ def alertar_vales_atascados(stuck):
         print(f"[vales_worker] Alerta de atascados enviada ({len(stuck)} vales, {len(chats)} chats)", flush=True)
     except Exception as e:
         print(f"[vales_worker] No se pudo alertar atascados: {e}", flush=True)
+
+def avisar_sync_viejo(horas=24):
+    """Avisa si el espejo de vales de Go Vale lleva demasiado sin traer nada.
+
+    `govale_last_sync` se actualiza igual aunque el parser no encuentre ni un
+    vale (pasó del 3-nov al 22-nov: el latido estaba vivo y el dato congelado).
+    Por eso se mira el DATO (`HUB_OxxoGas_VouchersCache`), no el latido: es la
+    misma lección del escáner que está en AGENTS.md.
+    """
+    try:
+        conn = db.get_connection()
+        with conn.cursor(as_dict=True) as cur:
+            cur.execute(
+                "SELECT DATEDIFF(HOUR, MAX(FechaSincronizado), GETDATE()) AS horas "
+                "FROM HUB_OxxoGas_VouchersCache"
+            )
+            fila = cur.fetchone() or {}
+        horas_sin = fila.get("horas")
+        if horas_sin is None or int(horas_sin) >= horas:
+            wlog(
+                "vales_worker",
+                "El espejo de vales de Go Vale no trae nada nuevo",
+                nivel="WARN",
+                detalle=f"último vale sincronizado hace {horas_sin} h (revisar el parser de la lista)",
+            )
+    except Exception as e:
+        wlog("vales_worker", "No se pudo revisar el espejo de vales", nivel="WARN",
+             detalle=str(e)[:200])
+
 def main():
     wlog("vales_worker", "Arrancó", detalle=f"revisión cada {INTERVALO} s, "
          f"reintento a los {REINTENTO_SEG} s")
@@ -195,6 +226,12 @@ def main():
                 except Exception:
                     pass
                 raise
+            # Una vez por hora: ¿el espejo de vales sigue trayendo datos?
+            global _ultimo_aviso_sync
+            if time.time() - _ultimo_aviso_sync >= 3600:
+                _ultimo_aviso_sync = time.time()
+                avisar_sync_viejo()
+
             vales = get_vales_pendientes_generacion()
             fallos_consecutivos = 0
             if vales:
