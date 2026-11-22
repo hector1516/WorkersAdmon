@@ -21,6 +21,7 @@ sys.path.append("/")
 try:
     import eccsa_db as db
     from oxxogas_vales_automation import crear_vale
+    from worker_log import log as wlog
 except Exception as e:
     print(f"[vales_worker] Error de importación: {e}")
     sys.exit(1)
@@ -80,7 +81,8 @@ def generar_vale_sincrono(solicitud_id):
         return False
     resultado = crear_vale(solicitud_id, user=config["user"], pwd=config["password"])
     if "error" in resultado:
-        print(f"[vales_worker] Error vale #{solicitud_id}: {resultado['error']}")
+        wlog("vales_worker", f"No se generó el vale #{solicitud_id}", nivel="ERROR",
+             detalle=str(resultado.get("error"))[:400])
         if resultado.get("reintentable"):
             # Fallo ANTES de generar (login/navegacion): no hay riesgo de
             # duplicar. Se deja APROBADO para que el proximo ciclo reintente, en
@@ -89,7 +91,7 @@ def generar_vale_sincrono(solicitud_id):
         else:
             db.revertir_solicitud_pendiente(solicitud_id)
         return False
-    print(f"[vales_worker] Vale #{solicitud_id} generado exitosamente")
+    wlog("vales_worker", f"Vale #{solicitud_id} generado", nivel="INFO")
     try:
         from telegram_alerts import alertar_vale_generado
         alertar_vale_generado(solicitud_id)
@@ -163,6 +165,8 @@ def alertar_vales_atascados(stuck):
     except Exception as e:
         print(f"[vales_worker] No se pudo alertar atascados: {e}", flush=True)
 def main():
+    wlog("vales_worker", "Arrancó", detalle=f"revisión cada {INTERVALO} s, "
+         f"reintento a los {REINTENTO_SEG} s")
     print(
         f"[vales_worker] Iniciado — revisión cada {INTERVALO} s "
         f"(reintento de un vale fallido: {REINTENTO_SEG} s)",
@@ -194,7 +198,7 @@ def main():
             vales = get_vales_pendientes_generacion()
             fallos_consecutivos = 0
             if vales:
-                print(f"[vales_worker] {len(vales)} vale(s) pendientes de generación: {vales}", flush=True)
+                wlog("vales_worker", f"{len(vales)} vale(s) en cola", detalle=str(vales))
                 for vid in vales:
                     generar_vale_sincrono(vid)
             # Detectar vales atascados (APROBADO > 15 min) y avisar a admins
