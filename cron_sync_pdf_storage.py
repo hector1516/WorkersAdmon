@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """
 cron_sync_pdf_storage.py - Worker diario: genera PDFs del día anterior y los guarda en el shared.
 
@@ -168,6 +175,7 @@ def generar_pdfs_dia(fecha):
 
 
 def main():
+    wlog("pdf_storage_worker", "Arrancó")
     print(f"[{_ts()}] === PDF Storage Worker iniciado (ejecuta a las {HORA_EJECUCION:02d}:{MIN_EJECUCION:02d}) ===")
 
     while True:

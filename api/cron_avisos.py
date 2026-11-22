@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """Worker único de notificaciones Field (programa `avisos` bajo supervisor).
 
 Empleos:
@@ -142,6 +149,7 @@ def job_reportes():
 
 
 def main():
+    wlog("avisos", "Arrancó")
     print("[avisos] worker único iniciado (km lunes 8am + reportes cada hora)", flush=True)
     ultima_semana_km = None
     ultimo_rep = 0.0

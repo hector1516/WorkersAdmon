@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """Worker de indexación de archivos del Repositorio Clientes.
 Recorre \\\\FILESERVER\\Docs\\Shared y \\\\FILESERVER\\Docs\\Aplicaciones
 y mantiene un índice en SQL Server (HUB_FileIndex).
@@ -152,6 +159,7 @@ def indexar_share(conn, share_cfg):
 
 
 def main():
+    wlog("file_indexer", "Arrancó")
     print("[file_indexer] Worker de indexación de archivos iniciado", flush=True)
     while True:
         try:

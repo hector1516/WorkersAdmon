@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """
 Worker de WhatsApp: consume la cola HUB_WhatsappQueue y entrega los mensajes
 por la API de OpenWA. Corre bajo supervisor como 'openwa_worker'.
@@ -81,6 +88,7 @@ def cleanup(dias=30):
 
 
 def main():
+    wlog("openwa_worker", "Arrancó")
     cfg = ow.obtener_config()
     print("[openwa_worker] Iniciado. Procesando cola cada", LOOP_INTERVAL, "segundos")
     print(f"[openwa_worker] destino: {cfg['base_url'] or '(sin definir)'} · "

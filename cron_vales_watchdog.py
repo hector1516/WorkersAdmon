@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """Watchdog del vales_worker.
 
 Lee /data/vales_worker_heartbeat (lo escribe el worker al inicio de cada ciclo,
@@ -81,6 +88,7 @@ def _alertar(segundos):
 
 
 def main():
+    wlog("vales_watchdog", "Arrancó")
     print(f"[vales_watchdog] Iniciado (umbral {UMBRAL_SEG}s, intervalo {INTERVALO}s)", flush=True)
     while True:
         hb = _leer_heartbeat()

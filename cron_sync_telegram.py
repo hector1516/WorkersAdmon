@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """
 Worker de Telegram: consume la cola HUB_TelegramQueue y envía mensajes
 vía la API de Telegram. Corre bajo supervisor como 'telegram_worker'.
@@ -333,6 +340,7 @@ def _iniciar_watchdog(ultimo_ciclo):
 
 
 def main():
+    wlog("telegram_worker", "Arrancó")
     _log(
         f"Iniciado. loop={LOOP_INTERVAL}s max_por_ciclo={MAX_POR_CICLO} "
         f"pausa={SEND_DELAY}s watchdog={WATCHDOG_SEG}s"

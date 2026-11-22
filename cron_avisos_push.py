@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """
 cron_avisos_push — Worker que despacha los avisos push de las apps
 (programa `avisos_push` bajo supervisor).
@@ -105,6 +112,7 @@ def turno():
 
 
 def main():
+    wlog("avisos_push", "Arrancó")
     _log(f"worker de avisos push iniciado (apps={','.join(APPS)}, "
          f"detectores={APP_DETECTORES}, ciclo={AVISOS_CICLO_SEG}s)")
     vuelta = 0

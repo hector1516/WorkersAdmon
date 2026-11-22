@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """
 cron_sync_oxxogas_contactos.py
 Worker que actualiza el cache de contactos de Go Vale cada 6 horas.
@@ -56,6 +63,7 @@ def sync_contactos():
 
 
 def main():
+    wlog("oxxogas_contactos_worker", "Arrancó")
     print("[cron_contactos] Iniciando worker contactos Go Vale...")
     INTERVAL = int(os.getenv('CRON_OXXOGAS_CONTACTOS_INTERVAL', '21600'))  # 6h default
     

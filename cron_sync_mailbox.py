@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """
 cron_sync_mailbox.py — el proceso de sincronización de ECCSA_Mailbox.
 
@@ -235,6 +242,7 @@ def _avisar_arranque(n: int):
 
 
 def main():
+    wlog("mailbox_worker", "Arrancó")
     signal.signal(signal.SIGTERM, _al_parar)
     signal.signal(signal.SIGINT, _al_parar)
 

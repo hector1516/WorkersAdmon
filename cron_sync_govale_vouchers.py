@@ -1,3 +1,10 @@
+# Log universal (base de datos + consola); si el import falla, sigue sin log.
+try:
+    from worker_log import log as wlog
+except Exception:  # pragma: no cover
+    def wlog(*a, **k):
+        return False
+
 """
 cron_sync_govale_vournals.py
 Worker que sincroniza vales de Go Vale de forma incremental.
@@ -405,6 +412,7 @@ def notificar_saldo_diario():
 
 
 def main():
+    wlog("govale_vouchers_worker", "Arrancó")
     print("[govale_sync] Iniciando worker sync vales Go Vale...")
     INTERVAL = int(os.getenv('CRON_GOVALE_INTERVAL', '300'))  # 5 min default
 
