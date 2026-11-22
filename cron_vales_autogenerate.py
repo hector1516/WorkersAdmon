@@ -1,7 +1,15 @@
 """Worker automático de generación de vales QR.
 
-Revisa cada 5 minutos vales con estatus APROBADO sin CodigoQR
-(y generados desde Field u otros flujos) y los genera vía Go Vale.
+Revisa la cola cada `VALES_INTERVALO` segundos (15 por defecto) buscando vales
+APROBADOS sin CodigoQR y los genera vía Go Vale.
+
+Dos frenos que costaron un incidente (2026-11-22, 9 vales de $777):
+
+- Un vale que acaba de intentarse **no se reintenta de inmediato**: se espera
+  `VALES_REINTENTO_SEG` (120 s por defecto). Con el sondeo de 15 s, un fallo
+  clasificado como «reintentable» volvía a emitir en el ciclo siguiente.
+- El mensaje de arranque dice el intervalo REAL. Antes imprimía «cada 5 min»
+  escrito a mano y eso hacía creer que el worker era lento cuando no lo era.
 """
 import time
 import sys
@@ -23,6 +31,11 @@ except Exception as e:
 # hay nada pendiente, lo único que pasa es una consulta a la BD.
 INTERVALO = int(os.getenv("VALES_INTERVALO", "15"))
 
+# Espera mínima antes de volver a intentar un vale que ya se intentó. Es un
+# freno, no un candado: si el intento anterior falló después de que Go Vale
+# emitió (sin confirmarlo), sin esto se emitía otro vale cada 15 s.
+REINTENTO_SEG = int(os.getenv("VALES_REINTENTO_SEG", "120"))
+
 
 def get_vales_pendientes_generacion():
     """Vales APROBADO sin QR generado, en orden de llegada (FIFO)."""
@@ -34,8 +47,13 @@ def get_vales_pendientes_generacion():
                 SELECT Id FROM HUB_SolicitudVales
                 WHERE Estatus = 'APROBADO'
                   AND (CodigoQR IS NULL OR LTRIM(RTRIM(CodigoQR)) = '')
+                  AND (ProgresoFecha IS NULL
+                       OR DATEDIFF(SECOND, ProgresoFecha, GETDATE()) >= %s)
+                  -- 85 % = ya se pulsó «Generar»: si falló después, el vale
+                  -- pudo emitirse. Reintentarlo solo es cómo se duplicó.
+                  AND (Progreso IS NULL OR Progreso < 85)
                 ORDER BY Id ASC
-            """)
+            """, (REINTENTO_SEG,))
             return [r["Id"] for r in cur.fetchall()]
     except Exception as e:
         print(f"[vales_worker] Error consultando vales: {e}", flush=True)
@@ -145,7 +163,11 @@ def alertar_vales_atascados(stuck):
     except Exception as e:
         print(f"[vales_worker] No se pudo alertar atascados: {e}", flush=True)
 def main():
-    print("[vales_worker] Iniciado — revisión cada 5 min", flush=True)
+    print(
+        f"[vales_worker] Iniciado — revisión cada {INTERVALO} s "
+        f"(reintento de un vale fallido: {REINTENTO_SEG} s)",
+        flush=True,
+    )
     fallos_consecutivos = 0
     MAX_FALLOS = 5
     while True:
