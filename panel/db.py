@@ -965,3 +965,28 @@ def calcular_y_guardar_asistencias_fecha(fecha=None):
     días en los que el escáner no escaneó.
     """
     return _hub().calcular_y_guardar_asistencias_fecha(fecha)
+
+
+def get_workers_log(limite=120, nivel=None, worker=None):
+    """Últimos eventos del log universal (HUB_WorkersLog).
+
+    El log de archivo vive dentro del contenedor y desaparece al recrearlo;
+    éste sobrevive y es el que se puede leer desde cualquier lado.
+    """
+    try:
+        where, params = [], []
+        if nivel:
+            where.append("Nivel = %s")
+            params.append(nivel)
+        if worker:
+            where.append("Worker = %s")
+            params.append(worker)
+        filtro = ("WHERE " + " AND ".join(where)) if where else ""
+        return _rows(
+            f"SELECT TOP ({int(limite)}) Id, Worker, Nivel, Mensaje, Detalle, Creado "
+            f"FROM HUB_WorkersLog {filtro} ORDER BY Creado DESC",
+            tuple(params),
+        ) or []
+    except Exception:
+        # Sin base no se cae la página: se muestra el log de archivo y ya.
+        return []

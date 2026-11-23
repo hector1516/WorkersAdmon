@@ -75,6 +75,40 @@ def get_vales_pendientes_generacion():
                 pass
 
 
+def _clasificar_motivo(texto):
+    """Traduce el mensaje del generador a un código que la app sabe pintar."""
+    t = (texto or "").lower()
+    if "saldo" in t:
+        return "SIN_SALDO"
+    if "importe" in t or "monto" in t:
+        return "MONTO_NO_FIJADO"
+    if "kil" in t:
+        return "KM_MENORES"
+    if "sesi" in t or "login" in t or "credencial" in t:
+        return "GOVALE_SIN_SESION"
+    return "REINTENTO"
+
+
+def _anotar_motivo(solicitud_id, codigo, texto):
+    """Guarda POR QUÉ no salió el vale, para que la app lo muestre.
+
+    Antes el motivo solo quedaba en el log del worker, así que en la app se
+    veía una solicitud atorada sin explicación. Con esto la tarjeta dice si es
+    saldo, kilómetros o sesión, y si hay que esperar o hacer algo.
+    Un `codigo` vacío borra el motivo (el vale ya salió).
+    """
+    try:
+        conn = db.get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE HUB_SolicitudVales SET Motivo = %s, MotivoCodigo = %s WHERE Id = %s",
+                ((texto or "")[:200] or None, (codigo or "")[:40] or None, solicitud_id),
+            )
+        conn.commit()
+    except Exception as e:
+        print(f"[vales_worker] no se pudo guardar el motivo de #{solicitud_id}: {e}")
+
+
 def generar_vale_sincrono(solicitud_id):
     """Genera vale vía Go Vale de forma síncrona (sin thread)."""
     config = db.get_govale_credentials()
@@ -83,8 +117,12 @@ def generar_vale_sincrono(solicitud_id):
         return False
     resultado = crear_vale(solicitud_id, user=config["user"], pwd=config["password"])
     if "error" in resultado:
+        mensaje = str(resultado.get("error"))
         wlog("vales_worker", f"No se generó el vale #{solicitud_id}", nivel="ERROR",
-             detalle=str(resultado.get("error"))[:400])
+             detalle=mensaje[:400])
+        _anotar_motivo(solicitud_id,
+                       resultado.get("motivo") or _clasificar_motivo(mensaje),
+                       mensaje)
         if resultado.get("reintentable"):
             # Fallo ANTES de generar (login/navegacion): no hay riesgo de
             # duplicar. Se deja APROBADO para que el proximo ciclo reintente, en
@@ -93,6 +131,9 @@ def generar_vale_sincrono(solicitud_id):
         else:
             db.revertir_solicitud_pendiente(solicitud_id)
         return False
+    # Ya salió: se borra el motivo anterior para que la tarjeta no siga
+    # diciendo "se reintenta solo" en un vale que sí se generó.
+    _anotar_motivo(solicitud_id, None, None)
     wlog("vales_worker", f"Vale #{solicitud_id} generado", nivel="INFO")
     try:
         from telegram_alerts import alertar_vale_generado

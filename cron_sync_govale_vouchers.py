@@ -153,12 +153,53 @@ def sync_vales():
         except Exception as e:
             print(f"[govale_sync] Error extrayendo saldo: {e}")
 
-        print("[govale_sync] Navegando a Mis Vales...")
-        page.goto("https://govale-digital.oxxogas.com/vouchers", wait_until="networkidle", timeout=60000)
-        time.sleep(8)
+        # Los vales activos NO viven en /vouchers: esa ruta no existe y el SPA
+        # rebota a /home. Ahí se pintan dentro de .containerQrs, una tarjeta
+        # .qrs por vale, junto con «Generar Vale» y «N Vales Activos».
+        # Antes se pedía /vouchers y se leía el menú: el primer <li> del navbar
+        # se llamaba «Inicio» y se contaba como vale.
+        print("[govale_sync] Navegando al panel (los vales activos están en /home)...")
+        if '/home' not in page.url:
+            page.goto("https://govale-digital.oxxogas.com/home",
+                      wait_until="networkidle", timeout=60000)
+        time.sleep(5)
+        try:
+            page.wait_for_selector('.containerQrs', timeout=30000)
+        except Exception:
+            pass
 
-        # Extraer vales del DOM - la pagina muestra tarjetas con QR, monto, estatus
         body_text = page.query_selector('body').inner_text() if page.query_selector('body') else ''
+
+        # Si sigue la pantalla pública, NO hay sesión: se dice y no se toca el
+        # cache. Callarlo era lo que hacía que el latido dijera «vivo» con el
+        # espejo congelado.
+        texto_plano = " ".join(body_text.split())
+        if 'Estamos renovando' in texto_plano or not page.query_selector('.containerQrs'):
+            wlog("govale_vouchers_worker",
+                 "Go Vale sin sesión: no se pudieron leer los vales",
+                 nivel="ERROR",
+                 detalle=texto_plano[:280])
+            print("[govale_sync] SIN SESIÓN en Go Vale; el cache no se toca")
+            # Un solo aviso cada 6 h: el worker corre cada 5 min y no puede
+            # llenar el log ni la base con la misma queja.
+            try:
+                from datetime import datetime as _dt, timedelta as _td
+                ultimo = db.get_govale_config('govale_aviso_sesion') or ''
+                toca = True
+                if ultimo:
+                    try:
+                        toca = _dt.now() - _dt.strptime(ultimo, '%Y-%m-%d %H:%M:%S') > _td(hours=6)
+                    except ValueError:
+                        toca = True
+                if toca:
+                    db.set_govale_config('govale_aviso_sesion', _dt.now().strftime('%Y-%m-%d %H:%M:%S'))
+                    wlog("govale_vouchers_worker",
+                         "Aviso: la sincronización de vales está ciega (sin sesión)",
+                         nivel="WARN",
+                         detalle="Se reintenta en cada ciclo; no se emite ni se modifica ningún vale.")
+            except Exception as e:
+                print(f"[govale_sync] no se pudo registrar el aviso: {e}")
+            return 0
 
         if 'No tienes' in body_text or 'sin resultados' in body_text.lower():
             # Ojo: aquí se salía sin dejar rastro y el latido seguía "vivo".
@@ -181,32 +222,33 @@ def sync_vales():
         except Exception as e:
             print(f"[govale_sync] No se pudo guardar HTML: {e}")
 
-        # Buscar todos los elementos de vales en la pagina
-        # Go Vale muestra vales como tarjetas con el QR como texto
-        # Selectores ampliados para cubrir diferentes estructuras de la pagina
-        selectors = [
-            '.voucher-card', '.card-voucher', '[class*="voucher"]',
-            'tr[class*="row"]', 'mat-row', '.mat-row', '.cdk-row',
-            '.vale', '[class*="vale"]', '.card', '.item',
-            'tr', 'li', 'div[class*="item"]', 'div[class*="row"]',
-        ]
-        voucher_elements = []
-        mejor_selector = "(ninguno)"
-        for sel in selectors:
-            try:
-                elems = page.query_selector_all(sel)
-                if elems and len(elems) > len(voucher_elements):
-                    voucher_elements = elems
-                    mejor_selector = sel
-            except Exception:
-                pass
+        # Un vale activo es una tarjeta .qrs DENTRO de .containerQrs. Se dejan
+        # fuera «Generar Vale» y «N Vales Activos», que también son .qrs.
+        # Sin selectores genéricos (li, .card, tr): el menú no es un vale.
+        import re as _re
+
+        def _es_vale(tarjeta):
+            t = " ".join((tarjeta.inner_text() or "").split()).lower()
+            if not t:
+                return False
+            if 'generar vale' in t:
+                return False
+            if _re.match(r'^\d+\s*vales?\s*activos?', t):
+                return False
+            # Defensa extra: un vale siempre trae importe. Si un día el SPA
+            # cambia y vuelve a colarse un elemento del menú, sin «$» no pasa.
+            return '$' in t
+
+        voucher_elements = [q for q in page.query_selector_all('.containerQrs .qrs') if _es_vale(q)]
+        mejor_selector = '.containerQrs .qrs'
 
         if not voucher_elements:
-            # Último recurso: intentar extraer datos del body_text
-            wlog("govale_vouchers_worker", "No se encontró la lista de vales",
-                 nivel="WARN", detalle=" ".join(body_text.split())[:350])
-            print("[govale_sync] No se encontraron elementos de vales, intentando extraer del texto...")
-            voucher_elements = []
+            wlog("govale_vouchers_worker",
+                 "No hay vales activos en Go Vale",
+                 nivel="INFO",
+                 detalle=f"página autenticada, texto={len(body_text)} chars")
+            print("[govale_sync] 0 vales activos")
+            return 0
 
         wlog("govale_vouchers_worker", f"Tarjetas encontradas: {len(voucher_elements)}",
              detalle=f"selector={mejor_selector}, título={page.title()[:60]}, "

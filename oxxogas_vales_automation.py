@@ -675,11 +675,20 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             print(f"[govale] WARNING: Solo {len(triggers2)} mat-selects, contacto no disponible")
             _capturar_debug(page, "govale_debug_triggers")
 
-        # 3. Llenar importe (robusto: placeholder/aria-label/ancestros + verifica)
-        if _llenar_campo(page, ['importe', 'monto', '$'], int(monto)):
-            print(f"[govale] Importe: ${monto}")
-        else:
-            print('[govale] WARNING: no se pudo llenar Importe (UI cambio?)')
+        # 3. Llenar importe. AQUÍ NACIERON LOS 9 VALES DE $777: cuando el campo
+        # no se podía escribir se seguía adelante y el formulario mandaba su
+        # monto por defecto. Ahora es obligatorio y verificado por
+        # _llenar_campo (input_value() == valor): si no queda escrito, se
+        # detiene ANTES del clic, así el reintento sigue siendo seguro.
+        monto_txt = int(monto) if abs(monto - int(monto)) < 0.005 else f"{monto:.2f}"
+        if not _llenar_campo(page, ['importe', 'monto', '$'], monto_txt):
+            _capturar_debug(page, "govale_importe_vacio")
+            marcar_progreso(solicitud_id, 60,
+                            f"No se pudo escribir el importe de ${monto:,.2f}")
+            return {'error': ('No se pudo escribir el importe en el formulario de Go Vale; '
+                              'se detuvo antes de generar para no emitir un monto por defecto.'),
+                    'reintentable': True, 'motivo': 'MONTO_NO_ESCRITO'}
+        print(f"[govale] Importe: ${monto}")
         time.sleep(0.5)
 
         # 4. Llenar cantidad

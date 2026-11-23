@@ -295,6 +295,45 @@ def _error_resaltes(texto, maximo=4):
     return list(reversed(out))
 
 
+
+def _log_bd(limite=120):
+    """Tabla con lo último que los workers dijeron a la base.
+
+    Es la vista que faltaba: los eventos quedaban en HUB_WorkersLog y solo se
+    veían por SQL. Va arriba de los logs de archivo porque sobrevive a recrear
+    el contenedor (los de archivo, no).
+    """
+    from .. import db
+
+    filas = db.get_workers_log(limite=limite)
+    if not filas:
+        return ('<div class="card"><div class="wcard-name">Eventos de los workers</div>'
+                '<div class="muted" style="font-size:.85rem">Todavía no hay eventos '
+                'guardados, o la base no responde ahora mismo.</div></div>')
+
+    clases = {"ERROR": "badge-danger", "WARN": "badge-warning"}
+    trs = []
+    for f in filas:
+        nivel = (f.get("Nivel") or "INFO").upper()
+        creado = f.get("Creado")
+        hora = creado.strftime("%d/%m %H:%M:%S") if hasattr(creado, "strftime") else (creado or "")
+        trs.append(
+            f'<tr><td class="hide-sm">{esc(hora)}</td>'
+            f'<td>{esc(f.get("Worker") or "")}</td>'
+            f'<td><span class="badge {clases.get(nivel, "badge-info")}">{esc(nivel)}</span></td>'
+            f'<td>{esc(f.get("Mensaje") or "")}'
+            + (f'<div class="muted" style="font-size:.8rem">{esc(f.get("Detalle"))}</div>'
+               if f.get("Detalle") else "")
+            + '</td></tr>')
+
+    return (
+        '<div class="wgroup">Eventos de los workers (guardados en la base)</div>'
+        '<div class="tscroll"><table class="tbl"><thead><tr>'
+        '<th class="hide-sm">Hora</th><th>Worker</th><th>Nivel</th><th>Mensaje</th>'
+        '</tr></thead><tbody>' + "".join(trs) + "</tbody></table></div>"
+    )
+
+
 def logs_index(status, user, flash_ok="", flash_err="", csrf="",
                lugar="desconocido", ip=""):
     """Módulo Logs: un bloque por worker con su log y los errores marcados."""
@@ -333,6 +372,7 @@ def logs_index(status, user, flash_ok="", flash_err="", csrf="",
 
     body = f"""
   {aviso}
+  {_log_bd()}
   <div class="wgroup">Salida reciente por worker</div>
   {cuerpo}"""
     return page("logs", body, user=user, flash_ok=flash_ok,
