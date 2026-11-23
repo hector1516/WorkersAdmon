@@ -213,6 +213,7 @@ def sync_vales():
                      f"texto={len(body_text)} chars")
         print(f"[govale_sync] Encontrados {len(voucher_elements)} elementos de vales (mejor selector)")
 
+        sin_qr = 0
         for elem in voucher_elements:
             try:
                 text = elem.inner_text().strip()
@@ -221,8 +222,16 @@ def sync_vales():
 
                 # El QR code suele ser un string con guiones: ABC-123-DEF-456
                 import re
-                qr_match = re.search(r'([A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}(?:-[A-Z0-9]{3})*)', text)
+                # Dos formatos válidos, como los que Go Vale usa de verdad:
+                #   con guiones: ABC-123-DEF-456   (por si vuelve)
+                #   sin guiones: VD003526 · SGM950714 · folio de 9 dígitos
+                qr_match = re.search(r'([A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}(?:-[A-Z0-9]{3})*)', text) \
+                    or re.search(r'\b([A-Z]{2,4}\d{5,8}|\d{9})\b', text)
                 if not qr_match:
+                    sin_qr += 1
+                    if sin_qr == 1:
+                        wlog("govale_vouchers_worker", "Tarjeta sin código reconocible",
+                             nivel="WARN", detalle=" ".join(text.split())[:250])
                     continue
 
                 qr_code = qr_match.group(1)
@@ -266,6 +275,8 @@ def sync_vales():
                 print(f"[govale_sync] Error procesando vale: {e}")
                 continue
 
+        wlog("govale_vouchers_worker", f"Sync: {nuevos} nuevos, {sin_qr} sin código",
+             detalle=f"de {len(voucher_elements)} tarjetas")
         # Intentar extraer vales via JavaScript (mas confiable)
         if nuevos == 0:
             print("[govale_sync] Intentando extraer vales via JavaScript...")
