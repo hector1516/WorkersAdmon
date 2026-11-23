@@ -161,6 +161,14 @@ def sync_vales():
         body_text = page.query_selector('body').inner_text() if page.query_selector('body') else ''
 
         if 'No tienes' in body_text or 'sin resultados' in body_text.lower():
+            # Ojo: aquí se salía sin dejar rastro y el latido seguía "vivo".
+            # Se guarda lo que de verdad muestra la página para diagnosticar.
+            wlog(
+                "govale_vouchers_worker",
+                "Go Vale respondió «no hay vales»",
+                nivel="WARN",
+                detalle=(page.title()[:80] + " · " + " ".join(body_text.split())[:280]),
+            )
             print("[govale_sync] No hay vales en Go Vale")
             return 0
 
@@ -183,19 +191,26 @@ def sync_vales():
             'tr', 'li', 'div[class*="item"]', 'div[class*="row"]',
         ]
         voucher_elements = []
+        mejor_selector = "(ninguno)"
         for sel in selectors:
             try:
                 elems = page.query_selector_all(sel)
                 if elems and len(elems) > len(voucher_elements):
                     voucher_elements = elems
+                    mejor_selector = sel
             except Exception:
                 pass
 
         if not voucher_elements:
             # Último recurso: intentar extraer datos del body_text
+            wlog("govale_vouchers_worker", "No se encontró la lista de vales",
+                 nivel="WARN", detalle=" ".join(body_text.split())[:350])
             print("[govale_sync] No se encontraron elementos de vales, intentando extraer del texto...")
             voucher_elements = []
 
+        wlog("govale_vouchers_worker", f"Tarjetas encontradas: {len(voucher_elements)}",
+             detalle=f"selector={mejor_selector}, título={page.title()[:60]}, "
+                     f"texto={len(body_text)} chars")
         print(f"[govale_sync] Encontrados {len(voucher_elements)} elementos de vales (mejor selector)")
 
         for elem in voucher_elements:
