@@ -211,7 +211,10 @@ def _launch_browser_and_login(user, pwd):
     browser = None
     try:
         browser = pw.chromium.launch(headless=True)
-        context = browser.new_context(ignore_https_errors=True)
+        from govale_sesion import sesion_guardada
+        context = browser.new_context(
+            ignore_https_errors=True, storage_state=sesion_guardada()
+        )
         page = context.new_page()
     except Exception:
         # Si no se pudo ni abrir el navegador hay que soltar el driver igual.
@@ -271,15 +274,26 @@ def _launch_browser_and_login(user, pwd):
                 continue
 
         if not email_filled:
-            # Inspeccionar qué hay en la página
-            all_inputs = page.query_selector_all('input')
-            print(f"[govale] No se encontró email. Inputs en página: {len(all_inputs)}")
-            for inp in all_inputs:
-                print(f"  input: type={inp.get_attribute('type')} placeholder={inp.get_attribute('placeholder')} name={inp.get_attribute('name')} id={inp.get_attribute('id')}")
-            # Tomar screenshot para debug
-            _capturar_debug(page, "govale_debug")
-            print("[govale] Screenshot guardado en /tmp/govale_debug.png")
-            return browser, context, page, captured_tokens, pw
+            # Sin campo de correo puede ser que YA haya sesión guardada. Antes
+            # se rendía aquí y se perdía el vale; ahora, si está dentro, se
+            # sigue al dashboard (que es donde se guarda la sesión y se saca
+            # el token). Si de verdad pide credenciales, se rinde como antes.
+            try:
+                from govale_sesion import valida as _valida
+            except Exception:
+                _valida = lambda _p: False
+            if _valida(page):
+                print("[govale] Sesión guardada válida: no hace falta login")
+            else:
+                # Inspeccionar qué hay en la página
+                all_inputs = page.query_selector_all('input')
+                print(f"[govale] No se encontró email. Inputs en página: {len(all_inputs)}")
+                for inp in all_inputs:
+                    print(f"  input: type={inp.get_attribute('type')} placeholder={inp.get_attribute('placeholder')} name={inp.get_attribute('name')} id={inp.get_attribute('id')}")
+                # Tomar screenshot para debug
+                _capturar_debug(page, "govale_debug")
+                print("[govale] Screenshot guardado en /tmp/govale_debug.png")
+                return browser, context, page, captured_tokens, pw
 
         # Click en "Siguiente" / "Next" / "Continue"
         next_selectors = [
@@ -372,6 +386,14 @@ def _launch_browser_and_login(user, pwd):
         # dashboard (ver docstring de _esperar_dashboard).
         print("[govale] Esperando carga del dashboard...")
         _esperar_dashboard(page)
+        # Guardar la sesión: el sincronizador la reusa y no vuelve a
+        # pelear con el login de Entra en cada corrida.
+        try:
+            from govale_sesion import guardar as _guardar_sesion
+            if _guardar_sesion(context):
+                print("[govale] Sesión guardada para la próxima")
+        except Exception:
+            pass
 
         # Extraer token de sessionStorage (MSAL lo guarda ahí). Puede fallar si
         # el SPA todavia esta navegando: se reintenta en vez de rendirse.
