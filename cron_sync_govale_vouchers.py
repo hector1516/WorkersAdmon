@@ -248,6 +248,9 @@ def sync_vales():
                  nivel="INFO",
                  detalle=f"página autenticada, texto={len(body_text)} chars")
             print("[govale_sync] 0 vales activos")
+            # Se anota lo que se vio (0) para que el aviso de espejo viejo no
+            # grite para siempre: sin vales en Go Vale no hay nada que espejar.
+            _anotar_lectura(0)
             return 0
 
         wlog("govale_vouchers_worker", f"Tarjetas encontradas: {len(voucher_elements)}",
@@ -317,6 +320,7 @@ def sync_vales():
                 print(f"[govale_sync] Error procesando vale: {e}")
                 continue
 
+        _anotar_lectura(len(voucher_elements))
         wlog("govale_vouchers_worker", f"Sync: {nuevos} nuevos, {sin_qr} sin código",
              detalle=f"de {len(voucher_elements)} tarjetas")
         # Intentar extraer vales via JavaScript (mas confiable)
@@ -477,6 +481,21 @@ def notificar_saldo_diario():
     except Exception as e:
         print(f"[govale_sync] Error notificación diaria: {e}")
         return False
+
+
+def _anotar_lectura(cuantos):
+    """Deja constancia de cuántos vales se vieron al leer la lista.
+
+    Es la diferencia entre "no hay vales" y "el parser está ciego": antes se
+    medía el latido y el dato, y con los 9 vales cancelados el aviso de espejo
+    viejo se quedaba en rojo aunque todo estuviera bien.
+    """
+    try:
+        from datetime import datetime as _dt
+        db.set_govale_config('govale_vales_activos', str(int(cuantos)))
+        db.set_govale_config('govale_sync_visto', _dt.now().strftime('%Y-%m-%d %H:%M:%S'))
+    except Exception as e:
+        print(f"[govale_sync] no se pudo anotar la lectura: {e}")
 
 
 def main():

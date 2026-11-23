@@ -225,6 +225,19 @@ def avisar_sync_viejo(horas=24):
             )
             fila = cur.fetchone() or {}
         horas_sin = fila.get("horas")
+
+        # Si la última lectura buena de la lista encontró 0 vales activos, el
+        # espejo está al día en cero y avisar sería una falsa alarma eterna
+        # (pasó al cancelar los 9 vales del 22-nov). El aviso vuelve solo
+        # cuando Go Vale tenga vales y no lleguen al espejo.
+        try:
+            activos_raw = db.get_govale_config('govale_vales_activos')
+            activos = int(activos_raw) if activos_raw is not None else None
+        except (TypeError, ValueError):
+            activos = None
+        if activos == 0:
+            return
+
         if horas_sin is None or int(horas_sin) >= horas:
             wlog(
                 "vales_worker",
