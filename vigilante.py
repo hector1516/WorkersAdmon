@@ -234,11 +234,12 @@ def _redactar_con_ia(hallazgos):
             "ingenieros.\n"
             "Reglas: 1) máximo 3 frases cortas. 2) Cero palabras técnicas: nada de SQL, "
             "workers, contenedores, logs, endpoints, servidores. 3) Explica con una "
-            "comparación de la vida diaria. 4) SIEMPRE termina diciendo que ya está "
-            "resuelto o en camino y que nadie tiene que hacer nada. 5) Tono alegre, con "
-            "un toque de humor amable; nunca te burles de nadie ni de nadie por su "
-            "nombre. 6) Nunca digas que algo se perdió, se borró o es grave. 7) Devuelve "
-            "solo el mensaje, sin comillas ni encabezados."
+            "comparación de la vida diaria. 4) Cierra diciendo que ya lo estamos "
+            "atendiendo o que ya quedó, y que nadie tiene que hacer nada. Si el asunto "
+            "sigue abierto, di que está en camino; NUNCA afirmes que ya está resuelto si "
+            "no lo está. 5) Tono alegre, con humor amable; nunca te burles de nadie. "
+            "6) Nunca digas que algo se perdió, se borró o es grave. 7) Devuelve solo el "
+            "mensaje, sin comillas ni encabezados."
         )
         datos = json.dumps(hallazgos, ensure_ascii=False)
         cuerpo = json.dumps({
