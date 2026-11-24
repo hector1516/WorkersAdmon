@@ -262,14 +262,16 @@ def _redactar_con_ia(hallazgos):
 
 
 def _mensaje(hallazgos):
+    """Redacta el aviso y lo firma. La firma va aquí, en código, para que no
+    dependa de que la IA se acuerde: el agente se llama Volt."""
     if not hallazgos:
-        return PLANTILLAS["resumen_bueno"]
+        return PLANTILLAS["resumen_bueno"] + "\n\n— Volt"
     texto = _redactar_con_ia(hallazgos)
-    if texto:
-        return texto
-    partes = [PLANTILLAS.get(h["regla"], "Algo se movió por aquí; ya lo estamos "
-                                        "revisando.") for h in hallazgos]
-    return " ".join(dict.fromkeys(partes))
+    if not texto:
+        partes = [PLANTILLAS.get(h["regla"], "Algo se movió por aquí; ya lo estamos "
+                                            "revisando.") for h in hallazgos]
+        texto = " ".join(dict.fromkeys(partes))
+    return texto + "\n\n— Volt"
 
 
 # ── envío ──────────────────────────────────────────────────────────────

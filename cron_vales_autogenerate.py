@@ -147,7 +147,7 @@ def generar_vale_sincrono(solicitud_id):
                         ("ALERTA: un vale salio con otro importe\n\n"
                          f"{mensaje[:300]}\n\n"
                          "El vale ya existe. No se reintenta. Revisar en Go Vale "
-                         "antes de que se use.\nAgente ECCSA")[:4000])
+                         "antes de que se use.\nVolt")[:4000])
                 print(f"[vales_worker] alerta de monto enviada ({len(chats)} chats)", flush=True)
             except Exception as e:
                 print(f"[vales_worker] no se pudo avisar el monto: {e}", flush=True)
