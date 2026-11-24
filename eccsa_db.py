@@ -6424,7 +6424,13 @@ def send_telegram_message(chat_id, texto, adjunto=None, adjunto_nombre=None):
 
 
 def _send_telegram_text_only(url, chat_id, texto):
-    """Envía solo texto (sin adjunto). Devuelve (ok, message_id_o_error)."""
+    """Envía solo texto (sin adjunto). Devuelve (ok, message_id_o_error).
+
+    Primero con Markdown (negritas y enlaces). Si Telegram lo rechaza por
+    entidades — pasa con cualquier guion bajo suelto, como `vales_worker` —
+    se reintenta SIN formato: es preferible un mensaje plano a uno que nunca
+    llega. Antes la alerta del latido se reintentaba 3 veces y moría igual.
+    """
     resp = _requests.post(
         f"{url}/sendMessage",
         json={'chat_id': int(chat_id), 'text': texto, 'parse_mode': 'Markdown'},
@@ -6433,7 +6439,20 @@ def _send_telegram_text_only(url, chat_id, texto):
     payload = resp.json()
     if resp.ok and payload.get('ok'):
         return True, f"ok ({payload.get('result', {}).get('message_id', '')})"
-    return False, f"API error: {payload.get('description', resp.text[:200])}"
+
+    descripcion = str(payload.get('description', resp.text[:200]))
+    if 'parse' in descripcion.lower() and 'entit' in descripcion.lower():
+        resp = _requests.post(
+            f"{url}/sendMessage",
+            json={'chat_id': int(chat_id), 'text': texto},
+            timeout=15
+        )
+        payload = resp.json()
+        if resp.ok and payload.get('ok'):
+            return True, f"ok ({payload.get('result', {}).get('message_id', '')})"
+        return False, f"API error: {payload.get('description', resp.text[:200])}"
+
+    return False, f"API error: {descripcion}"
 
 
 def test_telegram_bot():

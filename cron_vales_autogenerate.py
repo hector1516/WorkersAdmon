@@ -129,10 +129,16 @@ def generar_vale_sincrono(solicitud_id):
             try:
                 conn_a = db.get_connection()
                 with conn_a.cursor(as_dict=True) as cur_a:
+                    # Las tablas reales: HUB_TelegramDestinatarios dice qué
+                    # usuario recibe el evento y HUB_TelegramUsuarios su chat.
                     cur_a.execute("""
-                        SELECT t.ChatId FROM HUB_TelegramVinculados t
-                        JOIN HUB_Users u ON u.Id = t.IdUsuario
-                        WHERE t.Activo = 1 AND u.AccesoAdminVales = 1
+                        SELECT u.ChatId
+                        FROM HUB_TelegramDestinatarios d
+                        JOIN HUB_TelegramUsuarios u ON u.IdUsuario = d.IdUsuario
+                        JOIN HUB_Users hu ON hu.Id = d.IdUsuario
+                        WHERE d.IdEvento = 'VALE_QR_GENERADO'
+                          AND u.Activo = 1
+                          AND hu.AccesoAdminVales = 1
                     """)
                     chats = [r["ChatId"] for r in cur_a.fetchall()]
                 for cid in chats:

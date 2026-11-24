@@ -87,6 +87,20 @@ def _alertar(segundos):
         print(f"[vales_watchdog] alerta fallo: {e}", flush=True)
 
 
+def _worker_habilitado():
+    """False si el worker está fuera de /data/workers_enabled.txt.
+
+    Un worker deshabilitado a propósito NO tiene latido; sin esta guarda el
+    vigilante lo daba por colgado, intentaba reiniciarlo (y fallaba, porque
+    supervisor ya no lo conoce) y mandaba una alerta cada ciclo.
+    """
+    try:
+        with open('/data/workers_enabled.txt', encoding='utf-8') as f:
+            return 'vales_worker' in [l.strip() for l in f if l.strip()]
+    except Exception:
+        return True
+
+
 def main():
     wlog("vales_watchdog", "Arrancó")
     print(f"[vales_watchdog] Iniciado (umbral {UMBRAL_SEG}s, intervalo {INTERVALO}s)", flush=True)
@@ -99,6 +113,10 @@ def main():
         else:
             edad = time.time() - hb
             if edad > UMBRAL_SEG:
+                if not _worker_habilitado():
+                    # Está apagado a propósito: se calla y no se reinicia.
+                    time.sleep(INTERVALO)
+                    continue
                 print(f"[vales_watchdog] Heartbeat viejo: {int(edad)}s > {UMBRAL_SEG}s. Reiniciando...", flush=True)
                 _alertar(edad)
                 _reiniciar_worker()

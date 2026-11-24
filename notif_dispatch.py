@@ -79,7 +79,7 @@ TIPOS = {
         "titulo_func": lambda d: "⛽ Ticket OxxoGas registrado",
         "mensaje_func": lambda d: (
             f"{d['actor']} registró el ticket {d['ref']} ({d['extra']})."
-            + (f" Saldo OxxoGas: {d['saldo']}." if d.get('saldo') else "")
+            + (f" Último saldo conocido OxxoGas: {d['saldo']}." if d.get('saldo') else "")
         ),
     },
     "COTIZACION_FIRMADA": {
