@@ -777,11 +777,18 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                     'reintentable': True, 'motivo': 'CANTIDAD_NO_ESCRITA'}
         print(f"[govale] Cantidad: {cantidad}")
 
-        # 5. Llenar concepto
-        if _llenar_campo(page, ['concepto', 'descripción', 'descripcion'], concepto[:100]):
+        # 5. Concepto, también por su control exacto.
+        #
+        # AQUÍ SE PERDÍAN LOS VALORES: el buscador viejo probaba los inputs uno
+        # por uno y escribía el concepto en el campo del importe (todos
+        # comparten el texto del formulario como "ancestro"). Al no coincidir,
+        # seguía, pero ya había dejado el importe con basura: Angular lo
+        # reiniciaba a su valor por defecto ($615 × 8, o sea casi todo el
+        # saldo). El chequeo previo lo detectaba y abortaba la generación.
+        if _escribir_control('concept', concepto[:100]):
             print(f"[govale] Concepto: {concepto[:50]}")
         else:
-            print('[govale] WARNING: no se pudo llenar Concepto (UI cambio?)')
+            print('[govale] WARNING: no se pudo llenar Concepto (no es obligatorio)')
         time.sleep(0.5)
 
         marcar_progreso(solicitud_id, 65, "Llenando los datos...")
