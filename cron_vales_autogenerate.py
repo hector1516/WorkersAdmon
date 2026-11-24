@@ -123,6 +123,28 @@ def generar_vale_sincrono(solicitud_id):
         _anotar_motivo(solicitud_id,
                        resultado.get("motivo") or _clasificar_motivo(mensaje),
                        mensaje)
+        # Un vale con otro importe es dinero: se avisa en el momento, no se
+        # espera al resumen diario. No se reintenta: el vale ya existe.
+        if resultado.get("motivo") == "MONTO_EMITIDO_DISTINTO":
+            try:
+                conn_a = db.get_connection()
+                with conn_a.cursor(as_dict=True) as cur_a:
+                    cur_a.execute("""
+                        SELECT t.ChatId FROM HUB_TelegramVinculados t
+                        JOIN HUB_Users u ON u.Id = t.IdUsuario
+                        WHERE t.Activo = 1 AND u.AccesoAdminVales = 1
+                    """)
+                    chats = [r["ChatId"] for r in cur_a.fetchall()]
+                for cid in chats:
+                    db.queue_telegram_alerta(
+                        'VALE_QR_GENERADO', int(cid),
+                        ("ALERTA: un vale salio con otro importe\n\n"
+                         f"{mensaje[:300]}\n\n"
+                         "El vale ya existe. No se reintenta. Revisar en Go Vale "
+                         "antes de que se use.\nAgente ECCSA")[:4000])
+                print(f"[vales_worker] alerta de monto enviada ({len(chats)} chats)", flush=True)
+            except Exception as e:
+                print(f"[vales_worker] no se pudo avisar el monto: {e}", flush=True)
         if resultado.get("reintentable"):
             # Fallo ANTES de generar (login/navegacion): no hay riesgo de
             # duplicar. Se deja APROBADO para que el proximo ciclo reintente, en

@@ -222,107 +222,70 @@ def sync_vales():
         except Exception as e:
             print(f"[govale_sync] No se pudo guardar HTML: {e}")
 
-        # Un vale activo es una tarjeta .qrs DENTRO de .containerQrs. Se dejan
-        # fuera «Generar Vale» y «N Vales Activos», que también son .qrs.
-        # Sin selectores genéricos (li, .card, tr): el menú no es un vale.
+        # La lista REAL de vales no está en /home: hay que pulsar «Vales» en el
+        # menú (por URL directa, /vouchers rebota a /home y ahí solo está el
+        # contador «N Vales Activos»). Antes se leía esa tarjeta y por eso el
+        # sincronizador daba 0 vales aunque hubiera vales activos.
+        page.evaluate("""() => {
+            const b = [...document.querySelectorAll('li button')]
+                .find(x => (x.innerText || '').trim() === 'Vales');
+            if (b) b.click();
+        }""")
+        page.wait_for_timeout(9000)
+        try:
+            body_text = page.inner_text('body')
+        except Exception:
+            body_text = ''
+
         import re as _re
+        # Cada vale del listado: folio (9 dígitos), fecha e «Importe original».
+        BLOQUE = _re.compile(
+            r'(\d{6,15})\s*\n\s*(\d{1,2}/\d{1,2}/\d{2,4})\s*\n\s*'
+            r'Importe original\s*\n?\s*\$?\s*([\d,]+\.\d{2})')
+        vales_leidos = []
+        for folio, fecha, monto in BLOQUE.findall(body_text or ''):
+            try:
+                vales_leidos.append({'folio': folio, 'fecha': fecha,
+                                     'monto': float(monto.replace(',', ''))})
+            except ValueError:
+                continue
 
-        def _es_vale(tarjeta):
-            t = " ".join((tarjeta.inner_text() or "").split()).lower()
-            if not t:
-                return False
-            if 'generar vale' in t:
-                return False
-            if _re.match(r'^\d+\s*vales?\s*activos?', t):
-                return False
-            # Defensa extra: un vale siempre trae importe. Si un día el SPA
-            # cambia y vuelve a colarse un elemento del menú, sin «$» no pasa.
-            return '$' in t
-
-        voucher_elements = [q for q in page.query_selector_all('.containerQrs .qrs') if _es_vale(q)]
-        mejor_selector = '.containerQrs .qrs'
-
-        if not voucher_elements:
+        if not vales_leidos:
             wlog("govale_vouchers_worker",
-                 "No hay vales activos en Go Vale",
+                 "No hay vales en la lista de Go Vale",
                  nivel="INFO",
                  detalle=f"página autenticada, texto={len(body_text)} chars")
-            print("[govale_sync] 0 vales activos")
-            # Se anota lo que se vio (0) para que el aviso de espejo viejo no
-            # grite para siempre: sin vales en Go Vale no hay nada que espejar.
+            print("[govale_sync] 0 vales en la lista")
             _anotar_lectura(0)
             return 0
 
-        wlog("govale_vouchers_worker", f"Tarjetas encontradas: {len(voucher_elements)}",
-             detalle=f"selector={mejor_selector}, título={page.title()[:60]}, "
-                     f"texto={len(body_text)} chars")
-        print(f"[govale_sync] Encontrados {len(voucher_elements)} elementos de vales (mejor selector)")
+        wlog("govale_vouchers_worker", f"Vales leídos: {len(vales_leidos)}",
+             detalle=f"título={page.title()[:60]}, texto={len(body_text)} chars")
+        print(f"[govale_sync] Vales leídos: {len(vales_leidos)}")
 
         sin_qr = 0
-        for elem in voucher_elements:
+        for vale in vales_leidos:
             try:
-                text = elem.inner_text().strip()
-                if not text:
-                    continue
-
-                # El QR code suele ser un string con guiones: ABC-123-DEF-456
-                import re
-                # Dos formatos válidos, como los que Go Vale usa de verdad:
-                #   con guiones: ABC-123-DEF-456   (por si vuelve)
-                #   sin guiones: VD003526 · SGM950714 · folio de 9 dígitos
-                qr_match = re.search(r'([A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}(?:-[A-Z0-9]{3})*)', text) \
-                    or re.search(r'\b([A-Z]{2,4}\d{5,8}|\d{9})\b', text)
-                if not qr_match:
-                    sin_qr += 1
-                    if sin_qr == 1:
-                        wlog("govale_vouchers_worker", "Tarjeta sin código reconocible",
-                             nivel="WARN", detalle=" ".join(text.split())[:250])
-                    continue
-
-                qr_code = qr_match.group(1)
-
-                # Verificar si ya esta en cache
+                # El folio ES el código que se escanea en la estación.
+                qr_code = vale['folio']
                 if db.vale_exists_in_cache(qr_code):
                     continue
-
-                # Extraer datos del texto
-                monto = 0.0
-                monto_match = re.search(r'\$[\d,]+\.?\d*', text)
-                if monto_match:
-                    monto = float(monto_match.group().replace('$', '').replace(',', ''))
-
-                estatus = 'Desconocido'
-                for est in ['Activo con saldo sin enviar', 'Activo con saldo enviado',
-                            'Usado en su totalidad', 'Cancelado']:
-                    if est.lower() in text.lower():
-                        estatus = est
-                        break
-
-                # Generar imagen QR
+                monto = vale['monto']
                 qr_image = generate_qr_image(qr_code)
-
-                # Guardar en cache
                 ok = db.upsert_vale_cache(
-                    qr_code=qr_code,
-                    voucher_id=None,
-                    monto=monto,
-                    saldo=monto,
-                    estatus=estatus,
-                    contacto='',
-                    empresa='',
-                    qr_image=qr_image
-                )
+                    qr_code=qr_code, voucher_id=None, monto=monto, saldo=monto,
+                    estatus='Activo', contacto='', empresa='', qr_image=qr_image)
                 if ok:
                     nuevos += 1
-                    print(f"[govale_sync] Nuevo vale: {qr_code} (${monto}) - {estatus}")
-
+                    print(f"[govale_sync] Nuevo vale: {qr_code} (${monto})")
             except Exception as e:
                 print(f"[govale_sync] Error procesando vale: {e}")
                 continue
 
-        _anotar_lectura(len(voucher_elements))
+        _anotar_lectura(len(vales_leidos))
         wlog("govale_vouchers_worker", f"Sync: {nuevos} nuevos, {sin_qr} sin código",
-             detalle=f"de {len(voucher_elements)} tarjetas")
+             detalle=f"de {len(vales_leidos)} vales")
+
         # Intentar extraer vales via JavaScript (mas confiable)
         if nuevos == 0:
             print("[govale_sync] Intentando extraer vales via JavaScript...")

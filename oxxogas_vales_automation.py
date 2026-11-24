@@ -559,6 +559,46 @@ def _llenar_campo(page, etiquetas, valor, max_ancestros=4):
     return False
 
 
+def _monto_permitido_de(valor_crudo, por_defecto=500.0):
+    """El monto autorizado, leído de HUB_Config (`vales_monto_fijo`).
+
+    La empresa solo autoriza vales por ese monto. Si la clave falta o está
+    mal escrita, se usa 500: es más seguro rechazar de más que emitir de más.
+    """
+    try:
+        return float(str(valor_crudo).replace(",", ".").strip())
+    except (TypeError, ValueError):
+        return por_defecto
+
+
+def _monto_coincide(emitido, pedido, tolerancia=0.01):
+    """True solo si lo emitido es exactamente lo pedido (dentro de un centavo)."""
+    try:
+        return abs(float(emitido) - float(pedido)) <= tolerancia
+    except (TypeError, ValueError):
+        return False
+
+
+def _leer_monto_emitido(texto, folio):
+    """Del listado de Go Vale saca el 'Importe original' del vale con ese folio.
+
+    Es la ÚNICA prueba de lo que de verdad se emitió: MontoUnit es lo pedido.
+    Devuelve None si el folio no aparece con importe legible.
+    """
+    import re as _re
+    patron = _re.compile(
+        r'(\d{6,15})\s*\n\s*\d{1,2}/\d{1,2}/\d{2,4}\s*\n\s*'
+        r'Importe original\s*\n?\s*\$?\s*([\d,]+\.\d{2})',
+        _re.IGNORECASE)
+    for f, monto in patron.findall(texto or ''):
+        if str(f) == str(folio):
+            try:
+                return float(monto.replace(',', ''))
+            except ValueError:
+                return None
+    return None
+
+
 def crear_vale(solicitud_id, user=None, pwd=None):
     """Crea un vale navegando la UI de Go Vale con Playwright (Angular Material).
     Usa la tabla de mapeo HUB_OxxoGas_Mapeo para empresa/contacto.
@@ -619,6 +659,24 @@ def crear_vale(solicitud_id, user=None, pwd=None):
     monto = float(sol['MONTOUNIT'])
     cantidad = int(sol['CANTIDAD'])
 
+    # POLÍTICA DE LA EMPRESA: solo se autorizan vales por el monto fijo
+    # (`vales_monto_fijo`, 500 por defecto). Se rechaza aquí, antes de abrir
+    # el navegador, para que una cifra distinta nunca llegue al formulario.
+    try:
+        conn_cfg = db.get_connection()
+        with conn_cfg.cursor() as cur_cfg:
+            cur_cfg.execute("SELECT Valor FROM HUB_Config WHERE Clave = 'vales_monto_fijo'")
+            fila_cfg = cur_cfg.fetchone()
+        conn_cfg.close()
+        crudo = fila_cfg[0] if fila_cfg else None
+    except Exception:
+        crudo = None
+    monto_permitido = _monto_permitido_de(crudo)
+    if not _monto_coincide(monto, monto_permitido):
+        return {'error': (f'El monto pedido (${monto:,.2f}) no está autorizado: '
+                          f'solo se generan vales de ${monto_permitido:,.0f}.'),
+                'reintentable': False, 'motivo': 'MONTO_NO_PERMITIDO'}
+
     browser, context, page, tokens, pw = _launch_browser_and_login(user, pwd)
     # Marca si YA se hizo click en "Generar Vale". Decide si un fallo es seguro
     # de reintentar (nunca se llego a generar) o no (pudo crearse a medias).
@@ -675,13 +733,33 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             print(f"[govale] WARNING: Solo {len(triggers2)} mat-selects, contacto no disponible")
             _capturar_debug(page, "govale_debug_triggers")
 
-        # 3. Llenar importe. AQUÍ NACIERON LOS 9 VALES DE $777: cuando el campo
-        # no se podía escribir se seguía adelante y el formulario mandaba su
-        # monto por defecto. Ahora es obligatorio y verificado por
-        # _llenar_campo (input_value() == valor): si no queda escrito, se
-        # detiene ANTES del clic, así el reintento sigue siendo seguro.
+        # 3. Importe y cantidad por su CONTROL EXACTO, con blur y relectura.
+        #
+        # AQUÍ SE EMITIERON UN VALE POR $5,709 (todo el saldo) Y NUEVE POR
+        # $615. El formulario es Angular y confirma el valor al salir del
+        # campo: escribir sin blur dejaba el modelo con su valor por defecto,
+        # que es el saldo disponible (y la cantidad máxima, 9). El control
+        # anterior solo comparaba input_value(), o sea el texto del campo, que
+        # sí mostraba lo escrito. Por eso ahora se escribe por formcontrolname,
+        # se dispara input/change + blur, y se vuelve a leer antes de enviar.
         monto_txt = int(monto) if abs(monto - int(monto)) < 0.005 else f"{monto:.2f}"
-        if not _llenar_campo(page, ['importe', 'monto', '$'], monto_txt):
+
+        def _escribir_control(nombre, valor):
+            campo = page.query_selector(f'input[formcontrolname="{nombre}"]')
+            if not campo or campo.is_disabled():
+                return False
+            campo.click()
+            campo.fill('')
+            campo.fill(str(valor))
+            page.evaluate("""(el) => {
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                el.blur();
+            }""", campo)
+            time.sleep(0.8)
+            return (campo.input_value() or '').strip() == str(valor)
+
+        if not _escribir_control('totalVoucher', monto_txt):
             _capturar_debug(page, "govale_importe_vacio")
             marcar_progreso(solicitud_id, 60,
                             f"No se pudo escribir el importe de ${monto:,.2f}")
@@ -689,14 +767,15 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                               'se detuvo antes de generar para no emitir un monto por defecto.'),
                     'reintentable': True, 'motivo': 'MONTO_NO_ESCRITO'}
         print(f"[govale] Importe: ${monto}")
-        time.sleep(0.5)
 
-        # 4. Llenar cantidad
-        if _llenar_campo(page, ['cantidad', 'máximo', 'maximo'], cantidad):
-            print(f"[govale] Cantidad: {cantidad}")
-        else:
-            print('[govale] WARNING: no se pudo llenar Cantidad (UI cambio?)')
-        time.sleep(0.5)
+        if not _escribir_control('quantity', int(cantidad)):
+            _capturar_debug(page, "govale_cantidad_vacia")
+            marcar_progreso(solicitud_id, 60,
+                            f"No se pudo escribir la cantidad ({cantidad})")
+            return {'error': ('No se pudo escribir la cantidad de vales; se detuvo antes '
+                              'de generar (el formulario usaría su máximo, que es 9).'),
+                    'reintentable': True, 'motivo': 'CANTIDAD_NO_ESCRITA'}
+        print(f"[govale] Cantidad: {cantidad}")
 
         # 5. Llenar concepto
         if _llenar_campo(page, ['concepto', 'descripción', 'descripcion'], concepto[:100]):
@@ -706,6 +785,21 @@ def crear_vale(solicitud_id, user=None, pwd=None):
         time.sleep(0.5)
 
         marcar_progreso(solicitud_id, 65, "Llenando los datos...")
+
+        # Última comprobación ANTES del clic: si Angular revirtió los valores
+        # al perder el foco, no se genera nada.
+        final_imp = page.query_selector('input[formcontrolname="totalVoucher"]')
+        final_can = page.query_selector('input[formcontrolname="quantity"]')
+        imp_leido = (final_imp.input_value() or '').strip() if final_imp else ''
+        can_leido = (final_can.input_value() or '').strip() if final_can else ''
+        if imp_leido != str(monto_txt) or can_leido != str(int(cantidad)):
+            _capturar_debug(page, "govale_valores_revertidos")
+            marcar_progreso(solicitud_id, 60, "El formulario no conservó el importe")
+            return {'error': (f'El formulario de Go Vale no conservó los valores '
+                              f'(importe {imp_leido!r}, cantidad {can_leido!r}); '
+                              'no se generó nada.'),
+                    'reintentable': True, 'motivo': 'FORMULARIO_NO_CONSERVO'}
+        print(f"[govale] Formulario verificado: ${imp_leido} x {can_leido}")
 
         # 5. Click "Generar Vale"
         gen_btn = page.query_selector('button:has-text("Generar Vale")')
@@ -763,6 +857,45 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             print('[govale] NO se pudo extraer el folio del listado; '
                   'el vale puede haberse creado pero no se puede referenciar')
 
+        # Importe REAL del vale: el listado trae "Importe original". Es la
+        # única prueba de lo que de verdad se emitió; MontoUnit es lo pedido.
+        # Aquí se detectó el vale de $5,709: la app lo daba por bueno con $500.
+        monto_emitido = None
+        if folio_oxxogas:
+            monto_emitido = _leer_monto_emitido(body_text, folio_oxxogas)
+            if monto_emitido is None:
+                print('[govale] no se pudo leer el importe del vale en el listado')
+            elif not _monto_coincide(monto_emitido, monto):
+                # El vale existe con otro importe: se registra TAL CUAL y se
+                # marca para revisión. NO se reintenta: ya hay un vale emitido
+                # y reintentar cobraría dos veces.
+                _capturar_debug(page, "govale_monto_distinto")
+                try:
+                    conn_m = db.get_connection()
+                    with conn_m.cursor() as cur_m:
+                        cur_m.execute("""
+                            UPDATE HUB_SolicitudVales
+                            SET Estatus = 'GENERADO', IdValeGoVale = %s,
+                                CodigoQR = %s, MontoEmitido = %s,
+                                MotivoCodigo = 'MONTO_EMITIDO_DISTINTO',
+                                Motivo = %s, FechaAprobado = GETDATE()
+                            WHERE Id = %s
+                        """, (folio_oxxogas, folio_oxxogas, monto_emitido,
+                              (f'El vale salió por ${monto_emitido:,.2f} y se pidió '
+                               f'${monto:,.2f}. Revisar en Go Vale.')[:200],
+                              solicitud_id))
+                    conn_m.commit()
+                    conn_m.close()
+                except Exception as exc:
+                    print(f"[govale] no se pudo registrar el monto emitido: {exc}")
+                marcar_progreso(solicitud_id, 95,
+                                f"El vale salió por ${monto_emitido:,.2f}")
+                return {'error': (f'El vale se emitió por ${monto_emitido:,.2f} y se '
+                                  f'pidió ${monto:,.2f}. Revisar en Go Vale antes de usarlo.'),
+                        'reintentable': False, 'motivo': 'MONTO_EMITIDO_DISTINTO',
+                        'monto_emitido': monto_emitido,
+                        'folio_oxxogas': folio_oxxogas}
+
         # Buscar QR en la página. OJO: el listado NO muestra el QR (sale al
         # reenviar o en el detalle), asi que aqui casi nunca habra uno. Por eso
         # abajo ya no se marca GENERADO solo por esto.
@@ -801,6 +934,10 @@ def crear_vale(solicitud_id, user=None, pwd=None):
             # Ahora: si hay folio, el vale existe y queda GENERADO. Si NO hay
             # folio, se deja en APROBADO para que el worker lo reintente, y se
             # avisa en el log, porque sin folio no se sabe si se duplico.
+            # El folio es el código que el usuario escanea en la estación: si
+            # el listado no trajo un QR aparte, se guarda el folio. Antes se
+            # guardaba vacío y la app no mostraba el vale.
+            codigo = qr_code or folio_oxxogas
             est = 'GENERADO' if folio_oxxogas else 'APROBADO'
             conn = db.get_connection()
             try:
@@ -811,10 +948,14 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                             IdValeGoVale = %s,
                             CodigoQR = %s,
                             UrlQR = %s,
+                            MontoEmitido = %s,
+                            Motivo = NULL,
+                            MotivoCodigo = NULL,
                             FechaAprobado = GETDATE()
                         WHERE Id = %s
                     """, (est, folio_oxxogas,
-                          qr_code[:2000] if qr_code else '', qr_url[:500] if qr_url else '',
+                          codigo[:2000] if codigo else '', qr_url[:500] if qr_url else '',
+                          monto_emitido if monto_emitido is not None else monto,
                           solicitud_id))
                     conn.commit()
                     print(f"[govale] BD actualizada: {est} folio={folio_oxxogas or '(sin folio)'}, "
@@ -844,6 +985,7 @@ def crear_vale(solicitud_id, user=None, pwd=None):
                             else 'Vale creado en Go Vale pero NO se pudo leer el folio; '
                                  'queda APROBADO para reintentar'),
                 'folio_oxxogas': folio_oxxogas,
+                'monto_emitido': monto_emitido,
                 'qr_code': qr_code,
                 'qr_url': qr_url,
                 'empresa': 'ECCSA',  # empresa fija
