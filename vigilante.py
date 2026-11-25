@@ -310,6 +310,7 @@ def _toca(regla):
 # ── ciclo ──────────────────────────────────────────────────────────────
 def ciclo():
     hallazgos = []
+    hora = datetime.now().hour
     for regla in REGLAS:
         try:
             h = regla()
@@ -317,6 +318,10 @@ def ciclo():
             print(f"[vigilante] {regla.__name__} falló: {str(e)[:120]}", flush=True)
             continue
         if not h:
+            continue
+        # De noche solo lo urgente (rojo). Lo demás espera al ciclo de las 8:00:
+        # no se marca como avisado, así sale en el primer ciclo del día.
+        if h["nivel"] != "rojo" and (hora < 8 or hora >= 21):
             continue
         if not _toca(h["regla"]):
             continue
@@ -332,16 +337,8 @@ def ciclo():
         enviados = _enviar(texto)
         wlog(NOMBRE, f"Aviso enviado a {enviados} chats", detalle=texto[:200])
         print(f"[vigilante] {len(hallazgos)} hallazgo(s), aviso a {enviados} chats")
-        return hallazgos
-
-    # Resumen diario cuando no hay nada: una vez al día.
-    hora = int(_cfg("vigilante_hora_resumen", "8") or 8)
-    hoy = datetime.now().strftime("%Y-%m-%d")
-    if datetime.now().hour >= hora and _cfg("vigilante_resumen_fecha") != hoy:
-        _enviar(_mensaje([]))
-        _cfg_set("vigilante_resumen_fecha", hoy)
-        print("[vigilante] resumen diario enviado")
-    return []
+    # Si no hay nada, no se dice nada: el silencio es la buena noticia.
+    return hallazgos
 
 
 def main():
