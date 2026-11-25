@@ -74,6 +74,11 @@ def _filas(sql, params=()):
 
 
 # ── reglas (cada una devuelve un hallazgo o None) ─────────────────────
+def _corte():
+    """Fecha desde la que se vigilan vales (los anteriores son deuda conocida)."""
+    return _cfg("vigilante_desde", "2026-11-24")
+
+
 def regla_monto_distinto():
     n = _una("""
         SELECT COUNT(*) FROM HUB_SolicitudVales
@@ -92,8 +97,8 @@ def regla_monto_sin_registrar():
         SELECT COUNT(*) FROM HUB_SolicitudVales
         WHERE Estatus = 'GENERADO' AND MontoEmitido IS NULL
           AND ProgresoFecha < DATEADD(minute, -10, GETDATE())
-          AND FechaSolicitud >= DATEADD(day, -7, GETDATE())
-    """)
+          AND FechaSolicitud >= CONVERT(date, %s)
+    """, (_corte(),))
     if not n:
         return None
     return {"regla": "monto_sin_registrar", "nivel": "amarillo",
@@ -106,8 +111,8 @@ def regla_vales_sin_codigo():
         WHERE Estatus = 'GENERADO'
           AND (CodigoQR IS NULL OR LTRIM(RTRIM(CodigoQR)) = '')
           AND ProgresoFecha < DATEADD(minute, -10, GETDATE())
-          AND FechaSolicitud >= DATEADD(day, -7, GETDATE())
-    """)
+          AND FechaSolicitud >= CONVERT(date, %s)
+    """, (_corte(),))
     if not n:
         return None
     return {"regla": "vale_sin_codigo", "nivel": "rojo",
@@ -143,7 +148,8 @@ def regla_pendientes_viejos():
         SELECT COUNT(*) FROM HUB_SolicitudVales
         WHERE Estatus = 'GENERADO' AND IdTicketCierre IS NULL
           AND FechaSolicitud < DATEADD(day, -3, GETDATE())
-    """)
+          AND FechaSolicitud >= CONVERT(date, %s)
+    """, (_corte(),))
     if not n:
         return None
     return {"regla": "sin_ticket", "nivel": "amarillo", "dato": {"cantidad": int(n)}}
