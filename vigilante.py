@@ -313,6 +313,49 @@ def _toca(regla):
     return datetime.now() - cuando > timedelta(hours=REPETIR_HORAS)
 
 
+# ── Volt en la pantalla del pasillo ────────────────────────────────────
+def _crear_tabla_volt():
+    """Crea (una vez) la tabla que lee el kiosco. Es el puente Telegram →
+    pantalla: el mismo aviso que llega al celular lo dice Volt en la TV."""
+    conn = db.get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            IF OBJECT_ID('HUB_VoltAvisos', 'U') IS NULL
+            CREATE TABLE HUB_VoltAvisos (
+                Id     INT IDENTITY(1,1) PRIMARY KEY,
+                Fecha  DATETIME     NOT NULL CONSTRAINT DF_VoltAvisos_Fecha DEFAULT GETDATE(),
+                Tipo   VARCHAR(30)  NOT NULL CONSTRAINT DF_VoltAvisos_Tipo DEFAULT 'vigilante',
+                Nivel  VARCHAR(10)  NOT NULL CONSTRAINT DF_VoltAvisos_Nivel DEFAULT 'info',
+                Texto  NVARCHAR(600) NOT NULL,
+                Activo BIT          NOT NULL CONSTRAINT DF_VoltAvisos_Activo DEFAULT 1
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _guardar_para_volt(texto, hallazgos):
+    """Deja el aviso para que Volt lo diga en la pantalla. Sin la firma: en el
+    globo ya se sabe quién habla, y repetirla se ve raro."""
+    limpio = texto.replace("\n\n— Volt", "").strip()[:600]
+    if not limpio:
+        return
+    nivel = "rojo" if any(h.get("nivel") == "rojo" for h in hallazgos) else "info"
+    tipos = ",".join(sorted({str(h.get("regla")) for h in hallazgos}))[:30]
+    conn = db.get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO HUB_VoltAvisos (Tipo, Nivel, Texto) VALUES (%s, %s, %s)",
+            (tipos or "vigilante", nivel, limpio),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ── ciclo ──────────────────────────────────────────────────────────────
 def ciclo():
     hallazgos = []
@@ -341,6 +384,12 @@ def ciclo():
     if hallazgos:
         texto = _mensaje(hallazgos)
         enviados = _enviar(texto)
+        # El aviso también va a la pantalla: si Telegram falla o nadie está
+        # vinculado, Volt igual lo dice en la oficina.
+        try:
+            _guardar_para_volt(texto, hallazgos)
+        except Exception as e:
+            print(f"[vigilante] no se pudo guardar para Volt: {str(e)[:120]}", flush=True)
         wlog(NOMBRE, f"Aviso enviado a {enviados} chats", detalle=texto[:200])
         print(f"[vigilante] {len(hallazgos)} hallazgo(s), aviso a {enviados} chats")
     # Si no hay nada, no se dice nada: el silencio es la buena noticia.
@@ -349,6 +398,10 @@ def ciclo():
 
 def main():
     print(f"[vigilante] Iniciado (cada {CICLO_SEG}s)", flush=True)
+    try:
+        _crear_tabla_volt()
+    except Exception as e:
+        print(f"[vigilante] tabla de Volt no disponible: {str(e)[:120]}", flush=True)
     try:
         wlog(NOMBRE, "Arrancó")
     except Exception:
