@@ -492,7 +492,8 @@ def detectar_tickets_oxxogas(app=APP_ADMON):
     with db.get_connection() as conn:
         marcador = int(_marcador("ticket_oxxogas", "0", conn=conn) or 0)
         filas = _filas(
-            "SELECT t.Id, t.FolioTicket, t.Estacion, ISNULL(u.Nombre, 'Alguien') AS Actor "
+            "SELECT t.Id, t.FolioTicket, t.Estacion, t.IdUsuario, "
+            "       ISNULL(u.Nombre, 'Alguien') AS Actor "
             "FROM HUB_OxxoGasTickets t "
             "LEFT JOIN HUB_Users u ON u.Id = t.IdUsuario "
             "WHERE t.Id > %s ORDER BY t.Id ASC",
@@ -505,9 +506,13 @@ def detectar_tickets_oxxogas(app=APP_ADMON):
         # El aviso del ticket lleva el saldo actual del monedero OxxoGas/Go Vale.
         saldo = _formato_saldo(cfg_get(cur, "govale_saldo", ""))
         for f in filas:
+            # Solo a quien capturó el ticket: el aviso es suyo, no de todos
+            # los que tienen permiso de Vales (eso fue lo que hacía que a
+            # Héctor le llegaran los tickets de David).
             enviados += encolar("TICKET_OXXOGAS", f["Actor"] or "Alguien",
                                 f["FolioTicket"] or f"#{f['Id']}",
                                 extra=f["Estacion"] or "", app=app, conn=conn,
+                                solo_ids=[f["IdUsuario"]] if f["IdUsuario"] else [],
                                 contexto={"saldo": saldo})
             marcador = max(marcador, int(f["Id"]))
         marcador_set(cur, "ticket_oxxogas", marcador)
@@ -527,6 +532,7 @@ def detectar_cotizaciones_firmadas(app=APP_ADMON):
         marcador = _marcador("cotizacion_firmada", "", conn=conn)
         filas = _filas(
             "SELECT m.IdRemision, m.FolioRemision, m.FolioCotizacion, m.FechaFirma, "
+            "       m.CreadoPor, m.IdUsuarioAsignado, "
             "       ISNULL(u.Nombre, 'El cliente') AS Actor "
             "FROM IndiceRemisiones m "
             "LEFT JOIN HUB_Users u ON u.Id = m.CreadoPor "
@@ -543,9 +549,12 @@ def detectar_cotizaciones_firmadas(app=APP_ADMON):
         nuevo_marcador = marcador
         cur = conn.cursor()
         for f in filas:
+            # Quien la creó y quien la tiene asignada: los que de verdad
+            # trabajan esa cotización. No todos los del permiso.
+            implicados = sorted({x for x in (f["CreadoPor"], f["IdUsuarioAsignado"]) if x})
             enviados += encolar("COTIZACION_FIRMADA", f["Actor"] or "El cliente",
                                 f["FolioRemision"] or f"Folio #{f['IdRemision']}",
-                                app=app, conn=conn)
+                                app=app, conn=conn, solo_ids=implicados)
             iso = f["FechaFirma"].strftime("%Y-%m-%d %H:%M:%S")
             nuevo_marcador = max(nuevo_marcador, iso) if nuevo_marcador else iso
         marcador_set(cur, "cotizacion_firmada", nuevo_marcador)
@@ -565,8 +574,10 @@ def detectar_cotizaciones_facturadas(app=APP_ADMON):
     with db.get_connection() as conn:
         marcador = _marcador("cotizacion_facturada", "", conn=conn)
         filas = _filas(
-            "SELECT c.Id, c.Folio, c.Realizado, c.Factura, c.FechaActualizado "
+            "SELECT c.Id, c.Folio, c.Realizado, c.Factura, c.FechaActualizado, "
+            "       r.CreadoPor, r.IdUsuarioAsignado "
             "FROM Indice_CotizacionesServProy c "
+            "LEFT JOIN IndiceRemisiones r ON r.FolioCotizacion = c.Folio "
             "WHERE c.Color = 2 AND c.FechaActualizado IS NOT NULL "
             + ("  AND CONVERT(VARCHAR(19), c.FechaActualizado, 120) > %s " if marcador else "")
             + "ORDER BY c.Id ASC",
@@ -579,8 +590,14 @@ def detectar_cotizaciones_facturadas(app=APP_ADMON):
         cur = conn.cursor()
         for f in filas:
             extra = f["Factura"] or f["Realizado"] or ""
+            implicados = sorted({x for x in (f.get("CreadoPor"), f.get("IdUsuarioAsignado")) if x})
+            if not implicados:
+                # Sin dueño identificable NO se manda: es preferible el silencio
+                # a que le llegue a media empresa.
+                continue
             enviados += encolar("COTIZACION_FACTURADA", "Alguien",
-                                f["Folio"] or f"#{f['Id']}", extra=extra, app=app, conn=conn)
+                                f["Folio"] or f"#{f['Id']}", extra=extra, app=app,
+                                conn=conn, solo_ids=implicados)
             iso = f["FechaActualizado"].strftime("%Y-%m-%d %H:%M:%S")
             nuevo_marcador = max(nuevo_marcador, iso) if nuevo_marcador else iso
         marcador_set(cur, "cotizacion_facturada", nuevo_marcador)

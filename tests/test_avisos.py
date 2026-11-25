@@ -353,7 +353,7 @@ class TestCatalogoDeTipos(unittest.TestCase):
         f = nd.TIPOS["TICKET_OXXOGAS"]["mensaje_func"]
         con = f({"actor": "Ana", "ref": "F-1", "extra": "Oxxo Sur",
                  "saldo": "$9,709.00"})
-        self.assertIn("Saldo OxxoGas: $9,709.00", con)
+        self.assertIn("Último saldo conocido OxxoGas: $9,709.00", con)
         # Sin saldo (aun sin revision) el texto no menciona un saldo vacio.
         sin = f({"actor": "Ana", "ref": "F-1", "extra": "Oxxo Sur"})
         self.assertNotIn("Saldo", sin)
