@@ -447,3 +447,156 @@ seguir al shell.
   corren aquí, `hub_python` quedó solo con `streamlit`, `field` con `nginx` +
   `api`, los `.conf` de workers se eliminaron de `docker/prod/conf.d/` del repo
   HUB y `-p 8000:8000` se quitó de su `deploy.yml`.
+
+---
+
+<!-- SKILLS-CATALOG:START -->
+## Skills disponibles
+
+> **Catálogo completo:** `C:\Users\ECCSAia\.config\opencode\SKILLS.md` (global).
+> **Regla:** antes de empezar una tarea, si hay un skill que aplique, cárgalo con la herramienta `skill` y síguelo. Los skills son parte del flujo, no adornos.
+
+### RTK — ahorro de tokens (uso obligatorio)
+
+`rtk` está instalado y el plugin de OpenCode reescribe comandos de shell para comprimir su salida. **Úsalo siempre** que aplique:
+
+- Deja que el plugin lo haga, o prefija `rtk`: `rtk git status`, `rtk cargo test`, `rtk npm test`, `rtk ls`, `rtk grep ...`.
+- Mide el ahorro con `rtk gain`; para ver la salida completa, `rtk bypass <comando>`.
+- Si el comando no está soportado (PowerShell nativo, scripts Python), sigue normal.
+
+### Caveman — modo por defecto (uso obligatorio)
+
+Caveman está activo por defecto en OpenCode (plugin nativo + bloque global). Responde corto, sin fluff; conserva código, comandos, rutas, números y errores. Cambia con `/ultracave` (máxima compresión) o `/megacave` (chino clásico); desactiva con `stop caveman` o `normal mode` solo si el usuario lo pide. Herramientas MCP: `caveman_compress`, `caveman_stats`, `caveman_toon_encode/decode`.
+
+<details>
+<summary><strong>Catálogo completo: 92 skills</strong></summary>
+
+### Proceso, calidad y colaboración
+
+| Skill | Para qué sirve |
+|---|---|
+| `brainstorming` | Explora el problema, requisitos y alternativas antes de crear; convierte una idea vaga en un diseño acordado. |
+| `writing-plans` | Convierte una spec en un plan paso a paso con archivos, interfaces, verificación y commits. |
+| `executing-plans` | Ejecuta un plan en la sesión actual, tarea por tarea, con checkpoints y verificación. |
+| `subagent-driven-development` | Reparte tareas independientes a subagentes y revisa su trabajo antes de integrarlo. |
+| `dispatching-parallel-agents` | Lanza varios agentes en paralelo para tareas sin dependencias ni estado compartido. |
+| `systematic-debugging` | Diagnostica bugs con hipótesis y evidencia antes de proponer o tocar código. |
+| `test-driven-development` | Escribe primero el test que falla y luego la implementación mínima. |
+| `verification-before-completion` | Verifica con comandos reales antes de declarar que algo está listo o arreglado. |
+| `requesting-code-review` | Prepara el trabajo para revisión con contexto, criterios y evidencia. |
+| `receiving-code-review` | Procesa feedback de revisión con rigor, sin aceptar sugerencias a ciegas. |
+| `finishing-a-development-branch` | Decide merge, PR, limpieza y cierre de una rama de desarrollo. |
+| `using-git-worktrees` | Aísla el trabajo en worktrees de git para no mezclar cambios. |
+| `writing-skills` | Crea o edita skills con estructura, disparadores y verificación. |
+| `using-superpowers` | Regla base: invocar los skills relevantes antes de responder o actuar. |
+| `diagnosing-superpowers` | Investiga por qué una sesión de Superpowers falló o se atascó. |
+
+### Diseño, UI y visual
+
+| Skill | Para qué sirve |
+|---|---|
+| `apple-design` | Audita UI/UX con las HIG de Apple y criterio de craft para Tauri, Electron, iOS o Android. |
+| `frontend-design` | Da dirección visual distintiva a una UI nueva o a un rediseño, sin caer en plantillas. |
+| `impeccable` | Diseña, rediseña, audita o pule interfaces: jerarquía, tipo, color, motion y accesibilidad. |
+| `unslop` | Quita el look genérico de IA y convierte una pantalla en una interfaz con carácter. |
+| `logo-design` | Diseña logos y marcas: brief, conceptos, SVG, pruebas y variantes de entrega. |
+| `anatomy` | Crea figuras isométricas SVG interactivas que explican un sistema o componente. |
+| `fun-isometric` | Genera stickers isométricos animados con presets de motion estilo Lottie. |
+| `pixelfx` | Crea efectos pixel art y sprite sheets con 244 efectos listos y un loop de refinamiento. |
+| `react-bits` | Añade componentes React animados de React Bits a un proyecto. |
+
+### Video, media y sonido
+
+| Skill | Para qué sirve |
+|---|---|
+| `hyperframes` | Produce o edita videos con HTML: launch films, explainers, charts, captions y overlays. |
+| `hyperframes-cli` | CLI de HyperFrames: scaffold, preview, render, share e historial de proyecto. |
+| `hyperframes-registry` | Unos 450 bloques y componentes HyperFrames listos para usar como fuente editable. |
+| `media-use` | Consigue o genera música, SFX, imágenes, voz, video y transcripts para HyperFrames. |
+| `reverse-any-video` | Reconstruye un video existente como proyecto HyperFrames editable, frame a frame. |
+| `style-sampling` | Haz un episodio nuevo en un estilo de video probado (collage, finance, science, 3D). |
+| `youtube` | Extrae transcript, metadata y comentarios de YouTube y los guarda en el vault. |
+| `podcast` | Extrae metadata, transcript y resumen de un podcast y los guarda en el vault. |
+
+### Investigación y conocimiento
+
+| Skill | Para qué sirve |
+|---|---|
+| `research` | Investiga en web con citas: Perplexity si hay key, o fuentes gratuitas si no. |
+| `research-deep` | Investigación profunda vault-first: detecta gaps, sintetiza y propaga al vault. |
+| `notebooklm` | Investigación grounded con Gemini File Search, sin navegador. |
+| `codebase-map` | Mapea un repo: arquitectura, flujos, archivos clave y preguntas abiertas. |
+| `x-pulse` | Escanea X para ver tendencias, voces y hooks sobre un tema. |
+| `x-read` | Lee a fondo un post o hilo de X: claims, sentimiento y voces a seguir. |
+| `idea-discovery` | Propone 3-5 direcciones siguientes leyendo ideas y notas huérfanas del vault. |
+| `vault-deep-synthesis` | Cruza todo lo que el vault sabe de un tema: acuerdos, contradicciones y gaps. |
+
+### Obsidian / segundo cerebro
+
+| Skill | Para qué sirve |
+|---|---|
+| `obsidian-architect` | Documenta un codebase en notas de arquitectura dentro del vault. |
+| `obsidian-board` | Muestra o actualiza un tablero kanban y marca vencidos. |
+| `obsidian-board-hygiene` | Triaje masivo del tablero: archiva, reprograma o marca hecho. |
+| `obsidian-brainstorm` | Brainstorm socrático multi-turno que termina en una nota de diseño. |
+| `obsidian-capture` | Captura rápida de ideas al vault y a la nota diaria. |
+| `obsidian-catchup` | Procesa capturas del bot de Telegram: voz, texto, imágenes, PDFs y links. |
+| `obsidian-challenge` | Red-team de una idea contra el historial del vault. |
+| `obsidian-checkin` | Revisa notas viejas de personas y proyectos y actualiza lo que ya no aplica. |
+| `obsidian-connect` | Conecta dos dominios no relacionados usando el grafo del vault. |
+| `obsidian-core` | Motor compartido de los skills Obsidian; solo soporte, no se invoca. |
+| `obsidian-daily` | Crea o actualiza la nota diaria con calendario, tareas y contexto. |
+| `obsidian-decide` | Registra decisiones: ligero en la nota del proyecto o ADR formal. |
+| `obsidian-distill` | Condensa una nota o fuente en claims con procedencia. |
+| `obsidian-emerge` | Detecta patrones y temas no nombrados en notas recientes. |
+| `obsidian-export` | Exporta el vault a JSON, índice markdown o bundle OKF. |
+| `obsidian-find` | Busca en el vault y devuelve resultados con contexto. |
+| `obsidian-graduate` | Promueve una idea a spec de proyecto con tareas y tablero. |
+| `obsidian-health` | Chequeo de salud del vault: contradicciones, gaps y notas viejas. |
+| `obsidian-ingest` | Ingesta una fuente o carpeta por lotes, actualizando entidades y conceptos. |
+| `obsidian-init` | Escanea el vault y genera `_CLAUDE.md`, `index.md` y `log.md`. |
+| `obsidian-learn` | Revisa y poda aprendizajes del vault; muestra patrones activos. |
+| `obsidian-log` | Registra una sesión de trabajo o dev en el vault. |
+| `obsidian-merge` | Fusiona notas casi duplicadas y redirige la retirada. |
+| `obsidian-panel` | Convoca un panel de perspectivas independientes sobre una decisión. |
+| `obsidian-person` | Crea o actualiza una nota de persona desde la conversación. |
+| `obsidian-project` | Crea o actualiza una nota de proyecto y la añade al tablero. |
+| `obsidian-projects` | Estado de proyectos desde git y docs locales, sin config. |
+| `obsidian-recap` | Resume hoy, semana o mes desde el vault. |
+| `obsidian-reconcile` | Encuentra y resuelve contradicciones en el vault. |
+| `obsidian-recurring` | Sigue obligaciones recurrentes con cadencia y próxima fecha. |
+| `obsidian-reindex` | Reconstruye el índice semántico del vault y reporta cobertura. |
+| `obsidian-retrieval-eval` | Mide recall@k y MRR de la búsqueda del vault. |
+| `obsidian-review` | Genera una revisión semanal o mensual desde el historial. |
+| `obsidian-save` | Guarda en el vault lo que valga la pena de la conversación. |
+| `obsidian-synthesize` | Síntesis automática: detecta patrones y escribe páginas nuevas. |
+| `obsidian-task` | Añade una tarea al tablero con prioridad y fecha inferidas. |
+| `obsidian-visualize` | Genera un canvas visual del vault y sus conexiones. |
+| `obsidian-world` | Carga identidad, valores, prioridades y estado actual en un solo paso. |
+| `create-command` | Crea un comando de obsidian-second-brain mediante entrevista. |
+| `crew` | Comparte un logbook de carpeta entre Claude Code, Codex, Cursor y Grok. |
+
+### Caveman / ahorro de tokens (default)
+
+| Skill | Para qué sirve |
+|---|---|
+| `caveman` | Voz telegráfica por defecto: respuesta corta, sin fluff, hechos técnicos intactos. |
+| `ultracave` | Compresión máxima: fragmentos, una palabra si basta, cada hecho una vez. |
+| `megacave` | Variante en chino clásico (文言文), términos técnicos verbatim. |
+| `caveman-commit` | Mensaje Conventional Commit comprimido a intención. |
+| `caveman-review` | Review comprimido: una línea por hallazgo con ubicación, problema y fix. |
+| `caveman-compress` | Comprime archivos de memoria (CLAUDE.md, todos) y deja backup. |
+| `caveman-help` | Tarjeta de referencia de comandos y modos de Caveman. |
+| `caveman-stats` | Uso de tokens de la sesión y reporte nativo del host. |
+| `cavecrew` | Delega a subagentes investigator/builder/reviewer con salida comprimida. |
+
+### Plataformas y utilidades
+
+| Skill | Para qué sirve |
+|---|---|
+| `opencode` | Todo sobre OpenCode: config, agentes, skills, plugins, SDK y troubleshooting. |
+| `expo` | Crea y opera apps Expo/React Native por proyecto, sin Expo global. |
+| `report` | Reporta un bug de OpenCode con diagnóstico y GitHub CLI. |
+
+</details>
+<!-- SKILLS-CATALOG:END -->
