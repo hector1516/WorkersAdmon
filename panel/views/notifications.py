@@ -15,6 +15,9 @@ se registran en la bitácora.
 from .. import db, probes, workers
 from ..templates import esc, page
 
+import importlib
+import time
+
 _CSRF = {"token": ""}
 
 # Permiso de cada bloque (None = basta con AccesoConfiguracion del panel)
@@ -150,6 +153,7 @@ VISTAS_TG = [
 VISTAS_WA = [
     ("conexion", "\U0001f4ac Conexión"),
     ("eventos", "\U0001f4e3 Avisos"),
+    ("grupos", "\U0001f465 Grupos"),
     ("historial", "\U0001f4cb Historial"),
 ]
 
@@ -500,6 +504,9 @@ def _wa_instrucciones():
       <li>En <b>\U0001f4e3 Avisos</b>, pega los <b>teléfonos</b> separados por
           comas en cada aviso que quieras recibir. Con 10 digitos se asume
           México (agrega el 52).</li>
+      <li>Para un <b>grupo</b>, elígelo en <b>\U0001f465 Grupos</b> y presiona
+          «Usar en aviso»: su id (<code>&hellip;@g.us</code>) se agrega a los
+          destinatarios de ese aviso.</li>
       <li>Presiona <b>🧪 Mandar prueba</b>: llega un WhatsApp de verdad. Si llega,
           ya funcionó.</li>
     </ol>
@@ -515,18 +522,100 @@ def _wa_instrucciones():
 REPRODUCIBLES = {"KILOMETROS", "OXXOGAS_TICKET", "REPORTE_SERVICIO",
                  "GOVALE_SALDO", "GOVALE_SALDO_BAJO"}
 
+# Quien dispara cada aviso. Es texto fijo por IdEvento: el productor vive en otra
+# app (Field o el cron del saldo) y no hay columna que lo diga. Si se agrega un
+# evento nuevo y no se declara aqui, la pantalla lo dice en vez de inventarlo.
+# OJO: los avisos del vigilante de vales salen hoy solo por Telegram; NO van por
+# WhatsApp y por eso no aparecen en este mapa.
+PRODUCTORES = {
+    "KILOMETROS": "Field, al registrar los kilómetros del vehículo",
+    "OXXOGAS_TICKET": "Field, al capturar un ticket de OXXO Gas",
+    "REPORTE_SERVICIO": "Field, al firmarse un reporte de servicio",
+    "GOVALE_SALDO": "cron diario de saldo de GoVale",
+    "GOVALE_SALDO_BAJO": "cron diario de saldo de GoVale, cuando baja del umbral",
+}
+
+# Cache corto de los grupos: la vista de Avisos resuelve el nombre de los
+# grupos y la sub-pestaña Grupos hace la misma llamada al navegar. OpenWA tarda
+# unos segundos y no tiene caso pedirla dos veces seguidas.
+_GRUPOS_CACHE = {"cuando": 0.0, "grupos": None}
+
+
+def _grupos_de_la_sesion(max_edad=90):
+    """`(ok, grupos|detalle)` de la sesion, con cache solo si salio bien."""
+    if (_GRUPOS_CACHE["grupos"] is not None
+            and time.time() - _GRUPOS_CACHE["cuando"] < max_edad):
+        return True, _GRUPOS_CACHE["grupos"]
+    try:
+        cliente = importlib.import_module("openwa_client")
+        ok, datos = cliente.listar_grupos()
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if ok:
+        _GRUPOS_CACHE["grupos"] = datos
+        _GRUPOS_CACHE["cuando"] = time.time()
+    return ok, datos
+
+
+def _nombres_de_grupos():
+    """`{id: nombre}` de los grupos, o `{}` si la API no respondio."""
+    ok, datos = _grupos_de_la_sesion()
+    if not ok:
+        return {}
+    return {g["id"]: g["nombre"] for g in datos if g.get("nombre")}
+
+
+def _wa_contexto(eid, validos, ultimos, nombres):
+    """
+    Linea de contexto de un aviso: quien lo manda, a quien llega y como termino
+    el ultimo envio. Es lo que pide ver de un vistazo quien administra: una
+    alerta programada sin destinatarios se ve como alerta que no avisa nada.
+    """
+    tel = [c for c in validos if c.endswith("@c.us")]
+    grupos = [c for c in validos if c.endswith("@g.us")]
+    partes = [f'<div><b>Quién lo manda:</b> {esc(PRODUCTORES.get(
+        eid, "origen no documentado"))}</div>']
+
+    if tel:
+        destinos = esc(", ".join(tel))
+    else:
+        destinos = '<span class="muted">ningún número</span>'
+    if grupos:
+        con_nombre = []
+        for gid in grupos:
+            nombre = nombres.get(gid)
+            con_nombre.append(f'{esc(nombre)} ({esc(gid)})' if nombre else esc(gid))
+        destinos += (" · <b>Grupos:</b> " + ", ".join(con_nombre))
+    partes.append(f'<div><b>Destinatarios:</b> {destinos}</div>')
+
+    ult = ultimos.get(eid)
+    if ult:
+        cls = {"ENVIADO": "ok", "FALLADO": "err"}.get(
+            str(ult.get("Estado") or ""), "wait")
+        partes.append(
+            f'<div><b>Último envío:</b> '
+            f'<span class="pill {cls}">{esc(ult.get("Estado"))}</span> '
+            f'{esc(_fval(ult.get("Creado")))}</div>')
+    else:
+        partes.append('<div><b>Último envío:</b> '
+                      '<span class="muted">sin envíos</span></div>')
+    return '<div class="help wa-contexto">' + "".join(partes) + "</div>"
+
 
 def _wa_eventos():
     out = [_encabezado(
         "\U0001f4e3 Avisos de WhatsApp",
         "A quién llega cada aviso y con qué texto. Los <b>teléfonos</b> van "
-        "separados por comas: <code>5218123211516, 5512345678</code>.")]
+        "separados por comas: <code>5218123211516, 5512345678</code>. Los "
+        "<b>grupos</b> se eligen en la sub-pestaña \U0001f465 Grupos.")]
     eventos = db.get_openwa_eventos()
     if not eventos:
         out.append('<div class="panel"><div class="empty">'
                    'No hay avisos configurados (falta la migración 0043).</div></div>')
         return "".join(out)
 
+    ultimos = db.get_openwa_ultimos_envios()
+    nombres = None
     for ev in eventos:
         eid = ev.get("IdEvento")
         validos, rechazados = db.get_openwa_destinatarios_resueltos(eid)
@@ -534,11 +623,24 @@ def _wa_eventos():
         if not validos:
             destino = ('<span class="pill wait">sin teléfonos: no se enviará nada</span>')
         else:
-            destino = (f'<span class="pill ok">{len(validos)} '
-                       f'número(s): {esc(", ".join(validos))}</span>')
+            tels = [c for c in validos if c.endswith("@c.us")]
+            grupos = [c for c in validos if c.endswith("@g.us")]
+            partes = []
+            if tels:
+                partes.append(f'{len(tels)} número(s): {esc(", ".join(tels))}')
+            if grupos:
+                if nombres is None:
+                    nombres = _nombres_de_grupos()
+                resueltos = ", ".join(
+                    f'{esc(nombres.get(g))} ({esc(g)})' if nombres.get(g)
+                    else esc(g) for g in grupos)
+                partes.append(f'\U0001f465 {resueltos}')
+            destino = f'<span class="pill ok">{" · ".join(partes)}</span>'
         if rechazados:
             destino += (f'<div class="help" style="color:#f87171">No se usaron: '
                         f'{esc(", ".join(rechazados))} (no son números)</div>')
+        contexto = _wa_contexto(eid, validos, ultimos, nombres or {})
+
         # Boton de prueba: reenvia el ultimo caso real de este aviso. No es
         # inventing: el aviso no se guarda como evento, asi que se relee el
         # ultimo registro de la tabla del modulo (ver openwa_alerts.reenviar_ultimo).
@@ -556,7 +658,7 @@ def _wa_eventos():
         desc = ev.get("Descripcion") or ""
         forms = (
             ('<div class="help" style="margin-bottom:8px">' + esc(desc) + '</div>')
-            if desc else "") + (
+            if desc else "") + contexto + (
             '<div class="cfg-grid">'
             + _textarea("PlantillaMensaje", ev.get("PlantillaMensaje") or "",
                         label="Texto del mensaje",
@@ -565,7 +667,9 @@ def _wa_eventos():
                               "{Kilometros} {UsuarioFirma}…")
             + _textarea("Telefonos", ev.get("Telefonos") or "",
                         label="Teléfonos destinatarios",
-                        help_="Separados por comas. Ej: 5218123211516, 5512345678")
+                        help_="Separados por comas. Ej: 5218123211516, "
+                              "5512345678. Un grupo se pega como "
+                              "<code>…@g.us</code> (se elige en Grupos).")
             + _bool("AdjuntarArchivo", ev.get("AdjuntarArchivo"), "Adjuntar archivo")
             + _bool("Activo", ev.get("Activo"), "Activo")
             + "</div>"
@@ -580,6 +684,70 @@ def _wa_eventos():
       <input type="hidden" name="IdEvento" value="{esc(eid)}">{forms}
     </form>
   </div>""")
+    return "".join(out)
+
+
+def _wa_grupos():
+    """
+    Grupos de WhatsApp de la sesion, con su id y cuantos participantes tienen.
+
+    Sin JS: el id se puede seleccionar/copiar de un campo de solo lectura y el
+    boton "Usar en aviso" lo agrega al `Telefonos` del evento elegido. Si la API
+    no responde se dice, en vez de pintar una tabla vacia que parezca "no hay
+    grupos".
+    """
+    out = [_encabezado(
+        "\U0001f465 Grupos de WhatsApp",
+        "Grupos a los que esta sesión de OpenWA puede mandar mensajes y el PDF "
+        "del reporte. El id completo (<code>…@g.us</code>) se puede copiar; "
+        "«Usar en aviso» lo agrega a los destinatarios de ese aviso.")]
+    ok, datos = _grupos_de_la_sesion()
+    if not ok:
+        out.append(
+            '<div class="panel"><div class="empty">No se pudieron leer los '
+            f'grupos: {esc(datos)}</div>'
+            '<div class="cfg-note">Revisa la conexión de OpenWA (API key y '
+            'sesión) en la sub-pestaña \U0001f4ac Conexión. Mientras la API no '
+            'responda, esta lista no se puede pintar.</div></div>')
+        return "".join(out)
+    if not datos:
+        out.append('<div class="panel"><div class="empty">La sesión no tiene '
+                   'grupos de WhatsApp.</div></div>')
+        return "".join(out)
+
+    eventos = db.get_openwa_eventos()
+    if eventos:
+        opciones = "".join(
+            f'<option value="{esc(e.get("IdEvento"))}">'
+            f'{esc(e.get("Nombre") or e.get("IdEvento"))}</option>'
+            for e in eventos)
+        accion = (
+            f'<select class="input" name="IdEvento">{opciones}</select>'
+            '<button class="btn btn-sm btn-success" type="submit">'
+            'Usar en aviso</button>')
+    else:
+        accion = ('<span class="help">No hay avisos configurados: crea uno en '
+                  '\U0001f4e3 Avisos.</span>')
+
+    filas = []
+    for g in datos:
+        copiar = (f'<input class="input" value="{esc(g["id"])}" readonly '
+                  'aria-label="Id del grupo" onfocus="this.select()" '
+                  'style="min-width:220px">')
+        usar = ""
+        if eventos:
+            usar = ('<form class="inline" method="post" '
+                    'action="/notificaciones/openwa/grupo">'
+                    + _csrf_field()
+                    + f'<input type="hidden" name="ChatId" value="{esc(g["id"])}">'
+                    + accion + '</form>')
+        filas.append([
+            esc(g.get("nombre") or "(sin nombre)"),
+            copiar,
+            esc(g.get("participantes") or 0),
+            usar])
+    out.append(_tabla(["Grupo", "Id (copiar)", "Participantes", "Añadir a un aviso"],
+                      filas, "La sesión no tiene grupos de WhatsApp."))
     return "".join(out)
 
 
@@ -608,7 +776,7 @@ def _bloque_openwa(user, vista="conexion"):
     if not _allowed(user, "openwa"):
         return _card("📲 OpenWA (WhatsApp)", "AccesoTelegram", False, "", "")
     vistas = {"conexion": _wa_conexion, "eventos": _wa_eventos,
-              "historial": _wa_historial}
+              "grupos": _wa_grupos, "historial": _wa_historial}
     if vista not in vistas:
         vista = "conexion"
     return _nav_wa(vista) + vistas[vista]()
@@ -709,4 +877,4 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
                 flash_err=flash_err,
                 subtitle="Telegram (Conexión · Eventos · Destinatarios · "
                          "Vinculados · Historial) · WhatsApp (Conexión · Avisos · "
-                         "Historial) · Push · Correo · IA")
+                         "Grupos · Historial) · Push · Correo · IA")

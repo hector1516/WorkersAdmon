@@ -365,6 +365,33 @@ def get_openwa_eventos():
         return []
 
 
+def get_openwa_evento(id_evento):
+    """Un aviso por su IdEvento (o None). Lo usa el alta de un grupo."""
+    for ev in get_openwa_eventos():
+        if ev.get("IdEvento") == id_evento:
+            return ev
+    return None
+
+
+def get_openwa_ultimos_envios():
+    """
+    Ultimo registro de HUB_WhatsappQueue por aviso: `{IdEvento: {Estado,
+    Creado}}`. La vista de Avisos lo pinta como "ultimo envio"; si la tabla no
+    existe o falla la consulta, devuelve `{}` y la pantalla dice "sin envios".
+    """
+    try:
+        filas = _rows(
+            "SELECT q.IdEvento, q.Estado, q.Creado "
+            "FROM HUB_WhatsappQueue q "
+            "JOIN (SELECT IdEvento, MAX(Id) AS Ultimo FROM HUB_WhatsappQueue "
+            "      GROUP BY IdEvento) u "
+            "  ON u.IdEvento = q.IdEvento AND u.Ultimo = q.Id")
+    except Exception:
+        return {}
+    return {f.get("IdEvento"): {"Estado": f.get("Estado"),
+                                "Creado": f.get("Creado")} for f in filas}
+
+
 def update_openwa_evento(id_evento, plantilla, telefonos, adjuntar_archivo, activo):
     """
     Guarda un aviso. `telefonos` es el texto con los numeros separados por comas;

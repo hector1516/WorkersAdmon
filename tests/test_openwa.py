@@ -48,9 +48,17 @@ class NormalizarChatId(unittest.TestCase):
     def test_si_ya_venir_con_arroba_no_lo_roto(self):
         self.assertEqual(ow.normalizar_chat_id(f'{NUMERO_REAL}@c.us'), f'{NUMERO_REAL}@c.us')
 
-    def test_un_grupo_no_es_un_telefono_y_no_se_trata_como_tal(self):
-        # Los grupos se eligen a mano en otra parte; aqui no hay que inventarlos.
-        self.assertIsNone(ow.normalizar_chat_id('1234567890-123456@g.us'))
+    def test_un_grupo_se_acepta_tal_cual(self):
+        # El id de un grupo se copia de la lista de la sesion: viene completo y
+        # se respeta, porque un grupo no se puede inventar a partir de numeros.
+        self.assertEqual(ow.normalizar_chat_id('1234567890-123456@g.us'),
+                         '1234567890-123456@g.us')
+
+    def test_un_grupo_a_medias_se_rechaza(self):
+        # "@g.us" pelado o con otro sufijo no es un chat de WhatsApp.
+        for malo in ('@g.us', '1234567890-123456@g.usx',
+                     '1234567890-123456@broadcast'):
+            self.assertIsNone(ow.normalizar_chat_id(malo), f'debio rechazar: {malo!r}')
 
     def test_lo_que_no_es_numero_se_rechaza_en_silencio(self):
         for malo in ('', '   ', 'abc', '123', '52', 'llamar a Hector', '5521@'):
@@ -143,6 +151,63 @@ class Payloads(unittest.TestCase):
         self.assertNotIn('caption', p)
 
 
+class GruposDeLaSesion(unittest.TestCase):
+    """La sub-pestaña Grupos del panel: que grupos ve y con que forma."""
+
+    def test_normaliza_lista_pelada_y_sobre(self):
+        pelada = ow.normalizar_grupos([
+            {'id': '120363000000000000@g.us', 'name': 'Taller', 'participants': [1, 2, 3]},
+        ])
+        self.assertEqual(pelada[0]['id'], '120363000000000000@g.us')
+        self.assertEqual(pelada[0]['nombre'], 'Taller')
+        self.assertEqual(pelada[0]['participantes'], 3)
+        sobre = ow.normalizar_grupos({'groups': [
+            {'id': {'_serialized': '120363000000000001'}, 'subject': 'Oficina',
+             'size': 5},
+            {'name': 'sin id'}]})
+        self.assertEqual(sobre, [{'id': '120363000000000001@g.us',
+                                  'nombre': 'Oficina', 'participantes': 5}])
+        self.assertEqual(ow.normalizar_grupos('no es lista'), [])
+
+    def test_pide_los_grupos_de_la_sesion(self):
+        s = SesionFalsa(cuerpo='[{"id":"120363000000000002@g.us","name":"Flota"}]')
+        ok, grupos = ow.listar_grupos(base='http://openwa:2785', clave='k-123456',
+                                      session_id='sid-1', sesion=s)
+        self.assertTrue(ok)
+        self.assertEqual([g['id'] for g in grupos], ['120363000000000002@g.us'])
+        self.assertIn('/api/sessions/sid-1/groups', s.llamadas[0]['url'])
+
+    def test_si_la_ruta_de_sesion_da_404_prueba_groups_a_secas(self):
+        class DosRutas:
+            def __init__(self):
+                self.urls = []
+
+            def get(self, url, **kw):
+                self.urls.append(url)
+                r = type('R', (), {})()
+                if '/messages/' in url or '/sessions/' in url:
+                    r.status_code, r.text = 404, 'no encontrado'
+                else:
+                    r.status_code, r.text = 200, '{"data":[{"id":"1@g.us","name":"X"}]}'
+                r.json = lambda: __import__('json').loads(r.text)
+                return r
+
+        s = DosRutas()
+        ok, grupos = ow.listar_grupos(base='http://openwa:2785', clave='k-123456',
+                                      session_id='sid-1', sesion=s)
+        self.assertTrue(ok)
+        self.assertEqual(grupos[0]['nombre'], 'X')
+        self.assertTrue(s.urls[-1].endswith('/groups'))
+
+    def test_sin_key_no_sale_a_la_red(self):
+        s = SesionFalsa(cuerpo='[]')
+        ok, detalle = ow.listar_grupos(base='http://openwa:2785', clave='',
+                                       session_id='sid-1', sesion=s)
+        self.assertFalse(ok)
+        self.assertIn('API key', detalle)
+        self.assertEqual(s.llamadas, [])
+
+
 # ── Lo que habla con OpenWA ──────────────────────────────────────────────────
 
 class SesionFalsa:
@@ -159,6 +224,11 @@ class SesionFalsa:
         r = type('R', (), {})()
         r.status_code = self.status
         r.text = self.cuerpo if self.cuerpo is not None else '{"ok":true}'
+
+        def _json():
+            import json as _j
+            return _j.loads(r.text)
+        r.json = _json
         return r
 
     def post(self, url, **kw):

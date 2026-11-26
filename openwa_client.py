@@ -8,6 +8,7 @@ directo, le pide por HTTP: "manda este texto a este numero".
 Endpoints que usa este modulo (leidos del Swagger, no adivinados):
 
     GET  /api/health
+    GET  /api/sessions/{id}/groups
     POST /api/sessions/{id}/messages/send-text
     POST /api/sessions/{id}/messages/send-document
     POST /api/sessions/{id}/messages/send-image
@@ -56,6 +57,11 @@ def normalizar_chat_id(numero):
     trae 10 digitos se asume Mexico (52); con 12 o mas se respeta tal cual
     porque ya trae pais.
 
+    Tambien acepta un chatId de grupo (`1234567890-123456@g.us`) **tal cual**.
+    Un grupo no se inventa: se elige de la lista de la sesion (sub-pestaña
+    Grupos del panel) y se pega su id completo. Un `@g.us` a medias o con otra
+    forma no es un grupo de WhatsApp y se rechaza.
+
     Un numero de 11 digitos que empieza con 1 se **rechaza** en vez de
     adivinarse: es imposible saber si es el formato antiguo de Mexico
     (`1 55 1234 5678`) o un numero de EUA (`+1 415 555 2671`). Adivinar produce
@@ -72,9 +78,14 @@ def normalizar_chat_id(numero):
     if not txt:
         return None
     if '@' in txt:
-        # Ya viene como chatId. Solo se acepta el de individuales: los grupos
-        # (@g.us) se eligen a mano, no se inventan a partir de un numero.
-        return txt if txt.endswith('@c.us') else None
+        # Ya viene como chatId. Los individuales (@c.us) y los grupos (@g.us)
+        # se aceptan tal cual; los grupos salen de la lista de la sesion, no
+        # de un numero. Cualquier otro sufijo no es un chat de WhatsApp.
+        if txt.endswith('@c.us') and len(txt) > len('@c.us'):
+            return txt
+        if txt.endswith('@g.us') and txt.index('@') > 0:
+            return txt
+        return None
 
     digitos = ''.join(c for c in txt if c.isdigit())
     if len(digitos) == 10:
@@ -227,6 +238,109 @@ def _pedir(metodo, url, headers, json_body=None, timeout=60, sesion=None):
 
 def _url(base, session_id, sufijo):
     return f'{(base or "").rstrip("/")}/api/sessions/{session_id}/messages/{sufijo}'
+
+
+def _pedir_json(url, headers, sesion=None):
+    """
+    GET que devuelve el cuerpo ya decodificado: `(ok, datos, detalle)`.
+    Como `_pedir`, nunca deja escapar la excepcion y tapa la key en el error.
+    """
+    http = sesion or requests
+    clave = headers.get("X-API-Key")
+    try:
+        r = http.get(url, headers=headers, timeout=10)
+        if not (200 <= r.status_code < 300):
+            return False, None, (f'HTTP {r.status_code}: '
+                                 f'{_limpiar_detalle(r.text, clave)}')
+        try:
+            return True, r.json(), 'ok'
+        except ValueError:
+            return False, None, 'la respuesta no es JSON'
+    except Exception as e:
+        return False, None, f'{type(e).__name__}: {_limpiar_detalle(e, clave)}'
+
+
+def normalizar_grupos(datos):
+    """
+    Convierte la respuesta de OpenWA en `[{id, nombre, participantes}]`.
+
+    No se adivina la forma: la API puede contestar una lista pelada o un sobre
+    (`groups` / `data` / `result`), y cada grupo puede traer el id como texto o
+    como objeto serializado. Lo que no se reconoce se descarta; un grupo sin id
+    no sirve para mandarle nada.
+    """
+    if isinstance(datos, dict):
+        for clave in ('groups', 'data', 'result', 'items', 'value'):
+            if isinstance(datos.get(clave), (list, tuple)):
+                datos = datos[clave]
+                break
+        else:
+            datos = [datos] if (datos.get('id') or datos.get('groupId')) else []
+    if not isinstance(datos, (list, tuple)):
+        return []
+
+    grupos, vistos = [], set()
+    for g in datos:
+        if not isinstance(g, dict):
+            continue
+        ident = g.get('id') or g.get('groupId') or g.get('idGrupo')
+        if isinstance(ident, dict):
+            ident = ident.get('_serialized') or ident.get('id')
+        ident = str(ident or '').strip()
+        if not ident or ident in vistos:
+            continue
+        if '@' not in ident:
+            ident += '@g.us'
+        if not ident.endswith('@g.us'):
+            continue
+        vistos.add(ident)
+
+        participantes = g.get('participants') or g.get('participantes')
+        if isinstance(participantes, (list, tuple)):
+            total = len(participantes)
+        else:
+            total = (g.get('size') or g.get('participantsCount')
+                     or g.get('cantidadParticipantes') or 0)
+        try:
+            total = int(total)
+        except (TypeError, ValueError):
+            total = 0
+
+        nombre = str(g.get('name') or g.get('subject')
+                     or g.get('nombre') or '').strip()
+        grupos.append({'id': ident, 'nombre': nombre, 'participantes': total})
+    grupos.sort(key=lambda g: (g['nombre'] or g['id']).lower())
+    return grupos
+
+
+def listar_grupos(base=None, clave=None, session_id=None, sesion=None):
+    """
+    Grupos de la sesion de WhatsApp. Devuelve `(ok, grupos|detalle)`.
+
+    Prueba primero `GET /api/sessions/{id}/groups` y, si esa ruta no existe en
+    la version de OpenWA instalada, `GET /groups`. La key nunca sale en el
+    detalle del error (lo tapa `_limpiar_detalle`).
+    """
+    cfg = {'api_key': clave or '', 'base_url': base or BASE_POR_DEFECTO,
+           'session_id': session_id or ''}
+    if base is None and clave is None and session_id is None:
+        cfg = obtener_config()
+    if not cfg.get('api_key'):
+        return False, ('falta la API key de OpenWA: pegala en '
+                       'Notificaciones > Conexion > OpenWA')
+    if not cfg.get('session_id'):
+        return False, 'falta el id de sesion de OpenWA'
+
+    raiz = (cfg.get('base_url') or BASE_POR_DEFECTO).rstrip('/')
+    headers = {'X-API-Key': cfg['api_key']}
+    primero = None
+    for url in (f'{raiz}/api/sessions/{cfg["session_id"]}/groups',
+                f'{raiz}/groups'):
+        ok, datos, detalle = _pedir_json(url, headers, sesion=sesion)
+        if ok:
+            return True, normalizar_grupos(datos)
+        primero = primero or detalle
+    return False, primero
 
 
 # ── API pública ──────────────────────────────────────────────────────────────

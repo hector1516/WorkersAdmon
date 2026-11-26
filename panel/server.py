@@ -644,6 +644,7 @@ class Handler(BaseHTTPRequestHandler):
             ("openwa", "guardar"): self._notif_openwa,
             ("openwa", "probar"): self._notif_openwa_probar,
             ("openwa", "evento"): self._notif_openwa_evento,
+            ("openwa", "grupo"): self._notif_openwa_grupo,
             ("openwa", "reenviar"): self._notif_openwa_reenviar,
             ("push", "guardar"): self._notif_push,
             ("push", "probar"): self._notif_push_probar,
@@ -1103,6 +1104,50 @@ class Handler(BaseHTTPRequestHandler):
                                      vista_wa="conexion")
         self._notif_log(user, "Conexión de OpenWA (WhatsApp) actualizada")
         return self._notif_flash("Conexión de OpenWA guardada.", vista_wa="conexion")
+
+    def _notif_openwa_grupo(self, user, form):
+        """
+        Agrega un grupo al `Telefonos` de un aviso.
+
+        El id NO se escribe a mano: sale de la lista de la sesion en la
+        sub-pestaña Grupos, asi que se valida que sea un `@g.us` completo antes
+        de guardarlo. Se conserva el resto del aviso (plantilla, adjunto,
+        activo): solo cambia la lista de destinatarios.
+        """
+        import importlib
+        eid = (form.get("IdEvento", [""])[0] or "").strip()
+        chat = (form.get("ChatId", [""])[0] or "").strip()
+        if not eid:
+            return self._notif_flash("Elige el aviso al que se agrega el grupo.",
+                                     err=True, vista_wa="grupos")
+        try:
+            chat = importlib.import_module("openwa_client").normalizar_chat_id(chat)
+        except Exception:
+            chat = None
+        if not chat or not chat.endswith("@g.us"):
+            return self._notif_flash(
+                f"Ese id no es un grupo de WhatsApp: {chat or '(vacío)'}.",
+                err=True, vista_wa="grupos")
+
+        evento = db.get_openwa_evento(eid)
+        if not evento:
+            return self._notif_flash(f"El aviso '{eid}' no existe.", err=True,
+                                     vista_wa="grupos")
+        actuales = [t.strip() for t in (evento.get("Telefonos") or "")
+                    .replace("\n", ",").replace(";", ",").split(",") if t.strip()]
+        if chat in actuales:
+            return self._notif_flash(f"El grupo ya estaba en {eid}.",
+                                     vista_wa="eventos")
+        ok, err = db.update_openwa_evento(
+            eid, evento.get("PlantillaMensaje") or "",
+            ", ".join(actuales + [chat]), evento.get("AdjuntarArchivo"),
+            evento.get("Activo"))
+        if not ok:
+            return self._notif_flash(f"No se pudo agregar el grupo: {err}",
+                                     err=True, vista_wa="grupos")
+        self._notif_log(user, f"Grupo agregado al aviso de WhatsApp {eid}")
+        return self._notif_flash(f"Grupo agregado al aviso {eid}.",
+                                 vista_wa="eventos")
 
     def _notif_openwa_reenviar(self, user, form):
         """

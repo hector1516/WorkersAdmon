@@ -494,6 +494,11 @@ def fake_openwa_resueltos(id_evento):
 
 db.get_openwa_destinatarios_resueltos = fake_openwa_resueltos
 
+# Ultimo envio por aviso (HUB_WhatsappQueue): la vista de Avisos lo pinta como
+# "Ultimo envio". Se dobla para no depender de SQL Server en las pruebas.
+db.get_openwa_ultimos_envios = lambda: {
+    "KILOMETROS": {"Estado": "ENVIADO", "Creado": "2026-09-29 10:00:05"}}
+
 
 def fake_update_openwa(eid, plantilla, telefonos, adjunto, activo):
     for e in _WA["eventos"]:
@@ -1312,6 +1317,77 @@ class PanelTest(unittest.TestCase):
         self.assertIn("err=", loc)
         self.assertIn("No hay", loc)
         self.assertEqual(enviados, [])
+
+    def _con_grupos(self, grupos, ok=True):
+        """Sustituye openwa_client.listar_grupos y limpia la cache de la vista."""
+        import sys
+        sys.path.insert(0, ROOT)
+        import openwa_client
+        from panel.views import notifications as nv
+        previo = getattr(openwa_client, "listar_grupos", None)
+        previa_cache = dict(nv._GRUPOS_CACHE)
+        openwa_client.listar_grupos = lambda *a, **k: (ok, grupos)
+        nv._GRUPOS_CACHE["grupos"] = None
+        nv._GRUPOS_CACHE["cuando"] = 0.0
+
+        def restaurar():
+            if previo is not None:
+                openwa_client.listar_grupos = previo
+            nv._GRUPOS_CACHE.update(previa_cache)
+        return restaurar
+
+    def test_70_avisos_dicen_quien_los_manda_a_quien_y_como_termino(self):
+        c = self._logged()
+        code, _, html = c.get("/notificaciones?wa=eventos")
+        self.assertEqual(code, 200)
+        # quien lo manda (productor) y el ultimo envio de la cola
+        self.assertIn("Quién lo manda", html)
+        self.assertIn("al registrar los kilómetros", html)
+        self.assertIn("Último envío", html)
+        self.assertIn("ENVIADO", html)
+        # un aviso sin filas en la cola lo dice en vez de dejar el hueco
+        self.assertIn("sin envíos", html)
+        # y los destinatarios resueltos siguen a la vista
+        self.assertIn("Destinatarios", html)
+
+    def test_71_grupos_se_listan_y_se_agregan_a_un_aviso(self):
+        c = self._logged()
+        grupo = {"id": "120363000000000000@g.us", "nombre": "Flota Taller",
+                 "participantes": 7}
+        restaurar = self._con_grupos([grupo])
+        antes = _WA["eventos"][0]["Telefonos"]
+        try:
+            code, _, html = c.get("/notificaciones?wa=grupos")
+            self.assertEqual(code, 200)
+            for trozo in ("Grupos de WhatsApp", "Flota Taller",
+                          "120363000000000000@g.us", "Participantes",
+                          "Usar en aviso", 'action="/notificaciones/openwa/grupo"'):
+                self.assertIn(trozo, html)
+            # el POST del boton agrega el id al Telefonos del aviso
+            code, headers, _ = c.post("/notificaciones/openwa/grupo",
+                                      csrf=c.csrf(), IdEvento="KILOMETROS",
+                                      ChatId="120363000000000000@g.us")
+            self.assertEqual(code, 303)
+            loc = urllib.parse.unquote_plus(headers.get("Location", ""))
+            self.assertIn("ok=", loc)
+            self.assertIn("wa=eventos", loc)
+            self.assertIn("120363000000000000@g.us",
+                          _WA["eventos"][0]["Telefonos"])
+        finally:
+            _WA["eventos"][0]["Telefonos"] = antes
+            restaurar()
+
+    def test_72_grupos_sin_respuesta_lo_dicen_sin_tabla_vacia(self):
+        c = self._logged()
+        restaurar = self._con_grupos("HTTP 500: gateway caido", ok=False)
+        try:
+            code, _, html = c.get("/notificaciones?wa=grupos")
+        finally:
+            restaurar()
+        self.assertEqual(code, 200)
+        self.assertIn("No se pudieron leer los grupos", html)
+        self.assertIn("HTTP 500", html)
+        self.assertNotIn('action="/notificaciones/openwa/grupo"', html)
 
     def test_38_banda_del_escaner(self):
         import datetime
