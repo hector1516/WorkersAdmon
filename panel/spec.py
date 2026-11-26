@@ -92,6 +92,25 @@ WORKERS_SPEC = {
            valor="cada 10 s (1 mensaje por ciclo)",
            ayuda="Constante del código; 3 reintentos por mensaje, 429 sin gastar intento y watchdog de 4 min."),
     ],
+    "wa_firmados": [
+        _f("WA_FIRMADOS_CICLO_SEG", "Intervalo de revisión", "number", "env",
+           default=120, min=30, max=3600, unidad="seg",
+           ayuda="Cada cuántos segundos busca reportes firmados nuevos."),
+        _f("WA_FIRMADOS_LOTE", "Reportes por ciclo", "number", "env",
+           default=5, min=1, max=20,
+           ayuda="Tope por vuelta: evita soltar una ráfaga al grupo."),
+        _f("WA_FIRMADOS_DRY_RUN", "Modo ensayo", "bool", "env", default=False,
+           ayuda="Con ON arma el texto y el PDF y los deja en el log, pero no "
+                 "envía al grupo ni mueve el cursor."),
+        _f("whatsapp_grupo_servicios", "Grupo de WhatsApp", "text", "hub_config",
+           clave="whatsapp_grupo_servicios",
+           ayuda="Id del grupo «Servicios» (@g.us). Se copia de Notificaciones → "
+                 "WhatsApp → Grupos. Sin un @g.us válido el worker no manda nada."),
+        _f("wa_firmados_ultimo_id", "Último reporte avisado", "readonly",
+           "hub_config", clave="wa_firmados_ultimo_id",
+           ayuda="Cursor: IdReporte del último firmado que ya salió al grupo. "
+                 "Lo escribe el worker."),
+    ],
     "oxxogas_worker": [
         _f("intervalo", "Cadencia de sincronización", "const", "const",
            valor="cada 1 h",

@@ -166,6 +166,24 @@ CATALOGO = {
             "entrega UN resumen por usuario. El reparto se hace al detectar el "
             "evento, no al enviar. Lógica en notif_dispatch.py."),
     },
+    # ── Worker nuevo: reportes firmados al grupo de WhatsApp ──────────────────
+    "wa_firmados": {
+        "desc": "Reportes firmados al grupo «Servicios» de WhatsApp",
+        "cadencia": "cada 2 min",
+        "app": "HUB",
+        "descripcion": (
+            "Cada ciclo busca en ReportesServicio los firmados cuyo Id sea mayor "
+            "al cursor HUB_Config.wa_firmados_ultimo_id (máximo 5 por vuelta) y "
+            "manda al grupo whatsapp_grupo_servicios el resumen y el PDF del "
+            "reporte, en un solo mensaje y firmado por The Penguin. El PDF y el "
+            "texto salen de la misma ruta que el aviso real "
+            "(openwa_alerts._datos_reporte_para_reenvio), así que no hay dos "
+            "versiones del documento. Destino único: ese grupo; si la clave no "
+            "trae un @g.us válido no manda nada. El cursor solo avanza con el "
+            "envío bueno, y un fallo deja el reporte para el siguiente ciclo sin "
+            "saltarse el orden. En el primer arranque siembra el cursor en el "
+            "último firmado para no vaciar todo el historial al grupo."),
+    },
     # ── Workers de Field (migrados de `field` el 2026-09-26, código en api/) ──
     "avisos": {
         "desc": "Avisos Field (push PWA) — APAGADO, muerto",
