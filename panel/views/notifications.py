@@ -23,11 +23,11 @@ _CSRF = {"token": ""}
 # Permiso de cada bloque (None = basta con AccesoConfiguracion del panel)
 PERMISOS = {
     "telegram": ("AccesoTelegram", "AccesoTelegram"),
-    # WhatsApp usa el mismo permiso que los avisos de Telegram: los dos son
-    # "avisar a la gente", y quien administra uno administra el otro. Si algun
-    # dia se quieren separar, es un ALTER TABLE con una columna
-    # AccesoWhatsapp y cambiar esta linea.
-    "openwa": ("AccesoTelegram", "AccesoTelegram"),
+    # WhatsApp ya es su propio módulo: el permiso es AccesoWhatsapp. Mientras la
+    # columna no exista en HUB_Users, `auth.has_perm` lo resuelve con
+    # `has_perm_whatsapp` (AccesoWhatsapp o AccesoTelegram), que es como se
+    # entraba cuando estas pantallas vivían dentro de Notificaciones.
+    "openwa": ("AccesoWhatsapp", "AccesoWhatsapp"),
     "push": (None, "AccesoConfiguracion"),
     "correo": ("AccesoConfigurarCorreo", "AccesoConfigurarCorreo"),
     "ia": ("AccesoConfigAI", "AccesoConfigAI"),
@@ -148,24 +148,6 @@ VISTAS_TG = [
     ("vinculados", "\U0001f517 Vinculados"),
     ("historial", "\U0001f4cb Historial"),
 ]
-
-
-VISTAS_WA = [
-    ("conexion", "\U0001f4ac Conexión"),
-    ("eventos", "\U0001f4e3 Avisos"),
-    ("grupos", "\U0001f465 Grupos"),
-    ("historial", "\U0001f4cb Historial"),
-]
-
-
-def _nav_wa(vista):
-    """Barra de sub-pestañas del bloque de WhatsApp (parametro ?wa=)."""
-    items = []
-    for v, label in VISTAS_WA:
-        act = " active" if v == vista else ""
-        items.append(f'<a class="btn btn-sm btn-secondary{act}" '
-                     f'href="/notificaciones?wa={v}#wa">{esc(label)}</a>')
-    return '<div class="tnav" id="wa">' + "".join(items) + "</div>"
 
 
 def _btn_prueba_con_campo(accion, campo, etiqueta="🧪 Probar"):
@@ -474,7 +456,7 @@ def _bloque_telegram(user, vista="conexion"):
 
 # ─── OpenWA / WhatsApp ───────────────────────────────────────────────────────
 
-def _wa_conexion():
+def _wa_conexion(base="/notificaciones"):
     cfg = db.get_openwa_config()
     cuerpo = (
         '<div class="cfg-grid">'
@@ -489,9 +471,9 @@ def _wa_conexion():
                   "borrarla escribe BORRAR. Vacío = no se toca.")
         + "</div>" + _save_bar())
     principal = _card("\U0001f4ac Conexión · OpenWA (WhatsApp)", "AccesoTelegram", True,
-                      cuerpo, "/notificaciones/openwa/guardar",
+                      cuerpo, f"{base}/openwa/guardar",
                       prueba=_btn_prueba_con_campo(
-                          "/notificaciones/openwa/probar", "openwa_prueba_numero",
+                          f"{base}/openwa/probar", "openwa_prueba_numero",
                           "\U0001f9ea Mandar prueba"))
     return principal + _wa_instrucciones()
 
@@ -602,7 +584,7 @@ def _wa_contexto(eid, validos, ultimos, nombres):
     return '<div class="help wa-contexto">' + "".join(partes) + "</div>"
 
 
-def _wa_eventos():
+def _wa_eventos(base="/notificaciones"):
     out = [_encabezado(
         "\U0001f4e3 Avisos de WhatsApp",
         "A quién llega cada aviso y con qué texto. Los <b>teléfonos</b> van "
@@ -648,7 +630,7 @@ def _wa_eventos():
         if eid in REPRODUCIBLES:
             probar = (
                 '<form class="inline" method="post" '
-                'action="/notificaciones/openwa/reenviar">'
+                f'action="{esc(base)}/openwa/reenviar">'
                 + _csrf_field()
                 + f'<input type="hidden" name="IdEvento" value="{esc(eid)}">'
                 '<button class="btn btn-sm btn-secondary" type="submit" '
@@ -680,14 +662,14 @@ def _wa_eventos():
   <div class="panel">
     <h2>{estado} {esc(ev.get("Nombre") or eid)}
       <span class="panel-actions">{probar}Acceso por {esc(eid)}</span></h2>
-    <form method="post" action="/notificaciones/openwa/evento">{_csrf_field()}
+    <form method="post" action="{esc(base)}/openwa/evento">{_csrf_field()}
       <input type="hidden" name="IdEvento" value="{esc(eid)}">{forms}
     </form>
   </div>""")
     return "".join(out)
 
 
-def _wa_grupos():
+def _wa_grupos(base="/notificaciones"):
     """
     Grupos de WhatsApp de la sesion, con su id y cuantos participantes tienen.
 
@@ -737,7 +719,7 @@ def _wa_grupos():
         usar = ""
         if eventos:
             usar = ('<form class="inline" method="post" '
-                    'action="/notificaciones/openwa/grupo">'
+                    f'action="{esc(base)}/openwa/grupo">'
                     + _csrf_field()
                     + f'<input type="hidden" name="ChatId" value="{esc(g["id"])}">'
                     + accion + '</form>')
@@ -768,18 +750,6 @@ def _wa_historial():
     out.append(_tabla(["#", "Aviso", "Chat ID", "Estado", "Intentos", "Creado", "Error"],
                       filas, "Todavía no hay avisos por WhatsApp."))
     return "".join(out)
-
-
-def _bloque_openwa(user, vista="conexion"):
-    """Bloque de WhatsApp completo. A diferencia de Telegram, no hay cuentas
-    que vincular: se pegan los telefonos de destino en cada aviso."""
-    if not _allowed(user, "openwa"):
-        return _card("📲 OpenWA (WhatsApp)", "AccesoTelegram", False, "", "")
-    vistas = {"conexion": _wa_conexion, "eventos": _wa_eventos,
-              "grupos": _wa_grupos, "historial": _wa_historial}
-    if vista not in vistas:
-        vista = "conexion"
-    return _nav_wa(vista) + vistas[vista]()
 
 
 def _bloque_push(user):
@@ -849,7 +819,7 @@ def _bloque_ia(user):
 # ─── página ──────────────────────────────────────────────────────────────────
 def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
            ip="", correo_prueba="",
-           vista_tg="conexion", vista_wa="conexion"):
+           vista_tg="conexion"):
     set_csrf(csrf)
     m = db.telegram_metrics()
     subs = db.get_push_subscriptions()
@@ -868,7 +838,6 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
 
     cuerpo = (kpis
               + _bloque_telegram(user, vista_tg)
-              + _bloque_openwa(user, vista_wa)
               + _bloque_push(user)
               + _bloque_correo(user, correo_prueba)
               + _bloque_ia(user))
@@ -876,5 +845,4 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
                 lugar=lugar, ip=ip,
                 flash_err=flash_err,
                 subtitle="Telegram (Conexión · Eventos · Destinatarios · "
-                         "Vinculados · Historial) · WhatsApp (Conexión · Avisos · "
-                         "Grupos · Historial) · Push · Correo · IA")
+                         "Vinculados · Historial) · Push · Correo · IA")

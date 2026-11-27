@@ -107,6 +107,10 @@ SESSION_DAYS = 30               # vigencia de la sesión (misma que eccsa_db.SES
 PANEL_PERMISSION = "AccesoConfiguracion"   # permiso requerido para entrar al panel
 PANEL_PERMISSIONS = {           # permisos por pestaña (fases B y C)
     "notificaciones": ["AccesoTelegram", "AccesoConfigurarCorreo", "AccesoConfigAI"],
+    # WhatsApp salió de Notificaciones a su propio módulo (2026-11): la bandeja
+    # de conversaciones necesita un permiso que también pueda tener quien atiende
+    # los mensajes, sin darle con eso el token de Telegram.
+    "whatsapp": ["AccesoWhatsapp"],
     "apps": ["AccesoAppConfig"],
     # Avisos cambia QUÉ se avisa y a QUIÉN: ambas cosas salen de la
     # configuración de las apps, así que comparte su permiso.
@@ -140,7 +144,11 @@ TABS = [
      "desc": "Variables de entorno y claves por worker."},
     {"id": "notificaciones", "label": "🔔 Notificaciones",
      "href": "/notificaciones", "enabled": True, "modulo": "Notificaciones",
-     "desc": "Telegram, correo saliente y ajustes de IA."},
+     "desc": "Telegram, push, correo saliente y ajustes de IA."},
+    {"id": "whatsapp", "label": "💬 WhatsApp", "href": "/whatsapp",
+     "enabled": True, "perm": "AccesoWhatsapp", "modulo": "WhatsApp",
+     "desc": "Conexión de OpenWA, avisos, grupos, historial y la bandeja de "
+             "conversaciones."},
     {"id": "apps", "label": "⚙️ Apps", "href": "/apps", "enabled": True,
      "perm": "AccesoAppConfig", "modulo": "Apps",
      "desc": "Catálogo de apps: tipo, endpoint y credenciales."},

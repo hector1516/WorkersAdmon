@@ -95,7 +95,26 @@ def current_user(handler):
     return db.validate_session_token(token), token
 
 
+WHATSAPP_PERM = "AccesoWhatsapp"
+
+
+def has_perm_whatsapp(user):
+    """
+    Permiso del módulo WhatsApp.
+
+    `AccesoWhatsapp` todavía no existe como columna en HUB_Users: hasta que la
+    migración la agregue, el módulo sigue abriéndose con `AccesoTelegram`, que es
+    con lo que funcionaban los avisos de WhatsApp dentro de Notificaciones. Se
+    pide cualquiera de los dos para que separar los permisos (cuando la columna
+    exista) no deje a nadie fuera el día del cambio.
+    """
+    perms = (user or {}).get("perms", {})
+    return bool(perms.get(WHATSAPP_PERM) or perms.get("AccesoTelegram"))
+
+
 def has_perm(user, perm):
+    if perm == WHATSAPP_PERM:
+        return has_perm_whatsapp(user)
     return bool(user and user.get("perms", {}).get(perm))
 
 

@@ -450,6 +450,113 @@ def get_openwa_destinatarios_resueltos(id_evento):
     return [], []
 
 
+# ── Conversaciones (bandeja del módulo WhatsApp) ─────────────────────────────
+# `HUB_WhatsappConversaciones` tiene una fila por chat (estado y a quién está
+# asignada) y `HUB_WhatsappEntrante` una por mensaje, con `Direccion` IN/OUT
+# (migración 0066). La bandeja solo lee y escribe esas dos tablas.
+def get_wa_conversaciones(limite=100):
+    """
+    Conversaciones con el último mensaje de cada chat, de la más reciente a la
+    más vieja. `OUTER APPLY` y no un JOIN con MAX(Fecha): dos mensajes del mismo
+    segundo tienen que resolverse por Id, no duplicar el chat.
+    """
+    try:
+        return _rows(
+            "SELECT TOP (%s) c.ChatId, c.Estado, c.AsignadoA, c.Ultima, "
+            "       u.Nombre AS Asignado, m.Nombre, m.Telefono, m.Texto "
+            "FROM HUB_WhatsappConversaciones c "
+            "LEFT JOIN HUB_Users u ON u.Id = c.AsignadoA "
+            "OUTER APPLY (SELECT TOP 1 e.Nombre, e.Telefono, e.Texto "
+            "             FROM HUB_WhatsappEntrante e "
+            "             WHERE e.ChatId = c.ChatId "
+            "             ORDER BY e.Fecha DESC, e.Id DESC) m "
+            "ORDER BY c.Ultima DESC", (int(limite),))
+    except Exception:
+        return []
+
+
+def get_wa_conversacion(chat_id):
+    """La fila de un chat (o None)."""
+    try:
+        rows = _rows(
+            "SELECT c.ChatId, c.Estado, c.AsignadoA, c.Ultima, "
+            "       u.Nombre AS Asignado "
+            "FROM HUB_WhatsappConversaciones c "
+            "LEFT JOIN HUB_Users u ON u.Id = c.AsignadoA "
+            "WHERE c.ChatId = %s", (str(chat_id or ""),))
+        return rows[0] if rows else None
+    except Exception:
+        return None
+
+
+def get_wa_mensajes(chat_id, limite=200):
+    """Historial de un chat en orden cronológico (viejo → nuevo)."""
+    try:
+        filas = _rows(
+            "SELECT TOP (%s) Id, Direccion, Texto, Fecha, Nombre, Telefono, Estado "
+            "FROM HUB_WhatsappEntrante WHERE ChatId = %s "
+            "ORDER BY Fecha DESC, Id DESC", (int(limite), str(chat_id or "")))
+    except Exception:
+        return []
+    return list(reversed(filas))
+
+
+def set_wa_estado(chat_id, estado, asignado_a=None):
+    """
+    Cambia el estado de una conversación. Es lo ÚNICO que decide si el bot
+    contesta: fuera de BOT el motor no responde (lo consulta al llegar el
+    mensaje); el panel aquí solo escribe la columna.
+    """
+    if estado not in ("BOT", "HUMANO", "CERRADA"):
+        return 0
+    try:
+        return _execute(
+            "UPDATE HUB_WhatsappConversaciones "
+            "SET Estado = %s, AsignadoA = %s WHERE ChatId = %s",
+            (estado, int(asignado_a) if asignado_a else None,
+             str(chat_id or "")))
+    except Exception:
+        return 0
+
+
+def guardar_wa_salida(chat_id, texto, telefono=None, nombre=None,
+                      fecha=None, estado="ENVIADO"):
+    """
+    Guarda una respuesta que salió del panel como `Direccion='OUT'` y adelanta
+    `Ultima` del chat, para que la bandeja la deje arriba. El envío por OpenWA lo
+    hace la vista; esto solo deja constancia.
+    """
+    conn = get_connection()
+    try:
+        if fecha is None:                 # la columna es NOT NULL: nunca va vacía
+            from tz_mx import now_mx
+            fecha = now_mx()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO HUB_WhatsappEntrante "
+                "(IdMensaje, ChatId, Telefono, Nombre, Texto, Fecha, Estado, Direccion) "
+                "VALUES (NULL, %s, %s, %s, %s, %s, %s, 'OUT')",
+                (str(chat_id or ""), telefono, nombre,
+                 str(texto or "")[:2000], fecha, estado))
+            cur.execute(
+                "MERGE HUB_WhatsappConversaciones AS t "
+                "USING (SELECT %s AS ChatId) AS s ON t.ChatId = s.ChatId "
+                "WHEN MATCHED THEN UPDATE SET Ultima = %s "
+                "WHEN NOT MATCHED THEN INSERT (ChatId, Estado, Ultima) "
+                "VALUES (%s, 'BOT', %s);",
+                (str(chat_id or ""), fecha, str(chat_id or ""), fecha))
+        conn.commit()
+        return True
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        conn.close()
+
+
 def get_telegram_destinatarios(id_evento):
     """Ids de usuario que reciben un evento."""
     try:

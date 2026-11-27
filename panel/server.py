@@ -19,6 +19,8 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
   POST /configuracion/<nombre>/probar  → prueba un token (bot de Telegram)
   GET  /notificaciones                 → pestaña Notificaciones (Fase C)
   POST /notificaciones/<bloque>[/...]  → guarda / prueba (telegram|push|correo|ia)
+  GET  /whatsapp                       → módulo WhatsApp (sub-pestaña en ?wa=)
+  POST /whatsapp/<bloque>[/...]        → conexión/avisos/grupos y bandeja
   GET  /apps                           → pestaña Apps (catálogo por app)
   GET  /correo                       → pestaña Correo (cuentas de Mailbox)
   POST /correo                       → alta / edición / asignar / pausar / borrar
@@ -29,6 +31,7 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
 Seguridad: cookie `ecsa_token` (HttpOnly), CSRF de doble envío, límite de
 intentos de login, cabeceras anti-clickjacking y permiso `AccesoConfiguracion`.
 """
+import importlib
 import json
 import os
 import time
@@ -36,6 +39,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import auth, config, db, envconf, probes, spec, wa_webhook, webauthn, workers
+from tz_mx import now_mx
 from .templates import (esc, forbidden_page, lugar_de, login_page,
                          offline_page, page, shell_banner, shell_actions)
 from .lugar import lugar_de_handler
@@ -48,6 +52,8 @@ from .views import triaje as triaje_view
 from .views import home as home_view
 from .views import notifications as notif_view
 from .views import avisos as avisos_view
+from .views import wa_conversaciones as wa_conv_view
+from .views import whatsapp as whatsapp_view
 from .views import workers as workers_view
 
 MAX_BODY = 64 * 1024          # límite del cuerpo de un POST
@@ -339,12 +345,35 @@ class Handler(BaseHTTPRequestHandler):
             if done:
                 return
             ok, err = self._flash(query)
+            # ?wa= era la sub-pestaña de WhatsApp dentro de Notificaciones. Ya es
+            # su propio módulo, así que un enlace o marcador viejo se manda allá
+            # en vez de dejarlo en una pestaña donde ya no existe.
+            if "wa" in query:
+                params = {"wa": query.get("wa", [""])[0] or "conexion"}
+                for clave in ("ok", "err"):
+                    if query.get(clave):
+                        params[clave] = query.get(clave)[0]
+                return self._redirect("/whatsapp?" + urllib.parse.urlencode(params))
             return self._html(notif_view.render(
                 user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
                 **self._shell_ctx(),
                 correo_prueba=query.get("para", [""])[0] or user.get("email", ""),
-                vista_tg=query.get("tg", [""])[0] or "conexion",
-                vista_wa=query.get("wa", [""])[0] or "conexion"))
+                vista_tg=query.get("tg", [""])[0] or "conexion"))
+
+        if path == "/whatsapp":
+            user, done = self._require()
+            if done:
+                return
+            if not auth.has_perm_whatsapp(user):
+                return self._html(forbidden_page(
+                    "El módulo WhatsApp requiere el permiso AccesoWhatsapp en "
+                    "el HUB. Pídeselo al administrador."), 403)
+            ok, err = self._flash(query)
+            return self._html(whatsapp_view.render(
+                user, flash_ok=ok, flash_err=err, csrf=self._csrf(),
+                vista=query.get("wa", [""])[0] or "conexion",
+                chat=query.get("chat", [""])[0] or "",
+                **self._shell_ctx()))
 
         if path == "/avisos":
             user, done = self._require()
@@ -494,6 +523,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/apps":
             return self._apps_action(user, form)
 
+        if path.startswith("/whatsapp/"):
+            segs = [s for s in path[len("/whatsapp/"):].split("/") if s]
+            return self._wa_action(user, segs, form)
+
         if path.startswith("/notificaciones/"):
             segs = [s for s in path[len("/notificaciones/"):].split("/") if s]
             return self._notif_action(user, segs, form)
@@ -633,6 +666,81 @@ class Handler(BaseHTTPRequestHandler):
                 {"err": f"No se pudo {accion_txt} '{name}': {output or 'error'}"})
         return self._redirect(url)
 
+
+    # ── WhatsApp: módulo y bandeja ──────────────────────────────────────────
+    def _wa_action(self, user, segs, form):
+        """
+        POST del módulo WhatsApp.
+
+        `conexion`, `avisos`, `grupos` y la prueba son EXACTAMENTE los mismos
+        manejadores que ya usaba `/notificaciones/openwa/...`: aquí solo cambia
+        la dirección desde la que se llega. La bandeja sí es propia porque
+        escribe en `HUB_WhatsappConversaciones` y `HUB_WhatsappEntrante`, tablas
+        que Notificaciones no toca.
+        """
+        if not auth.has_perm_whatsapp(user):
+            return self._html(forbidden_page(
+                "El módulo WhatsApp requiere el permiso AccesoWhatsapp."), 403)
+
+        bloque = (segs[0] if segs else "").strip()
+        if bloque != "conversaciones":
+            return self._notif_action(user, segs, form)
+
+        accion = segs[1] if len(segs) > 1 else ""
+        chat = (form.get("chat", [""])[0] or "").strip()
+        if not chat or not db.get_wa_conversacion(chat):
+            return self._wa_flash("Ese chat no existe en la bandeja.", True)
+
+        if accion == "tomar":
+            db.set_wa_estado(chat, "HUMANO", user.get("id"))
+            self._notif_log(user, f"Conversación de WhatsApp {chat}: la tomó "
+                                  f"{user.get('email')}")
+            return self._wa_flash("Tomaste la conversación: el bot ya no "
+                                  "contesta.", chat=chat)
+        if accion == "devolver":
+            db.set_wa_estado(chat, "BOT")
+            self._notif_log(user, f"Conversación de WhatsApp {chat}: devuelta "
+                                  "al bot")
+            return self._wa_flash("La conversación volvió al bot.", chat=chat)
+        if accion == "cerrar":
+            db.set_wa_estado(chat, "CERRADA")
+            self._notif_log(user, f"Conversación de WhatsApp {chat}: cerrada")
+            return self._wa_flash("Conversación cerrada. El bot no contestará.",
+                                  chat=chat)
+        if accion == "enviar":
+            texto = (form.get("texto", [""])[0] or "").strip()
+            if not texto:
+                return self._wa_flash("Escribe el texto antes de enviar.", True,
+                                      chat=chat)
+            try:
+                cliente = importlib.import_module("openwa_client")
+                ok, msg = cliente.enviar_texto(chat, texto)
+            except Exception as exc:
+                ok, msg = False, f"{type(exc).__name__}: {exc}"
+            if not ok:
+                # No se guarda la salida: el historial no puede decir que salió
+                # algo que OpenWA rechazó.
+                return self._wa_flash(f"No se pudo enviar: {msg}", True,
+                                      chat=chat)
+            guardado = db.guardar_wa_salida(
+                chat, texto, telefono=wa_conv_view.telefono_de(chat),
+                nombre=user.get("nombre"), fecha=now_mx())
+            self._notif_log(user, f"Conversación de WhatsApp {chat}: respuesta "
+                                  "enviada")
+            if not guardado:
+                return self._wa_flash(
+                    "Respuesta enviada, pero no se pudo guardar en el "
+                    "historial (¿falta la migración 0066?).", True, chat=chat)
+            return self._wa_flash("Respuesta enviada.", chat=chat)
+
+        return self._send(404, "Acción no válida", "text/plain")
+
+    def _wa_flash(self, message, err=False, chat=""):
+        """PRG de la bandeja: vuelve a la conversación con el mensaje."""
+        params = {("err" if err else "ok"): message, "wa": "conversaciones"}
+        if chat:
+            params["chat"] = chat
+        return self._redirect("/whatsapp?" + urllib.parse.urlencode(params))
 
     def _notif_action(self, user, segs, form):
         """Guarda o prueba un bloque de la pestaña Notificaciones."""
@@ -1147,7 +1255,7 @@ class Handler(BaseHTTPRequestHandler):
                     .replace("\n", ",").replace(";", ",").split(",") if t.strip()]
         if chat in actuales:
             return self._notif_flash(f"El grupo ya estaba en {eid}.",
-                                     vista_wa="eventos")
+                                     vista_wa="avisos")
         ok, err = db.update_openwa_evento(
             eid, evento.get("PlantillaMensaje") or "",
             ", ".join(actuales + [chat]), evento.get("AdjuntarArchivo"),
@@ -1157,7 +1265,7 @@ class Handler(BaseHTTPRequestHandler):
                                      err=True, vista_wa="grupos")
         self._notif_log(user, f"Grupo agregado al aviso de WhatsApp {eid}")
         return self._notif_flash(f"Grupo agregado al aviso {eid}.",
-                                 vista_wa="eventos")
+                                 vista_wa="avisos")
 
     def _notif_openwa_reenviar(self, user, form):
         """
@@ -1171,16 +1279,16 @@ class Handler(BaseHTTPRequestHandler):
         import importlib
         eid = (form.get("IdEvento", [""])[0] or "").strip()
         if not eid:
-            return self._notif_flash("Falta el aviso.", err=True, vista_wa="eventos")
+            return self._notif_flash("Falta el aviso.", err=True, vista_wa="avisos")
         try:
             alertas = importlib.import_module("openwa_alerts")
             ok, msg = alertas.reenviar_ultimo(eid)
         except Exception as exc:
             self._notif_log(user, f"Reenvío del aviso {eid}: ERROR")
             return self._notif_flash(f"No se pudo reenviar: {exc}", err=True,
-                                     vista_wa="eventos")
+                                     vista_wa="avisos")
         self._notif_log(user, f"Reenvío del aviso {eid}: {'OK' if ok else 'sin envío'}")
-        return self._notif_flash(msg, err=not ok, vista_wa="eventos")
+        return self._notif_flash(msg, err=not ok, vista_wa="avisos")
 
     def _notif_openwa_probar(self, user, form):
         destino = (form.get("openwa_prueba_numero", [""])[0] or "").strip()
@@ -1195,7 +1303,7 @@ class Handler(BaseHTTPRequestHandler):
         adjunto = (form.get("AdjuntarArchivo", ["0"])[0] or "0") == "1"
         activo = (form.get("Activo", ["0"])[0] or "0") == "1"
         if not eid:
-            return self._notif_flash("Falta el evento.", err=True, vista_wa="eventos")
+            return self._notif_flash("Falta el evento.", err=True, vista_wa="avisos")
 
         # Avisa antes de guardar si hay numeros que no son validos: es mas util
         # saberlo al pegar que descubrir que a medias llego el aviso.
@@ -1209,16 +1317,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._notif_flash(
                 f"No se guardó: no son números → {', '.join(rechazados)}. "
                 f"Escríbelos con clave de país (ej. 5218123211516).", err=True,
-                vista_wa="eventos")
+                vista_wa="avisos")
 
         ok, err = db.update_openwa_evento(eid, plantilla, telefonos, adjunto, activo)
         if not ok:
             return self._notif_flash(f"No se pudo guardar el evento: {err}", err=True,
-                                     vista_wa="eventos")
+                                     vista_wa="avisos")
         a_donde = (f" a {len(validos)} número(s)" if validos
                    else " (sin números: no se enviará nada)")
         self._notif_log(user, f"Aviso de WhatsApp {eid} actualizado")
-        return self._notif_flash(f"Aviso {eid} guardado{a_donde}.", vista_wa="eventos")
+        return self._notif_flash(f"Aviso {eid} guardado{a_donde}.", vista_wa="avisos")
 
     def _notif_telegram_probar(self, user, form):
         ok, msg = workers.test_telegram_bot()
@@ -1231,7 +1339,7 @@ class Handler(BaseHTTPRequestHandler):
         adjunto = (form.get("AdjuntarArchivo", ["0"])[0] or "0") == "1"
         activo = (form.get("Activo", ["0"])[0] or "0") == "1"
         if not eid:
-            return self._notif_flash("Falta el evento.", err=True, vista_wa="eventos")
+            return self._notif_flash("Falta el evento.", err=True, vista_wa="avisos")
         ok, err = db.update_telegram_evento(eid, plantilla, adjunto, activo)
         if not ok:
             return self._notif_flash(f"No se pudo guardar el evento: {err}", err=True)
@@ -1242,7 +1350,7 @@ class Handler(BaseHTTPRequestHandler):
         eid = (form.get("IdEvento", [""])[0] or "").strip()
         ids = [i for i in form.get("ids", []) if str(i).isdigit()]
         if not eid:
-            return self._notif_flash("Falta el evento.", err=True, vista_wa="eventos")
+            return self._notif_flash("Falta el evento.", err=True, vista_wa="avisos")
         ok, err = db.set_telegram_destinatarios(eid, ids)
         if not ok:
             return self._notif_flash(f"No se pudieron guardar los destinatarios: {err}", err=True)
@@ -1378,7 +1486,10 @@ class Handler(BaseHTTPRequestHandler):
         if vista:
             params["tg"] = vista
         if vista_wa:
+            # WhatsApp ya es su propio módulo: el aviso vuelve ahí aunque la
+            # acción venga de un enlace viejo de /notificaciones.
             params["wa"] = vista_wa
+            return self._redirect("/whatsapp?" + urllib.parse.urlencode(params))
         url = "/notificaciones?" + urllib.parse.urlencode(params)
         return self._redirect(url)
 

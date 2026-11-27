@@ -23,6 +23,7 @@ ICONOS = {
     "logs": "📄",
     "config": "⚙️",
     "notificaciones": "🔔",
+    "whatsapp": "💬",
     "apps": "📦",
     "asistencia": "🕒",
     "correo": "✉️",

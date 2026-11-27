@@ -147,6 +147,7 @@ _TOKENS = {"n": 0}
 def _fake_user(email, permiso, nombre, solo=None):
     todos = {config.PANEL_PERMISSION: permiso,
              "AccesoTelegram": permiso, "AccesoAppConfig": permiso,
+             "AccesoWhatsapp": permiso,
              "AccesoConfigurarCorreo": permiso, "AccesoConfigAI": permiso,
              "AccesoUsuarios": permiso, "AccesoVM": False,
              "AccesoEdicionBD": False, "AccesoDeteccionRed": permiso}
@@ -512,6 +513,85 @@ def fake_update_openwa(eid, plantilla, telefonos, adjunto, activo):
 
 
 db.update_openwa_evento = fake_update_openwa
+
+
+# ── Bandeja de conversaciones (HUB_WhatsappConversaciones / Entrante) ────────
+# Dobles en memoria: las pruebas de la bandeja escriben (estado, salida) y luego
+# comprueban qué quedó, sin SQL Server.
+class _WaConvFalso:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.conversaciones = [
+            {"ChatId": "5218123211516@c.us", "Estado": "BOT", "AsignadoA": None,
+             "Asignado": None, "Ultima": "2026-11-26 10:30:00",
+             "Nombre": "Doña Mari", "Telefono": "5218123211516",
+             "Texto": "¿Ya salió mi pedido de ayer?"},
+            {"ChatId": "5218123211517@c.us", "Estado": "HUMANO", "AsignadoA": 1,
+             "Asignado": "Admin Panel", "Ultima": "2026-11-26 09:05:00",
+             "Nombre": "Taller López", "Telefono": "5218123211517",
+             "Texto": "Gracias, ahí lo espero"},
+        ]
+        self.mensajes = {
+            "5218123211516@c.us": [
+                {"Id": 1, "Direccion": "IN", "Texto": "Hola, buen día",
+                 "Fecha": "2026-11-26 10:00:00", "Nombre": "Doña Mari",
+                 "Telefono": "5218123211516", "Estado": "NUEVO"},
+                {"Id": 2, "Direccion": "OUT", "Texto": "Buen día, ¿en qué le ayudo?",
+                 "Fecha": "2026-11-26 10:01:00", "Nombre": None,
+                 "Telefono": "5218123211516", "Estado": "ENVIADO"},
+                {"Id": 3, "Direccion": "IN", "Texto": "¿Ya salió mi pedido de ayer?",
+                 "Fecha": "2026-11-26 10:30:00", "Nombre": "Doña Mari",
+                 "Telefono": "5218123211516", "Estado": "NUEVO"},
+            ],
+        }
+        self.salidas = []
+
+
+_WA_CONV = _WaConvFalso()
+
+
+def fake_wa_conversaciones(limite=100):
+    filas = [dict(c) for c in _WA_CONV.conversaciones]
+    filas.sort(key=lambda c: str(c.get("Ultima") or ""), reverse=True)
+    return filas[:int(limite)]
+
+
+def fake_wa_conversacion(chat_id):
+    for c in _WA_CONV.conversaciones:
+        if c["ChatId"] == chat_id:
+            return dict(c)
+    return None
+
+
+def fake_wa_mensajes(chat_id, limite=200):
+    return [dict(m) for m in _WA_CONV.mensajes.get(chat_id, [])][-int(limite):]
+
+
+def fake_wa_estado(chat_id, estado, asignado_a=None):
+    for c in _WA_CONV.conversaciones:
+        if c["ChatId"] == chat_id:
+            c["Estado"] = estado
+            c["AsignadoA"] = asignado_a
+            c["Asignado"] = ("Admin Panel" if asignado_a else None)
+            return 1
+    return 0
+
+
+def fake_wa_salida(chat_id, texto, telefono=None, nombre=None, fecha=None,
+                   estado="ENVIADO"):
+    _WA_CONV.salidas.append({"chat": chat_id, "texto": texto,
+                             "telefono": telefono, "nombre": nombre,
+                             "estado": estado})
+    return True
+
+
+db.get_wa_conversaciones = fake_wa_conversaciones
+db.get_wa_conversacion = fake_wa_conversacion
+db.get_wa_mensajes = fake_wa_mensajes
+db.set_wa_estado = fake_wa_estado
+db.guardar_wa_salida = fake_wa_salida
 
 
 class _WaDbFalso:
@@ -1180,17 +1260,22 @@ class PanelTest(unittest.TestCase):
 
     def test_30_bloque_de_whatsapp_en_la_pestana(self):
         c = self._logged()
-        # Conexion: la casilla de la key, la direccion y la sesion
+        # Ya es su propio módulo: Notificaciones NO pinta nada de WhatsApp…
         code, _, html = c.get("/notificaciones")
         self.assertEqual(code, 200)
+        self.assertNotIn("OpenWA", html)
+        self.assertNotIn("openwa_api_key", html)
+        # …y /whatsapp pinta la sub-pestaña Conexión.
+        code, _, html = c.get("/whatsapp")
+        self.assertEqual(code, 200)
         for trozo in ("OpenWA", "openwa_api_key", "openwa_base_url",
-                      "openwa_session_id", "Mandar prueba"):
+                      "openwa_session_id", "Mandar prueba", "Conversaciones"):
             self.assertIn(trozo, html)
         # la key es campo password y su valor no aparece en el HTML
         self.assertIn('name="openwa_api_key" value=""', html)
         self.assertIn('type="password"', html)
         # Avisos: la casilla de telefonos por evento
-        code, _, html = c.get("/notificaciones?wa=eventos")
+        code, _, html = c.get("/whatsapp?wa=avisos")
         self.assertEqual(code, 200)
         for trozo in ("Avisos de WhatsApp", 'name="Telefonos"', "KILOMETROS",
                       "REPORTE_SERVICIO", "separados por comas"):
@@ -1200,19 +1285,19 @@ class PanelTest(unittest.TestCase):
         # un evento sin telefonos lo dice, para que no se crea que avisara
         self.assertIn("sin tel", html)
         # Historial: los enviados y los fallidos con su motivo
-        code, _, html = c.get("/notificaciones?wa=historial")
+        code, _, html = c.get("/whatsapp?wa=historial")
         self.assertEqual(code, 200)
         for trozo in ("Historial de WhatsApp", "ENVIADO", "FALLADO",
                       "HTTP 503"):
             self.assertIn(trozo, html)
         # sub-pestaña desconocida cae en Conexion
-        code, _, html = c.get("/notificaciones?wa=zzz")
+        code, _, html = c.get("/whatsapp?wa=zzz")
         self.assertEqual(code, 200)
         self.assertIn("Mandar prueba", html)
 
     def test_31_guardar_conexion_de_whatsapp(self):
         c = self._logged()
-        code, headers, _ = c.post("/notificaciones/openwa", csrf=c.csrf(),
+        code, headers, _ = c.post("/whatsapp/openwa", csrf=c.csrf(),
                                   openwa_api_key="sk-nueva-1234",
                                   openwa_base_url="http://openwa:2785",
                                   openwa_session_id="sid-123")
@@ -1223,17 +1308,23 @@ class PanelTest(unittest.TestCase):
         _CONFIG["openwa_api_key"] = "sk-nueva-1234"
         _CONFIG["openwa_session_id"] = "sid-123"
         # la key en blanco NO borra la guardada
-        c.post("/notificaciones/openwa", csrf=c.csrf(), openwa_api_key="",
+        c.post("/whatsapp/openwa", csrf=c.csrf(), openwa_api_key="",
                openwa_base_url="", openwa_session_id="")
         self.assertEqual(_CONFIG["openwa_api_key"], "sk-nueva-1234")
         # "BORRAR" sí la quita
-        c.post("/notificaciones/openwa", csrf=c.csrf(), openwa_api_key="BORRAR")
+        c.post("/whatsapp/openwa", csrf=c.csrf(), openwa_api_key="BORRAR")
         self.assertEqual(_CONFIG["openwa_api_key"], "")
+        # La ruta vieja de Notificaciones sigue funcionando (enlaces guardados)
+        code, headers, _ = c.post("/notificaciones/openwa", csrf=c.csrf(),
+                                  openwa_session_id="sid-viejo")
+        self.assertEqual(code, 303)
+        self.assertTrue(headers.get("Location", "").startswith("/whatsapp?"),
+                        "el aviso vuelve al módulo, no a Notificaciones")
 
     def test_32_telefonos_invalidos_no_se_guardan(self):
         c = self._logged()
         antes = dict(_WA["eventos"][0])
-        code, headers, _ = c.post("/notificaciones/openwa/evento", csrf=c.csrf(),
+        code, headers, _ = c.post("/whatsapp/openwa/evento", csrf=c.csrf(),
                                   IdEvento="KILOMETROS", Telefonos="5218123211516, hector",
                                   PlantillaMensaje="x", Activo="1")
         self.assertEqual(code, 303)
@@ -1245,7 +1336,7 @@ class PanelTest(unittest.TestCase):
 
     def test_33_guardar_telefonos_validos(self):
         c = self._logged()
-        code, headers, _ = c.post("/notificaciones/openwa/evento", csrf=c.csrf(),
+        code, headers, _ = c.post("/whatsapp/openwa/evento", csrf=c.csrf(),
                                   IdEvento="KILOMETROS",
                                   Telefonos="5218123211516, 5512345678",
                                   PlantillaMensaje="Hola {Auto}", Activo="1",
@@ -1260,7 +1351,7 @@ class PanelTest(unittest.TestCase):
     def test_34_prueba_de_whatsapp_sin_key(self):
         c = self._logged()
         _WA["config"]["api_key"] = ""
-        code, headers, _ = c.post("/notificaciones/openwa/probar", csrf=c.csrf())
+        code, headers, _ = c.post("/whatsapp/openwa/probar", csrf=c.csrf())
         self.assertEqual(code, 303)
         loc = urllib.parse.unquote_plus(headers.get("Location", ""))
         self.assertIn("err=", loc)
@@ -1268,12 +1359,12 @@ class PanelTest(unittest.TestCase):
 
     def test_35_boton_de_reenvio_por_aviso(self):
         c = self._logged()
-        code, _, html = c.get("/notificaciones?wa=eventos")
+        code, _, html = c.get("/whatsapp?wa=avisos")
         self.assertEqual(code, 200)
         # un boton por aviso, con su IdEvento
         for eid in ("KILOMETROS", "REPORTE_SERVICIO"):
             self.assertIn(f'value="{eid}"', html)
-        self.assertIn("/notificaciones/openwa/reenviar", html)
+        self.assertIn("/whatsapp/openwa/reenviar", html)
         self.assertIn("Reenviar", html)
 
     def test_36_reenvio_de_un_aviso(self):
@@ -1285,14 +1376,14 @@ class PanelTest(unittest.TestCase):
         previo = openwa_alerts.db
         openwa_alerts.db = _WaDbFalso(enviados)
         try:
-            code, headers, _ = c.post("/notificaciones/openwa/reenviar",
+            code, headers, _ = c.post("/whatsapp/openwa/reenviar",
                                       csrf=c.csrf(), IdEvento="KILOMETROS")
         finally:
             openwa_alerts.db = previo
         self.assertEqual(code, 303)
         loc = urllib.parse.unquote_plus(headers.get("Location", ""))
         self.assertIn("ok=", loc)
-        self.assertIn("wa=eventos", loc)       # se queda en Avisos
+        self.assertIn("wa=avisos", loc)       # se queda en Avisos
         self.assertEqual(len(enviados), 1)
         self.assertEqual(enviados[0]["chat"], "5218123211516@c.us")
         # y el texto lleva el dato real del ultimo registro
@@ -1309,7 +1400,7 @@ class PanelTest(unittest.TestCase):
         db.km = None
         openwa_alerts.db = db
         try:
-            code, headers, _ = c.post("/notificaciones/openwa/reenviar",
+            code, headers, _ = c.post("/whatsapp/openwa/reenviar",
                                       csrf=c.csrf(), IdEvento="KILOMETROS")
         finally:
             openwa_alerts.db = previo
@@ -1338,7 +1429,7 @@ class PanelTest(unittest.TestCase):
 
     def test_70_avisos_dicen_quien_los_manda_a_quien_y_como_termino(self):
         c = self._logged()
-        code, _, html = c.get("/notificaciones?wa=eventos")
+        code, _, html = c.get("/whatsapp?wa=avisos")
         self.assertEqual(code, 200)
         # quien lo manda (productor) y el ultimo envio de la cola
         self.assertIn("Quién lo manda", html)
@@ -1357,20 +1448,20 @@ class PanelTest(unittest.TestCase):
         restaurar = self._con_grupos([grupo])
         antes = _WA["eventos"][0]["Telefonos"]
         try:
-            code, _, html = c.get("/notificaciones?wa=grupos")
+            code, _, html = c.get("/whatsapp?wa=grupos")
             self.assertEqual(code, 200)
             for trozo in ("Grupos de WhatsApp", "Flota Taller",
                           "120363000000000000@g.us", "Participantes",
-                          "Usar en aviso", 'action="/notificaciones/openwa/grupo"'):
+                          "Usar en aviso", 'action="/whatsapp/openwa/grupo"'):
                 self.assertIn(trozo, html)
             # el POST del boton agrega el id al Telefonos del aviso
-            code, headers, _ = c.post("/notificaciones/openwa/grupo",
+            code, headers, _ = c.post("/whatsapp/openwa/grupo",
                                       csrf=c.csrf(), IdEvento="KILOMETROS",
                                       ChatId="120363000000000000@g.us")
             self.assertEqual(code, 303)
             loc = urllib.parse.unquote_plus(headers.get("Location", ""))
             self.assertIn("ok=", loc)
-            self.assertIn("wa=eventos", loc)
+            self.assertIn("wa=avisos", loc)
             self.assertIn("120363000000000000@g.us",
                           _WA["eventos"][0]["Telefonos"])
         finally:
@@ -1381,13 +1472,13 @@ class PanelTest(unittest.TestCase):
         c = self._logged()
         restaurar = self._con_grupos("HTTP 500: gateway caido", ok=False)
         try:
-            code, _, html = c.get("/notificaciones?wa=grupos")
+            code, _, html = c.get("/whatsapp?wa=grupos")
         finally:
             restaurar()
         self.assertEqual(code, 200)
         self.assertIn("No se pudieron leer los grupos", html)
         self.assertIn("HTTP 500", html)
-        self.assertNotIn('action="/notificaciones/openwa/grupo"', html)
+        self.assertNotIn('action="/whatsapp/openwa/grupo"', html)
 
     def test_38_banda_del_escaner(self):
         import datetime
@@ -2911,6 +3002,183 @@ class AvisosTest(unittest.TestCase):
         self.assertIn("module-card off", html)
         self.assertIn("AccesoAppConfig", html)
         self.assertNotIn('href="/avisos"', html)
+
+
+class WaPanelTest(unittest.TestCase):
+    """Módulo WhatsApp: pestaña, bandeja de conversaciones y sus acciones."""
+
+    maxDiff = None
+
+    def setUp(self):
+        _WA_CONV.reset()
+
+    def _logged(self):
+        c = Client()
+        c.login("admin@ecc-sa.com.mx", "s3cret")
+        return c
+
+    # ── el módulo ────────────────────────────────────────────────────────────
+    def test_la_pestana_existe_con_su_permiso(self):
+        tabs = [t for t in config.TABS if t["id"] == "whatsapp"]
+        self.assertEqual(len(tabs), 1, "la pestaña WhatsApp debe estar en TABS")
+        tab = tabs[0]
+        self.assertEqual(tab["href"], "/whatsapp")
+        self.assertEqual(tab["modulo"], "WhatsApp")
+        self.assertEqual(tab["perm"], "AccesoWhatsapp")
+        from panel.views import home as home_view
+        self.assertEqual(home_view.ICONOS["whatsapp"], "\U0001f4ac")
+
+    def test_aparece_en_la_barra_y_notificaciones_ya_no_la_tiene(self):
+        c = self._logged()
+        _, _, home = c.get("/")
+        self.assertIn('href="/whatsapp"', home)
+        _, _, notif = c.get("/notificaciones")
+        self.assertNotIn("OpenWA", notif)
+        self.assertNotIn("openwa_api_key", notif)
+
+    def test_sin_el_permiso_es_403(self):
+        # sin_app entra al panel (AccesoConfiguracion) pero no tiene WhatsApp.
+        c = Client()
+        c.login("sin_app@ecc-sa.com.mx", "s3cret")
+        code, _, _ = c.get("/whatsapp")
+        self.assertEqual(code, 403)
+
+    def test_sin_sesion_redirige_a_login(self):
+        code, headers, _ = Client().get("/whatsapp")
+        self.assertEqual(code, 303)
+        self.assertEqual(headers.get("Location"), "/login")
+
+    def test_las_cinco_sub_pestanas(self):
+        c = self._logged()
+        _, _, html = c.get("/whatsapp")
+        for vista in ("conexion", "avisos", "grupos", "historial",
+                      "conversaciones"):
+            self.assertIn(f"/whatsapp?wa={vista}", html)
+
+    # ── la bandeja ───────────────────────────────────────────────────────────
+    def test_la_lista_pinta_contacto_mensaje_estado_y_asignado(self):
+        c = self._logged()
+        code, _, html = c.get("/whatsapp?wa=conversaciones")
+        self.assertEqual(code, 200)
+        self.assertIn("Doña Mari", html)
+        self.assertIn("5218123211516", html)
+        self.assertIn("¿Ya salió mi pedido de ayer?", html)
+        self.assertIn("Taller López", html)
+        # Los estados son badges, no texto suelto.
+        self.assertIn("badge badge-success", html)   # BOT
+        self.assertIn("badge badge-warning", html)   # HUMANO
+        self.assertIn("Admin Panel", html)           # asignado
+        self.assertIn("tscroll", html)
+
+    def test_el_detalle_pinta_el_historial_completo(self):
+        c = self._logged()
+        code, _, html = c.get(
+            "/whatsapp?wa=conversaciones&chat=5218123211516@c.us")
+        self.assertEqual(code, 200)
+        self.assertIn("Hola, buen día", html)
+        self.assertIn("Buen día, ¿en qué le ayudo?", html)
+        self.assertIn("Entrante", html)
+        self.assertIn("Saliente", html)
+        self.assertIn("Responder", html)
+        self.assertIn("Tomar", html)
+        self.assertIn("Devolver al bot", html)
+        self.assertIn('name="csrf"', html)
+
+    def test_un_chat_que_no_existe_lo_dice(self):
+        c = self._logged()
+        code, _, html = c.get("/whatsapp?wa=conversaciones&chat=no-existe@c.us")
+        self.assertEqual(code, 200)
+        self.assertIn("no existe", html)
+        self.assertNotIn("Responder", html)
+
+    def test_tomar_deja_el_chat_en_humano_y_asignado(self):
+        c = self._logged()
+        code, headers, _ = c.post("/whatsapp/conversaciones/tomar",
+                                  csrf=c.csrf(), chat="5218123211516@c.us")
+        self.assertEqual(code, 303)
+        self.assertIn("chat=5218123211516", headers.get("Location", ""))
+        conv = db.get_wa_conversacion("5218123211516@c.us")
+        self.assertEqual(conv["Estado"], "HUMANO")
+        self.assertEqual(conv["AsignadoA"], 1)
+
+    def test_devolver_y_cerrar(self):
+        c = self._logged()
+        c.post("/whatsapp/conversaciones/devolver", csrf=c.csrf(),
+               chat="5218123211517@c.us")
+        self.assertEqual(db.get_wa_conversacion("5218123211517@c.us")["Estado"],
+                         "BOT")
+        c.post("/whatsapp/conversaciones/cerrar", csrf=c.csrf(),
+               chat="5218123211517@c.us")
+        self.assertEqual(db.get_wa_conversacion("5218123211517@c.us")["Estado"],
+                         "CERRADA")
+
+    def test_sin_csrf_no_cambia_el_estado(self):
+        c = self._logged()
+        code, _, _ = c.post("/whatsapp/conversaciones/tomar",
+                            chat="5218123211516@c.us")
+        self.assertEqual(code, 403)
+        self.assertEqual(db.get_wa_conversacion("5218123211516@c.us")["Estado"],
+                         "BOT")
+
+    # ── enviar ───────────────────────────────────────────────────────────────
+    def test_enviar_llama_a_openwa_y_guarda_la_salida(self):
+        import sys
+        sys.path.insert(0, ROOT)
+        import openwa_client
+        previo = openwa_client.enviar_texto
+        llamadas = []
+
+        def falso(chat_id, texto, *a, **k):
+            llamadas.append((chat_id, texto))
+            return True, "ok"
+
+        openwa_client.enviar_texto = falso
+        try:
+            c = self._logged()
+            code, headers, _ = c.post("/whatsapp/conversaciones/enviar",
+                                      csrf=c.csrf(),
+                                      chat="5218123211516@c.us",
+                                      texto="Ya salió, le aviso cuando llegue.")
+        finally:
+            openwa_client.enviar_texto = previo
+        self.assertEqual(code, 303)
+        self.assertEqual(llamadas, [("5218123211516@c.us",
+                                     "Ya salió, le aviso cuando llegue.")])
+        self.assertEqual(len(_WA_CONV.salidas), 1)
+        salida = _WA_CONV.salidas[0]
+        self.assertEqual(salida["chat"], "5218123211516@c.us")
+        self.assertEqual(salida["estado"], "ENVIADO")
+        self.assertIn("Ya salió", salida["texto"])
+        # El aviso vuelve al detalle del mismo chat.
+        self.assertIn("chat=5218123211516", headers.get("Location", ""))
+
+    def test_si_openwa_falla_no_se_guarda_la_salida(self):
+        import sys
+        sys.path.insert(0, ROOT)
+        import openwa_client
+        previo = openwa_client.enviar_texto
+        openwa_client.enviar_texto = lambda *a, **k: (False, "HTTP 500: caído")
+        try:
+            c = self._logged()
+            code, headers, _ = c.post("/whatsapp/conversaciones/enviar",
+                                      csrf=c.csrf(),
+                                      chat="5218123211516@c.us", texto="Hola")
+        finally:
+            openwa_client.enviar_texto = previo
+        self.assertEqual(code, 303)
+        self.assertIn("err=", urllib.parse.unquote_plus(
+            headers.get("Location", "")))
+        self.assertEqual(_WA_CONV.salidas, [])
+
+    def test_enviar_vacio_lo_dice_sin_llamar_a_openwa(self):
+        c = self._logged()
+        code, headers, _ = c.post("/whatsapp/conversaciones/enviar",
+                                  csrf=c.csrf(), chat="5218123211516@c.us",
+                                  texto="   ")
+        self.assertEqual(code, 303)
+        loc = urllib.parse.unquote_plus(headers.get("Location", ""))
+        self.assertIn("err=", loc)
+        self.assertEqual(_WA_CONV.salidas, [])
 
 
 if __name__ == "__main__":
