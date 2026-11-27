@@ -592,6 +592,12 @@ def _enviar_seguro(enviar, telefono, texto):
     if not chat:
         return False, "telefono sin formato valido"
     try:
+        from wa_envios import repetido
+        if repetido(chat, texto):
+            return False, "ya enviado hoy"
+    except Exception:
+        pass
+    try:
         ok, detalle = enviar(chat, texto)
         return bool(ok), str(detalle or "")
     except Exception as exc:

@@ -432,6 +432,16 @@ def _contestarbot(datos):
                                      datos["texto"])
         if not respuesta:
             return
+        # Antes de mandar: si ya salió hoy el mismo texto a este chat, no se
+        # repite. Evita que el bot conteste lo mismo en cada mensaje.
+        try:
+            import wa_envios
+            if wa_envios.repetido(datos["chat_id"], respuesta,
+                                  conn=db.get_connection()):
+                print("[wa_webhook] respuesta repetida hoy; no se envía")
+                return
+        except Exception:
+            pass
         ok, detalle = enviar_texto(datos["chat_id"], respuesta)
         if not ok:
             print(f"[wa_webhook] no se pudo enviar la respuesta: {detalle}")
