@@ -281,7 +281,7 @@ class Kilometros(unittest.TestCase):
         self.assertIn("ABC1234", texto)
         self.assertIn("no veo kilómetros", texto)
         self.assertIn("21 nov 2026", texto)
-        self.assertIn("lectura del odómetro", texto)
+        self.assertIn("odómetro", texto)
 
     def test_avisa_distinto_si_nunca_hubo_lectura(self):
         base = _base_con_hector()
@@ -423,13 +423,27 @@ class Dedupe(unittest.TestCase):
         self.assertEqual(segundo, 0)
         self.assertEqual(len(base.recordatorios), 1)
 
-    def test_km_no_se_repite_antes_de_tres_dias(self):
+    def test_km_se_recuerda_cada_dia_hasta_registrar(self):
         base = _base_con_hector()
         base.autos = [(1, "Toyota Hilux", "ABC1234", HECTOR)]
         base.recordatorios.append({
             "tipo": "KM", "clave": "1", "uid": HECTOR,
             "dia": (JUEVES - timedelta(days=2)).date(),
             "enviado": JUEVES - timedelta(days=2), "ok": True, "detalle": "",
+        })
+        envios = Envios()
+
+        _, enviados = wr.ciclo(ahora=JUEVES, conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 1)
+
+    def test_km_no_se_repite_el_mismo_dia(self):
+        base = _base_con_hector()
+        base.autos = [(1, "Toyota Hilux", "ABC1234", HECTOR)]
+        base.recordatorios.append({
+            "tipo": "KM", "clave": "1", "uid": HECTOR,
+            "dia": JUEVES.date(),
+            "enviado": JUEVES, "ok": True, "detalle": "",
         })
         envios = Envios()
 

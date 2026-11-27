@@ -11,8 +11,9 @@ oficina (lunes a viernes 09:00-18:30, hora de México), nunca se le escribe a
 quien no tiene WhatsApp registrado y nunca se repite el mismo aviso más de lo
 que dice `HUB_Config`.
 
-  1. **KM**: un auto asignado lleva `wa_rec_km_dias` días sin lectura de
-     odómetro. Se avisa a su conductor como máximo una vez cada 3 días.
+  1. **KM**: los kilómetros son **semanales**. Si el auto asignado no tiene
+     lectura desde el lunes a las 00:00, se le recuerda a su conductor **una vez
+     al día** hasta que la registre.
   2. **VALE**: un vale GENERADO lleva más de `wa_rec_vale_horas` horas sin el
      comprobante (`HUB_OxxoGasTickets`). Se avisa a quien lo solicitó cada 48 h
      y como máximo `wa_rec_vale_max` veces por vale.
@@ -119,7 +120,7 @@ SQL_YA_HOY = (
 
 SQL_KM_DEDUPE = (
     "SELECT COUNT(*) FROM HUB_WaRecordatorios "
-    "WHERE Tipo = 'KM' AND Clave = %s AND IdUsuario = %s AND FechaDia > %s"
+    "WHERE Tipo = 'KM' AND Clave = %s AND IdUsuario = %s AND FechaDia >= %s"
 )
 
 SQL_VALE_HIST = (
@@ -351,9 +352,8 @@ def _ya_hoy(conn, tipo, clave, usuario_id, hoy):
 
 
 def _km_reciente(conn, clave, usuario_id, hoy):
-    """¿Ya se le recordó este auto en los últimos 3 días?"""
-    desde = hoy - timedelta(days=DEDUPE_KM_DIAS)
-    fila = _una(conn, SQL_KM_DEDUPE, (clave, usuario_id, desde))
+    """¿Ya se le recordó este auto hoy? Es un aviso al día, no cada 3 días."""
+    fila = _una(conn, SQL_KM_DEDUPE, (clave, usuario_id, hoy))
     try:
         return bool(fila and int(fila[0] or 0))
     except (TypeError, ValueError):
@@ -402,8 +402,15 @@ def _registrar(conn, candidato, ahora, ok, detalle):
 # ── Candidatos ───────────────────────────────────────────────────────────────
 
 def _candidatos_km(conn, cfg, ahora):
-    """Autos asignados sin lectura reciente, con el texto ya armado."""
-    desde = ahora - timedelta(days=cfg["km_dias"])
+    """
+    Autos asignados sin lectura **esta semana**, con el texto ya armado.
+
+    Los kilómetros se registran una vez por semana: si ya hay lectura desde el
+    lunes a las 00:00, no se pide nada. Si no, se recuerda una vez al día hasta
+    que la persona la mande.
+    """
+    lunes = ahora - timedelta(days=ahora.weekday())
+    desde = lunes.replace(hour=0, minute=0, second=0, microsecond=0)
     salida = []
     for fila in _filas(conn, SQL_UNIVERSO_KM, ()):
         try:
@@ -419,11 +426,11 @@ def _candidatos_km(conn, cfg, ahora):
             except (TypeError, ValueError):
                 recientes = 0
             if recientes:
-                continue        # hay lectura dentro de la ventana: nada que pedir
+                continue        # ya hay lectura de esta semana: nada que pedir
             texto = (f"Hola {str(nombre or '').strip()}, no veo kilómetros de "
                      f"{str(marca or '').strip()} ({str(placas or '').strip()}) "
-                     f"desde el {_fecha(lectura[1])}. "
-                     "¿Me pasas la lectura del odómetro?")
+                     f"esta semana; la última lectura fue el {_fecha(lectura[1])}. "
+                     "¿Me pasas el odómetro?")
         else:
             texto = (f"Hola {str(nombre or '').strip()}, no tienes lecturas "
                      f"registradas de {str(marca or '').strip()} "
