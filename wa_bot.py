@@ -494,7 +494,7 @@ def _esta_abierto(ahora=None):
 
 def _respuesta_horario(kb, ahora=None):
     estado = "abiertos" if _esta_abierto(ahora) else "cerrados"
-    horario = str(kb.get("horario_texto") or HORARIO_TEXTO).strip()
+    horario = str(kb.get("horario_texto") or HORARIO_TEXTO).strip().rstrip(".")
     return f"Ahora estamos {estado}. Horario: {horario}."
 
 
