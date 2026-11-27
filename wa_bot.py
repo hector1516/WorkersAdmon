@@ -36,6 +36,7 @@ from datetime import datetime
 from urllib.parse import quote
 
 from tz_mx import now_mx
+import wa_consultas
 
 SITIO = "https://ecc-sa.com.mx"
 MAPA_BASE = "https://maps.google.com/?q="
@@ -636,6 +637,13 @@ def responder(chat_id, telefono, texto, kb=None, ahora=None):
     if opcion is not None:
         return _con_humor(_respuesta_opcion(opcion, kb, ahora), persona, norm,
                           None)
+
+    # Consultas internas de solo lectura: solo para personal registrado. Si no
+    # hay consulta clara, se sigue el flujo general del bot.
+    if persona:
+        consulta = wa_consultas.responder(norm, persona.get("id"))
+        if consulta:
+            return _con_humor(consulta, persona, norm, _tema(norm))
 
     tema = _tema(norm)
 
