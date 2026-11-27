@@ -102,6 +102,12 @@ def _worker_habilitado():
 
 
 def main():
+    try:
+        from worker_heartbeat import heartbeat
+    except Exception:  # pragma: no cover
+        def heartbeat(worker, detail="", count=None):
+            return False
+
     wlog("vales_watchdog", "Arrancó")
     print(f"[vales_watchdog] Iniciado (umbral {UMBRAL_SEG}s, intervalo {INTERVALO}s)", flush=True)
     while True:
@@ -109,19 +115,33 @@ def main():
         if hb <= 0:
             # Sin heartbeat: el worker nunca arranco o borraron el archivo.
             # Dar margen en el primer minuto para no reiniciar en bucle.
+            detalle = "sin heartbeat del vales_worker"
             print("[vales_watchdog] Sin heartbeat (worker aun no arranca?)", flush=True)
         else:
             edad = time.time() - hb
             if edad > UMBRAL_SEG:
                 if not _worker_habilitado():
                     # Está apagado a propósito: se calla y no se reinicia.
+                    detalle = "vales_worker apagado a propósito; sin reinicio"
+                    try:
+                        heartbeat("vales_watchdog", detail=detalle, count=0)
+                    except Exception:
+                        pass
                     time.sleep(INTERVALO)
                     continue
                 print(f"[vales_watchdog] Heartbeat viejo: {int(edad)}s > {UMBRAL_SEG}s. Reiniciando...", flush=True)
                 _alertar(edad)
                 _reiniciar_worker()
+                detalle = f"vales_worker reiniciado (latido viejo: {int(edad)}s)"
                 # Esperar a que el nuevo worker escriba heartbeat
                 time.sleep(20)
+            else:
+                detalle = f"vales_worker con latido hace {int(edad)}s"
+        # El watchdog también late: si no, parece trabado cuando solo calla.
+        try:
+            heartbeat("vales_watchdog", detail=detalle, count=1)
+        except Exception:
+            pass
         time.sleep(INTERVALO)
 
 

@@ -13,6 +13,14 @@ Reglas de seguridad:
     (además del patrón alfanumérico) → no se puede inyectar rutas.
   * `status_web` (este panel) es inmutable: no se puede deshabilitar ni
     reiniciar desde la propia interfaz (rompería la petición en curso).
+
+Estados que pinta la tabla:
+  * `NO_HABILITADO` → existe conf en conf.d.available pero el worker NO está
+    en /data/workers_enabled.txt. Es el estado normal de un worker que se
+    dejó en standby a propósito: no es un error, no está caído y no le falta
+    ningún latido. Para encenderlo, `enable` (o `enable_worker`).
+  * `UNKNOWN` → está en workers_enabled.txt pero supervisor no lo reporta:
+    eso sí es sospechoso (conf ausente o supervisor sin recargar).
 """
 import datetime
 import json
@@ -170,7 +178,7 @@ CATALOGO = {
     "wa_firmados": {
         "desc": "Reportes firmados al grupo «Servicios» de WhatsApp",
         "cadencia": "cada 2 min",
-        "app": "HUB",
+        "app": "WhatsApp",
         "descripcion": (
             "Cada ciclo busca en ReportesServicio los firmados cuyo Id sea mayor "
             "al cursor HUB_Config.wa_firmados_ultimo_id (máximo 5 por vuelta) y "
@@ -188,7 +196,7 @@ CATALOGO = {
     "wa_limpieza": {
         "desc": "Purga diaria de la bandeja de WhatsApp",
         "cadencia": "cada 30 min · purga 03:00-03:30",
-        "app": "HUB",
+        "app": "WhatsApp",
         "descripcion": (
             "Borra los mensajes de HUB_WhatsappEntrante y las conversaciones "
             "en estado CERRADA con más de wa_purga_dias días (default 90). "
@@ -201,7 +209,7 @@ CATALOGO = {
     "wa_recordatorios": {
         "desc": "Recordatorios de WhatsApp (km, vales y resumen del lunes)",
         "cadencia": "cada 15 min · ventana L-V 09:00-18:30",
-        "app": "HUB",
+        "app": "WhatsApp",
         "descripcion": (
             "El otro sentido del bot: avisa lo que FALTA sin que se lo "
             "pregunten. (1) Un auto asignado lleva wa_rec_km_dias días sin "
@@ -224,7 +232,7 @@ CATALOGO = {
     "wa_grupo_semana": {
         "desc": "Crónica semanal con IA del grupo ECCSita",
         "cadencia": "cada 1 h · lunes 09:00-09:30 (hora México)",
-        "app": "HUB",
+        "app": "WhatsApp",
         "descripcion": (
             "Cierra la memoria del grupo: el día y la hora configurados "
             "(wa_grupo_semana_dia / _hora, por omisión lunes 09:00) toma la "
@@ -241,7 +249,7 @@ CATALOGO = {
     "wa_asistencia": {
         "desc": "Avisos de asistencia (entrada, ausencia, salida, resumen)",
         "cadencia": "cada 5 min · ventana 08:00-19:30 (sábado hasta 14:30)",
-        "app": "HUB",
+        "app": "WhatsApp",
         "descripcion": (
             "Convierte los escaneos de red en avisos al PROPIO empleado, nunca "
             "a su jefe. (1) Entrada: primer escaneo del día; texto de puntual, "
@@ -333,6 +341,95 @@ CATALOGO = {
             "MAILBOX_DATOS_DIR tiene que ser el MISMO volumen montado en la "
             "app de Mailbox. Si no, el worker sincroniza perfecto y el usuario no "
             "ve ningún correo, sin error en ninguna parte."),
+    },
+
+    # ── Servicios de infraestructura y workers en standby ────────────────────
+    # Ojo: hay trabajos que NO son del contenedor. `docker_cleanup_worker` vive
+    # en el HOST (cron de Docker con /usr/local/bin/docker-gc.sh): el contenedor
+    # no tiene el socket de Docker, así que su conf se retiró de conf.d.available.
+    # Se deja su ficha para que el panel lo nombre si alguien la vuelve a copiar.
+    "docker_cleanup_worker": {
+        "desc": "Limpieza de Docker — vive en el HOST, no en el contenedor",
+        "cadencia": "cada hora (cron del host)",
+        "app": "Infraestructura (host)",
+        "descripcion": (
+            "Purga imágenes colgantes, caché de build y logs de contenedor para "
+            "que no se llene el disco. Corre en el HOST con el cron de Docker "
+            "(`/usr/local/bin/docker-gc.sh`, `/etc/cron.d/docker-gc`), no bajo "
+            "supervisor: el contenedor no tiene montado el socket de Docker, así "
+            "que aquí no puede hacer su trabajo. No se habilita desde el panel."),
+    },
+    "estatus_servicios_worker": {
+        "desc": "Estatus de servicios (HTTP/BD) — en standby",
+        "cadencia": "cada 5 min (si se habilita)",
+        "app": "Infraestructura",
+        "descripcion": (
+            "Revisa los servicios de HUB_EstatusServicios (HTTP/HTTPS), guarda el "
+            "resultado en HUB_EstatusHistorial, actualiza el estatus y abre "
+            "incidencias cuando algo cambia. No está habilitado: hoy el panel "
+            "cubre la vigilancia con sus propias sondas. Estar en "
+            "NO_HABILITADO es normal y no es una falla."),
+    },
+    "hubmail_worker": {
+        "desc": "Correo del HUB — retirado (sin conf, no arranca)",
+        "cadencia": "ya no corre",
+        "app": "Correo (retirado)",
+        "descripcion": (
+            "Sincronizaba el correo del HUB (Streamlit), que se retiró en "
+            "septiembre de 2026. Sigue en /data/workers_enabled.txt pero ya no "
+            "tiene conf en conf.d.available, así que nunca arranca y su latido "
+            "quedó viejo: no es una falla, es un worker retirado. Su sustituto "
+            "es `mailbox_worker`, que sirve a la PWA ECCSA_Mailbox."),
+    },
+    "openwa_worker": {
+        "desc": "Cola de WhatsApp (OpenWA) → entrega de avisos",
+        "cadencia": "cada 20 s",
+        "app": "WhatsApp",
+        "descripcion": (
+            "Consume HUB_WhatsappQueue y entrega los mensajes por la API de "
+            "OpenWA: texto, documento (PDF) o imagen (foto), con el texto ya "
+            "renderizado al encolar. Marca ENVIADO o reintenta hasta 3 veces; si "
+            "OpenWA está caído nada se pierde, queda PENDIENTE. Una vez por hora "
+            "borra el historial cerrado de más de 30 días. Late cada ciclo con "
+            "cuántos avisos entregó."),
+    },
+
+    # ── Vales: vigilancia y recordatorios ────────────────────────────────────
+    "vales_recordatorios": {
+        "desc": "Recordatorios de vales sin comprobante — apagado a propósito",
+        "cadencia": "cada 1 h (si se habilita)",
+        "app": "Vales",
+        "descripcion": (
+            "Recuerda por Telegram los vales GENERADO que llevan horas sin "
+            "comprobante en HUB_OxxoGasTickets, con máximo govale_recordatorio_"
+            "dias_max. Está deshabilitado a propósito porque Telegram está "
+            "apagado: NO_HABILITADO aquí es normal, no un error. Su conf se "
+            "conserva para volver a encenderlo cuando Telegram regrese."),
+    },
+    "vales_watchdog": {
+        "desc": "Vigila el latido de vales_worker y lo reinicia si se cuelga",
+        "cadencia": "cada 60 s",
+        "app": "Vales",
+        "descripcion": (
+            "Lee /data/vales_worker_heartbeat (lo escribe vales_worker cada ~15 s). "
+            "Si el latido supera VALES_WATCHDOG_UMBRAL (600 s por omisión), "
+            "reinicia el worker con supervisorctl y avisa a los admins por "
+            "Telegram máximo una vez por hora. Si vales_worker está apagado a "
+            "propósito, se calla y no lo reinicia. Late cada ciclo con la edad "
+            "del latido que vio."),
+    },
+    "vigilante": {
+        "desc": "Reglas que detectan incidentes y avisan en lenguaje humano",
+        "cadencia": "cada 10 min",
+        "app": "Operación",
+        "descripcion": (
+            "Corre reglas sobre los vales y el sistema (monto distinto, vale sin "
+            "código, duplicados, cola trabada, saldo bajo, errores en el log, base "
+            "lenta o caída) y, solo cuando hay hallazgo, avisa por Telegram y a la "
+            "pantalla de Volt. La detección es de reglas, no de IA: la IA solo "
+            "redacta y, si no contesta, sale la plantilla. No repite la misma "
+            "regla antes de vigilante_repetir_horas. Late cada ciclo con lo que "
+            "revisó."),
     },
 }
 

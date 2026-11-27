@@ -88,6 +88,12 @@ def cleanup(dias=30):
 
 
 def main():
+    try:
+        from worker_heartbeat import heartbeat
+    except Exception:  # pragma: no cover
+        def heartbeat(worker, detail="", count=None):
+            return False
+
     wlog("openwa_worker", "Arrancó")
     cfg = ow.obtener_config()
     print("[openwa_worker] Iniciado. Procesando cola cada", LOOP_INTERVAL, "segundos")
@@ -102,9 +108,12 @@ def main():
 
     last_cleanup = time.time()
     while True:
+        enviados = 0
+        detalle = "sin pendientes en la cola"
         try:
             enviados = process_queue()
             if enviados:
+                detalle = f"{enviados} aviso(s) entregado(s)"
                 print(f"  [RESUMEN] {enviados} aviso(s) entregado(s)")
             if time.time() - last_cleanup > CLEANUP_INTERVAL:
                 cleanup()
@@ -113,7 +122,14 @@ def main():
             print("\n[openwa_worker] Detenido.")
             break
         except Exception as e:
+            detalle = f"error en el ciclo: {str(e)[:150]}"
             print(f"  [LOOP ERROR] {e}")
+        # El latido va SIEMPRE: un worker que no reporta se ve igual que uno
+        # trabado, y esa confusión ya costó caro una vez.
+        try:
+            heartbeat("openwa_worker", detail=detalle, count=enviados)
+        except Exception:
+            pass
         time.sleep(LOOP_INTERVAL)
 
 

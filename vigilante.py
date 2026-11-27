@@ -36,6 +36,12 @@ except Exception:  # pragma: no cover
     def wlog(*a, **k):
         pass
 
+try:
+    from worker_heartbeat import heartbeat
+except Exception:  # pragma: no cover
+    def heartbeat(worker, detail="", count=None):
+        return False
+
 
 # ── utilidades ─────────────────────────────────────────────────────────
 def _cfg(clave, defecto=None):
@@ -407,10 +413,22 @@ def main():
     except Exception:
         pass
     while True:
+        detalle = "revisó el sistema · sin hallazgos"
+        hallazgos = []
         try:
-            ciclo()
+            hallazgos = ciclo() or []
+            if hallazgos:
+                detalle = "revisó el sistema · hallazgos: " + ", ".join(
+                    sorted({str(h.get("regla")) for h in hallazgos}))[:200]
         except Exception as e:
+            detalle = f"error en el ciclo: {str(e)[:150]}"
             print(f"[vigilante] error en el ciclo: {str(e)[:200]}", flush=True)
+        # El latido va SIEMPRE: un worker que no reporta se ve igual que uno
+        # trabado, y esa confusión ya costó caro una vez.
+        try:
+            heartbeat(NOMBRE, detail=detalle, count=len(hallazgos))
+        except Exception:
+            pass
         time.sleep(CICLO_SEG)
 
 

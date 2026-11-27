@@ -433,7 +433,67 @@ WORKERS_SPEC = {
                  "drena dos veces y el cliente recibe correos duplicados."),
     ],
 
+    # ─── Servicios de infraestructura y workers en standby ──────────────────
+    # Estas fichas solo documentan: no exponen variables nuevas. Un worker en
+    # NO_HABILITADO no está en /data/workers_enabled.txt y eso es normal.
+    "docker_cleanup_worker": [
+        _f("nota", "Vive en el HOST, no en el contenedor", "info", "info",
+           valor="cron de Docker: /usr/local/bin/docker-gc.sh",
+           ayuda="El contenedor no tiene montado el socket de Docker, así que su "
+                 "conf se retiró de conf.d.available: no se habilita desde el "
+                 "panel. La limpieza la hace el cron del host."),
+    ],
+    "estatus_servicios_worker": [
+        _f("nota", "En standby", "info", "info",
+           valor="conf conservada, worker no habilitado",
+           ayuda="Estar en NO_HABILITADO es normal: no está en "
+                 "workers_enabled.txt. Revisa servicios HTTP/HTTPS de "
+                 "HUB_EstatusServicios cuando se encienda."),
+    ],
+    "hubmail_worker": [
+        _f("nota", "Worker retirado", "info", "info",
+           valor="sin conf en conf.d.available",
+           ayuda="El HUB (Streamlit) se retiró en septiembre de 2026. Sigue en "
+                 "workers_enabled.txt pero nunca arranca: su latido viejo no es "
+                 "una falla. El correo lo sirve mailbox_worker."),
+    ],
+    "openwa_worker": [
+        _f("config", "Conexión de OpenWA", "info", "info",
+           valor="Notificaciones → Conexión → OpenWA",
+           ayuda="La URL, la sesión y la API key viven en HUB_Config; aquí no se "
+                 "duplican. Sin API key los avisos se acumulan en la cola hasta "
+                 "que se pegue."),
+    ],
+    "vales_recordatorios": [
+        _f("nota", "Apagado a propósito", "info", "info",
+           valor="Telegram está apagado",
+           ayuda="Su conf se conserva para volver a encenderlo, pero mientras "
+                 "Telegram no esté activo no se habilita. NO_HABILITADO aquí no "
+                 "es un error."),
+    ],
+    "vales_watchdog": [
+        _f("VALES_WATCHDOG_UMBRAL", "Umbral del latido", "number", "env",
+           default=600, min=60, max=86400, unidad="seg",
+           ayuda="Si el latido de vales_worker es más viejo que esto, se "
+                 "reinicia. Por omisión 600 s."),
+        _f("VALES_WATCHDOG_INTERVALO", "Intervalo de revisión", "number", "env",
+           default=60, min=10, max=3600, unidad="seg"),
+    ],
+    "vigilante": [
+        _f("umbrales", "Umbrales del vigilante", "info", "info",
+           valor="VIGILANTE_CICLO_SEG=600 · VIGILANTE_REPETIR_HORAS=6",
+           ayuda="El ciclo y el antirrepetición están fijados en "
+                 "docker/conf.d.available/vigilante.conf (environment). Para "
+                 "cambiarlos hay que editar la conf y reiniciar el worker: un "
+                 "override de entorno aquí no gana contra supervisor."),
+        _f("montos", "Montos vigilados", "info", "info",
+           valor="VIGILANTE_MONTO=500 · VIGILANTE_SALDO_BAJO=2000",
+           ayuda="Monto de vale y saldo de GoVale que disparan un hallazgo. "
+                 "También van en el entorno del proceso."),
+    ],
+
 }
+
 
 # ─── Bot de WhatsApp / Volt ──────────────────────────────────────────────────
 # Las seis llaves NO son un programa de supervisord: `wa_bot.py` atiende el
