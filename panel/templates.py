@@ -104,6 +104,7 @@ NAV_ICONS = {
     "apps": "apps",
     "notificaciones": "bell",
     "whatsapp": "whatsapp",
+    "eccsita": "chat",
     "avisos": "send",
     "asistencia": "clock",
     "correo": "mail",

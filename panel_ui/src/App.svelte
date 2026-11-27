@@ -13,6 +13,7 @@
 	import Avisos from './pages/Avisos.svelte';
 	import Notificaciones from './pages/Notificaciones.svelte';
 	import WhatsApp from './pages/WhatsApp.svelte';
+	import Eccsita from './pages/Eccsita.svelte';
 	import Asistencia from './pages/Asistencia.svelte';
 	import Correo from './pages/Correo.svelte';
 	import Triaje from './pages/Triaje.svelte';
@@ -27,6 +28,7 @@
 		avisos: Avisos,
 		notificaciones: Notificaciones,
 		whatsapp: WhatsApp,
+		eccsita: Eccsita,
 		asistencia: Asistencia,
 		correo: Correo,
 		triaje: Triaje

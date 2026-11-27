@@ -1346,6 +1346,20 @@ body.auth {
 .wa-cargando { padding: 12px; }
 .help--bad { color: var(--danger-text); }
 
+/* ─── ECCSita: memoria semanal del grupo ──────────────────────────────────
+   La página no scrollea: la lista de semanas y el detalle scrollean por su
+   cuenta (min-height: 0 en la rejilla). En móvil, abrir una semana reemplaza
+   la lista por el detalle, igual que la bandeja de WhatsApp. */
+.content:has(.eccsita) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
 @media (max-width: 899px) {
   .wa-inbox { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .wa-inbox .wa-pane--detail { display: none; }

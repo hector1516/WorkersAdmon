@@ -28,6 +28,8 @@ export const RUTAS = [
 	{ id: 'avisos', patron: '/avisos', titulo: 'Avisos', icono: 'bell', sub: 'Estado de los avisos del ecosistema' },
 	{ id: 'notificaciones', patron: '/notificaciones', titulo: 'Notificaciones', icono: 'bell', sub: 'Conexión, eventos e historial' },
 	{ id: 'whatsapp', patron: '/whatsapp', titulo: 'WhatsApp', icono: 'chat', sub: 'Bandeja de conversaciones' },
+	{ id: 'eccsita', patron: '/eccsita', titulo: 'ECCSita', icono: 'chat', sub: 'Memoria semanal del grupo' },
+	{ id: 'eccsita', patron: '/eccsita/:anio/:semana', titulo: 'ECCSita', icono: 'chat', sub: 'Crónica de la semana' },
 	{ id: 'asistencia', patron: '/asistencia', titulo: 'Asistencia', icono: 'clock', sub: 'Resumen y registros' },
 	{ id: 'correo', patron: '/correo', titulo: 'Correo', icono: 'mail', sub: 'Cuentas y estado' },
 	{ id: 'triaje', patron: '/triaje', titulo: 'Triaje', icono: 'ticket', sub: 'Pendientes por clasificar' },
@@ -70,6 +72,7 @@ if (typeof window !== 'undefined') {
 		const el = t instanceof Element ? t.closest('a[href]') : null;
 		if (!el) return;
 		if (el.target && el.target !== '_self') return;
+		if (el.hasAttribute('download')) return;
 		const href = el.getAttribute('href');
 		if (!href || !href.startsWith('/') || href.startsWith('//')) return;
 		e.preventDefault();

@@ -8,6 +8,7 @@
 		{ id: 'dashboard', label: 'Estado', href: '/', icono: 'dashboard' },
 		{ id: 'logs', label: 'Logs', href: '/logs', icono: 'logs' },
 		{ id: 'whatsapp', label: 'WhatsApp', href: '/whatsapp', icono: 'chat' },
+		{ id: 'eccsita', label: 'ECCSita', href: '/eccsita', icono: 'messagecircle' },
 		{ id: 'notificaciones', label: 'Notificaciones', href: '/notificaciones', icono: 'bell' },
 		{ id: 'avisos', label: 'Avisos', href: '/avisos', icono: 'megaphone' },
 		{ id: 'configuracion', label: 'Configuración', href: '/configuracion', icono: 'settings' },

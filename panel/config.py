@@ -164,6 +164,12 @@ TABS = [
      "enabled": True, "perm": "AccesoWhatsapp", "modulo": "WhatsApp",
      "desc": "Conexión de OpenWA, avisos, grupos, historial y la bandeja de "
              "conversaciones."},
+    # ECCSita comparte el permiso del panel mientras se crea `AccesoEccsita`:
+    # quien puede ver la configuración puede leer la memoria del grupo.
+    {"id": "eccsita", "label": "ECCSita", "href": "/eccsita",
+     "enabled": True, "perm": "AccesoConfiguracion", "modulo": "ECCSita",
+     "desc": "Memoria semanal del grupo: crónica, temas, personajes, "
+             "momentos y mensajes capturados."},
     {"id": "apps", "label": "Apps", "href": "/apps", "enabled": True,
      "perm": "AccesoAppConfig", "modulo": "Apps",
      "desc": "Catálogo de apps: tipo, endpoint y credenciales."},

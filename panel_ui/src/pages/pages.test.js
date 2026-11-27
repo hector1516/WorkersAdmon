@@ -2,6 +2,8 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 import Dashboard from './Dashboard.svelte';
 import Logs from './Logs.svelte';
+import Eccsita from './Eccsita.svelte';
+import { navigate } from '../lib/router.js';
 
 let componente = null;
 let destino = null;
@@ -136,5 +138,124 @@ describe('Logs', () => {
 		expect(el.textContent).toContain('mailbox_worker');
 		expect(el.querySelector('a[href="/logs/aviso"]')).not.toBeNull();
 		expect(el.querySelector('a[href="/logs/mailbox_worker"]')).not.toBeNull();
+	});
+});
+
+// API falsa del módulo ECCSita: una semana resumida con dos personas.
+function apiEccsita({ grupo = true } = {}) {
+	return vi.fn(async (url) => {
+		const u = String(url);
+		if (u.includes('/semanas/2026/44')) {
+			return respuesta({
+				anio: 2026,
+				semana: 44,
+				inicio: '2026-11-02',
+				fin: '2026-11-08',
+				estado: 'RESUMIDA',
+				generado_por: 'IA',
+				resumen: 'Crónica de prueba de la semana.',
+				temas: ['Los vales', { tema: 'El café', detalle: 'Siempre se acaba' }],
+				personajes: [{ nombre: 'Ana', detalle: 'la que resuelve' }],
+				momentos: [{ titulo: 'El meme del lunes', cita: '«otra vez»' }],
+				mensajes: [
+					{
+						id: 'm1',
+						autor: 'Ana',
+						texto: 'hola a todos',
+						tipo: 'text',
+						fecha: '2026-11-02T10:00:00'
+					},
+					{
+						id: 'm2',
+						autor: 'Beto',
+						texto: 'buenos días',
+						tipo: 'text',
+						fecha: '2026-11-02T10:05:00'
+					}
+				]
+			});
+		}
+		if (u.includes('/semanas')) {
+			return respuesta({
+				items: [
+					{
+						anio: 2026,
+						semana: 44,
+						inicio: '2026-11-02',
+						fin: '2026-11-08',
+						mensajes: 2,
+						participantes: 2,
+						estado: 'RESUMIDA'
+					}
+				]
+			});
+		}
+		if (u.endsWith('/grupo')) {
+			return respuesta(
+				grupo
+					? { configurado: true, chat_id: '1203630@g.us', nombre: 'ECCSita' }
+					: { configurado: false, chat_id: '', nombre: '' }
+			);
+		}
+		if (u.endsWith('/grupos')) {
+			return respuesta({ items: [{ id: '1203630@g.us', nombre: 'ECCSita', participantes: 9 }] });
+		}
+		return respuesta({});
+	});
+}
+
+describe('Eccsita', () => {
+	it('pinta semanas, abre una semana y muestra los mensajes', async () => {
+		navigate('/eccsita', { replace: true });
+		vi.stubGlobal('fetch', apiEccsita());
+
+		const el = pintar(Eccsita);
+		await esperar();
+
+		expect(el.textContent).toContain('Semana 44');
+		expect(el.querySelector('.ecc-week')).not.toBeNull();
+		expect(el.textContent).toContain('Resumida');
+		expect(el.textContent).toContain('2 mensaje(s)');
+		expect(el.textContent).toContain('Grupo configurado');
+
+		el.querySelector('.ecc-week').click();
+		await esperar();
+
+		expect(window.location.pathname).toBe('/eccsita/2026/44');
+		expect(el.textContent).toContain('Crónica de prueba de la semana.');
+		expect(el.textContent).toContain('El café');
+		expect(el.textContent).toContain('Ana');
+		expect(el.textContent).toContain('hola a todos');
+		expect(el.textContent).toContain('buenos días');
+		expect(el.querySelectorAll('.ecc-msg').length).toBe(2);
+	});
+
+	it('sin grupo muestra el aviso para elegirlo', async () => {
+		navigate('/eccsita', { replace: true });
+		vi.stubGlobal('fetch', apiEccsita({ grupo: false }));
+
+		const el = pintar(Eccsita);
+		await esperar();
+
+		expect(el.textContent).toContain('Sin grupo');
+		expect(el.textContent).toContain('Falta elegir el grupo de WhatsApp');
+		expect(el.textContent).toContain('Elegir grupo');
+	});
+
+	it('construye las ligas de exportación Markdown y JSON', async () => {
+		navigate('/eccsita/2026/44', { replace: true });
+		vi.stubGlobal('fetch', apiEccsita());
+
+		const el = pintar(Eccsita);
+		await esperar();
+
+		const md = el.querySelector('a[download][href*="formato=md"]');
+		const json = el.querySelector('a[download][href*="formato=json"]');
+		expect(md?.getAttribute('href')).toBe(
+			'/api/panel/eccsita/semanas/2026/44/export?formato=md'
+		);
+		expect(json?.getAttribute('href')).toBe(
+			'/api/panel/eccsita/semanas/2026/44/export?formato=json'
+		);
 	});
 });
