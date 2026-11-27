@@ -10,7 +10,9 @@ para hablarle con gracia en vez de repetir el menú:
   · kilómetros del mes y último odómetro (misma lógica de `wa_consultas`);
   · llegadas tarde en los últimos 5 días hábiles, contra su turno;
   · tickets OxxoGas del mes;
-  · cotizaciones recientes, solo si está en `wa_bot_cotizaciones`.
+  · cotizaciones recientes, solo si está en `wa_bot_cotizaciones`;
+  · `roast_grupo`: hasta 3 menciones APROBADAS del grupo ECCSita de los
+    ultimos 90 dias (`HUB_GrupoPerfiles`, ver `eccsita_perfiles`).
 
 `sarcasmo(usuario_id)` devuelve UNA línea corta de humor seco armada con esos
 hechos, o `""` si no hay nada real que decir. Nunca inventa un dato y nunca
@@ -40,7 +42,10 @@ Reglas que no se rompen:
 - Con tres o más ausencias seguidas no hay sarcasmo (`""`): ahí va texto
   neutro. `wa_bot` además lo apaga en urgencias, facturas y cobranza.
 - El interruptor `HUB_Config.wa_bot_sarcasmo` no se lee aquí: lo aplica
-  `wa_bot`, que ya carga la configuración en su base de conocimiento.
+  `wa_bot`, que ya carga la configuración en su base de conocimiento. El del
+  roast del grupo (`wa_roast_grupo`, default 1) sí se lee aquí, y también
+  respeta `wa_bot_sarcasmo` para no hablar de lo que el grupo dijo cuando el
+  bot va sin humor.
 - La frase es de una línea: sin saltos de línea, para no romper mensajes.
 
     python -m py_compile wa_persona.py
@@ -60,8 +65,21 @@ CACHE_TTL = 300                 # 5 minutos por usuario
 TOLERANCIA_DEFECTO = 10         # si el turno no fija `Tol_Llegada_Min`
 DIAS_TARDE = 5                  # días hábiles que se revisan
 DIAS_BUSQUEDA = 14              # calendario máximo para juntar esos 5
+DIAS_ROAST = 90                 # ventana del roast del grupo ECCSita
+MAX_ROAST = 3                   # menciones que se guardan en los hechos
 
 SQL_NOMBRE = "SELECT TOP 1 Nombre FROM HUB_Users WHERE Id = %s"
+
+SQL_CONFIG = "SELECT Valor FROM HUB_Config WHERE Clave = %s"
+
+# Solo menciones APROBADAS del propio usuario. `TOP` acota la lectura; el azar
+# de las 3 se hace en Python para que la prueba sea determinista.
+SQL_ROAST = """
+    SELECT TOP 50 Texto, Tipo
+    FROM HUB_GrupoPerfiles
+    WHERE IdUsuario = %s AND Aprobado = 1 AND Fecha >= %s
+    ORDER BY Fecha DESC, Id DESC
+"""
 
 SQL_VALES = """
     SELECT COUNT(*), MIN(v.FechaSolicitud)
@@ -107,6 +125,7 @@ HECHOS_VACIOS = {
     "tickets_mes": 0,
     "cotizaciones": None,       # None = no autorizado a cotizaciones
     "ausencias_seguidas": False,
+    "roast_grupo": [],          # menciones aprobadas del grupo ECCSita
 }
 
 _CACHE = {}       # usuario_id -> (monotonic, hechos)
@@ -136,6 +155,16 @@ RECONOCIMIENTO = "Acepto la queja"
 CIERRE_SECO = "¿Seguimos con el horario o quieres sacar algo más?"
 
 _INSULTOS_NORM = tuple(_sin_acentos(frase) for frase in INSULTOS)
+
+# Lo que NUNCA se usa del grupo, aunque esté guardado: si una mención trae
+# alguno de estos, se descarta aquí. La extracción ya los filtra; esto es la
+# segunda barrera, para el caso de una fila vieja o aprobada por error.
+INSULTOS_GRAVES = ("pendejo", "puto", "madre", "ching", "verga", "culero")
+
+
+def _insulto_grave(texto):
+    normalizado = _sin_acentos(texto)
+    return any(palabra in normalizado for palabra in INSULTOS_GRAVES)
 
 
 # ─── Acceso a la base ────────────────────────────────────────────────────────
@@ -230,6 +259,44 @@ def _cotizaciones(conn, usuario_id, desde):
         return 0
 
 
+def _config(conn, clave):
+    """Valor de HUB_Config (o "" si no existe o la consulta falla)."""
+    fila = _una(conn, SQL_CONFIG, (clave,))
+    return str(fila[0] if fila and fila[0] is not None else "").strip()
+
+
+def _apagado(conn, clave):
+    """True solo con un «0» explícito; una clave ausente deja el default."""
+    valor = _config(conn, clave)
+    return valor.lower() in ("0", "false", "no", "off")
+
+
+def _roast_grupo(conn, usuario_id, ahora):
+    """
+    Hasta `MAX_ROAST` menciones APROBADAS del propio usuario, de los últimos
+    `DIAS_ROAST` días, elegidas al azar. `[]` si el interruptor está apagado,
+    si el bot va sin sarcasmo o si no hay nada guardado.
+
+    Nunca se lee el material de otro usuario: el `WHERE IdUsuario` es la única
+    fuente, no hay cruce posible.
+    """
+    if _apagado(conn, "wa_roast_grupo") or _apagado(conn, "wa_bot_sarcasmo"):
+        return []
+
+    desde = ahora - timedelta(days=DIAS_ROAST)
+    filas = _filas(conn, SQL_ROAST, (usuario_id, desde))
+    limpios = []
+    for fila in filas:
+        texto = str(fila[0] or "").strip()
+        if not texto or _insulto_grave(texto):
+            continue
+        limpios.append({"texto": texto,
+                        "tipo": str(fila[1] or "BROMA").strip().upper()})
+    if len(limpios) <= MAX_ROAST:
+        return limpios
+    return random.sample(limpios, MAX_ROAST)
+
+
 def _llegadas_tarde(conn, usuario_id, ahora):
     """
     `(tardes, dias)` de los últimos `DIAS_TARDE` días hábiles, sin contar hoy.
@@ -301,6 +368,8 @@ def _leer_hechos(conn, usuario_id, ahora):
             wa_asistencia._ausencias_seguidas(conn, usuario_id, ahora.date()))
     except Exception as exc:
         print(f"[wa_persona] sin ausencias de {usuario_id}: {exc}")
+
+    intentar("roast_grupo", _roast_grupo, conn, usuario_id, ahora)
     return datos
 
 
@@ -365,6 +434,21 @@ def _fecha(valor):
     return wa_consultas._fecha(valor)
 
 
+def _roast_linea(item):
+    """
+    Una línea de roast a partir de UNA mención del grupo, sin citar al autor ni
+    repetir la oración textual: el bot no delata a quien lo dijo ni pone en su
+    boca algo que no dijo. Solo usa el TIPO de la mención.
+    """
+    tipo = str((item or {}).get("tipo") or "").strip().upper()
+    if tipo == "APODO":
+        return "En ECCSita ya te pusieron apodo; no voy a repetirlo aquí."
+    if tipo == "INSISTENCIA":
+        return ("Dicen por ahí que ya van varias veces con lo mismo. "
+                "No digo más.")
+    return "Dicen por ahí que en ECCSita te tienen bien medido."
+
+
 def _candidatas(datos):
     """
     Frases posibles con los hechos que SÍ existen. Una línea cada una, humor
@@ -373,6 +457,13 @@ def _candidatas(datos):
     nombre = _pila(datos.get("nombre"))
     quien = f", {nombre}" if nombre else ""
     lineas = []
+
+    roast = [r for r in (datos.get("roast_grupo") or [])
+             if isinstance(r, dict) and r.get("texto")]
+    if roast:
+        linea = _roast_linea(random.choice(roast))
+        if linea:
+            lineas.append(linea)
 
     vales = datos.get("vales") or {}
     total = vales.get("total") or 0

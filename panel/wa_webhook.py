@@ -338,10 +338,36 @@ def _capturar_grupo(datos, crudo):
         return "ignorado"
     try:
         from . import eccsita
-        return eccsita.guardar_mensaje(datos, crudo)
+        estado = eccsita.guardar_mensaje(datos, crudo)
     except Exception as exc:
         print(f"[wa_webhook] no se pudo guardar el mensaje de ECCSita: {exc}")
         return "error"
+    if estado == "guardado":
+        # Solo con el mensaje ya guardado: el roast no puede perder una
+        # mencion por un fallo suyo, y la captura no puede fallar por el roast.
+        _extraer_perfiles(datos)
+    return estado
+
+
+def _extraer_perfiles(datos):
+    """
+    Saca las menciones para el roast (`eccsita_perfiles.extraer`).
+
+    Va en su propio try/except: si la extracción falla, el mensaje ya quedó
+    guardado y OpenWA igual recibe su 200. El módulo vive en la raíz, así que
+    se importa por nombre (igual que `wa_limites`).
+    """
+    try:
+        import eccsita_perfiles
+        conn = db.get_connection()
+        try:
+            guardadas = eccsita_perfiles.extraer(conn, datos)
+        finally:
+            conn.close()
+        if guardadas:
+            print(f"[wa_webhook] {guardadas} mención(es) para el roast")
+    except Exception as exc:
+        print(f"[wa_webhook] sin perfiles de ECCSita: {exc}")
 
 
 # ─── Respuesta del bot ───────────────────────────────────────────────────────

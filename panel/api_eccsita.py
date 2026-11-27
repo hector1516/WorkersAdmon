@@ -15,6 +15,9 @@ Rutas (todas bajo la sesion del panel y CSRF en los POST):
   GET  /api/panel/eccsita/grupo
   POST /api/panel/eccsita/grupo
   GET  /api/panel/eccsita/grupos
+  GET  /api/panel/eccsita/personas
+  GET  /api/panel/eccsita/personas/{idUsuario}
+  POST /api/panel/eccsita/perfiles/{id}
 
 La cronica de esta fase es determinista (`GeneradoPor='BASICO'`): cuenta quien
 hablo cada dia y guarda las citas mas largas. `Temas` se guarda vacio a
@@ -22,6 +25,10 @@ proposito: sin IA, inventar temas seria inventar conversacion.
 
 El export responde `None` para avisar a `panel/api.py` de que la respuesta ya
 salió con su propio `Content-Disposition` (ver `_responder`).
+
+El roast (`/personas` y `/perfiles`) lo lee y modera `eccsita_perfiles`, que
+vive en la raíz junto a los workers: se importa por demanda, igual que
+`openwa_client`, para que las pruebas lo sustituyan sin abrir SQL Server.
 """
 import json
 import logging
@@ -268,6 +275,101 @@ def _grupos(handler, params, cuerpo):
     return 200, {"items": items}
 
 
+# ─── perfiles del grupo (roast) ──────────────────────────────────────────────
+ACCIONES_PERFIL = ("aprobar", "ocultar", "borrar")
+
+
+def _modulo_perfiles():
+    """`eccsita_perfiles` por demanda (vive en /app, no en panel/)."""
+    import importlib
+    return importlib.import_module("eccsita_perfiles")
+
+
+def _conexion():
+    """Conexión del panel; las pruebas la sustituyen."""
+    return db.get_connection()
+
+
+def _con_perfiles(funcion):
+    """Abre y cierra una conexión alrededor de una lectura o escritura."""
+    conn = _conexion()
+    try:
+        return funcion(conn)
+    finally:
+        conn.close()
+
+
+def _personas(handler, params, cuerpo):
+    """Resumen del roast: una fila por usuario con menciones guardadas."""
+    user, error = _api._sesion(handler)
+    if error:
+        return error
+
+    modulo = _modulo_perfiles()
+    items = _con_perfiles(lambda conn: modulo.perfiles(conn)) or []
+    return 200, {"items": items, "total": len(items)}
+
+
+def _persona(handler, params, cuerpo):
+    """Las menciones de un usuario, con su nombre para el encabezado."""
+    user, error = _api._sesion(handler)
+    if error:
+        return error
+
+    try:
+        uid = int(params.get("idUsuario") or 0)
+    except (TypeError, ValueError):
+        uid = 0
+    if uid <= 0:
+        return 400, {"error": "Usuario no válido."}
+
+    modulo = _modulo_perfiles()
+    items = _con_perfiles(lambda conn: modulo.perfiles(conn, uid)) or []
+    usuario = db.get_user_by_id(uid)
+    if not items and not usuario:
+        return 404, {"error": "Ese usuario no tiene perfiles en ECCSita."}
+    return 200, {
+        "usuario": {"id": uid, "nombre": (usuario or {}).get("nombre") or ""},
+        "items": items,
+    }
+
+
+def _perfil_post(handler, params, cuerpo):
+    """Aprueba, oculta o borra UNA mención (`accion` en el cuerpo)."""
+    user, error = _api._sesion(handler)
+    if error:
+        return error
+
+    cuerpo = cuerpo if isinstance(cuerpo, dict) else {}
+    accion = str(cuerpo.get("accion") or "").strip().lower()
+    if accion not in ACCIONES_PERFIL:
+        return 400, {"error": "Acción no válida: usa aprobar, ocultar o "
+                              "borrar."}
+    try:
+        pid = int(params.get("id") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    if pid <= 0:
+        return 400, {"error": "Mención no válida."}
+
+    modulo = _modulo_perfiles()
+    if accion == "borrar":
+        ok = _con_perfiles(lambda conn: modulo.borrar(conn, pid))
+        detalle = "Mención borrada." if ok else "Esa mención ya no existe."
+    else:
+        valor = 1 if accion == "aprobar" else 0
+        ok = _con_perfiles(lambda conn: modulo.aprobar(conn, pid, valor))
+        detalle = ("Mención aprobada." if accion == "aprobar"
+                   else "Mención ocultada.")
+        if not ok:
+            detalle = "Esa mención ya no existe."
+
+    if not ok:
+        return 404, {"error": detalle}
+    _log(user, f"ECCSita: mención {pid} ({accion})")
+    return 200, {"ok": True, "accion": accion, "mensaje": detalle}
+
+
 # ─── registro ────────────────────────────────────────────────────────────────
 _SEMANA = r"/api/panel/eccsita/semanas/(?P<anio>\d{4})/(?P<semana>\d{1,2})"
 
@@ -279,3 +381,8 @@ _api.registrar("GET", _SEMANA + r"/export", _export)
 _api.registrar("GET", r"/api/panel/eccsita/grupo", _grupo_get)
 _api.registrar("POST", r"/api/panel/eccsita/grupo", _grupo_post)
 _api.registrar("GET", r"/api/panel/eccsita/grupos", _grupos)
+_api.registrar("GET", r"/api/panel/eccsita/personas", _personas)
+_api.registrar("GET", r"/api/panel/eccsita/personas/(?P<idUsuario>\d+)",
+               _persona)
+_api.registrar("POST", r"/api/panel/eccsita/perfiles/(?P<id>\d+)",
+               _perfil_post)

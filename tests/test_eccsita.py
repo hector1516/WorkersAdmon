@@ -20,6 +20,7 @@ import datetime
 import json
 import os
 import sys
+import types
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -148,6 +149,19 @@ class CapturaGrupo(BaseConDobles):
                     wa_webhook.CLAVE_CAPTURA: "1"}
         self.doblar(db, "get_config_values", lambda claves: dict(self.cfg))
         self.doblar(db, "get_connection", lambda: ConexionFalsa(self.base))
+        # El roast del grupo (eccsita_perfiles) tiene sus propias pruebas; aquí
+        # se dobla para que la captura no dependa de sus consultas.
+        self.perfiles = types.ModuleType("eccsita_perfiles")
+        self.perfiles.extraer = lambda conn, datos: 0
+        self._previo_perfiles = sys.modules.get("eccsita_perfiles")
+        sys.modules["eccsita_perfiles"] = self.perfiles
+
+    def tearDown(self):
+        super().tearDown()
+        if self._previo_perfiles is None:
+            sys.modules.pop("eccsita_perfiles", None)
+        else:
+            sys.modules["eccsita_perfiles"] = self._previo_perfiles
 
     def _atender(self, cuerpo):
         h = HandlerFalso(cuerpo=cuerpo)
@@ -214,6 +228,28 @@ class CapturaGrupo(BaseConDobles):
         self.assertEqual(h.code, 200)
         self.assertEqual(h.payload["estado"], "error")
         self.assertEqual(self.base.filas, [])
+
+    def test_extrae_perfiles_del_mensaje_guardado(self):
+        llamadas = []
+
+        def extraer(conn, datos):
+            llamadas.append(datos["id_mensaje"])
+            return 1
+
+        self.perfiles.extraer = extraer
+        h = self._atender(mensaje(id="g-perfil"))
+        self.assertEqual(h.payload["estado"], "guardado")
+        self.assertEqual(llamadas, ["g-perfil"])
+
+    def test_fallo_del_roast_no_rompe_la_captura(self):
+        def rompe(conn, datos):
+            raise RuntimeError("sin perfiles")
+
+        self.perfiles.extraer = rompe
+        h = self._atender(mensaje())
+        self.assertEqual(h.code, 200)
+        self.assertEqual(h.payload["estado"], "guardado")
+        self.assertEqual(len(self.base.filas), 1)
 
     def test_imagen_se_guarda_con_su_tipo(self):
         self._atender(mensaje(id="g-img", type="image", mimetype="image/jpeg",
