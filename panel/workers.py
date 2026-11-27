@@ -216,6 +216,23 @@ CATALOGO = {
             "nada y nunca más de wa_rec_max_dia mensajes por usuario al día. El "
             "dedupe vive en HUB_WaRecordatorios (también los fallos, Ok=0)."),
     },
+    # ── Crónica semanal con IA del grupo ECCSita ────────────────────────────
+    "wa_grupo_semana": {
+        "desc": "Crónica semanal con IA del grupo ECCSita",
+        "cadencia": "cada 1 h · lunes 09:00-09:30 (hora México)",
+        "app": "HUB",
+        "descripcion": (
+            "Cierra la memoria del grupo: el día y la hora configurados "
+            "(wa_grupo_semana_dia / _hora, por omisión lunes 09:00) toma la "
+            "semana ISO anterior, la resume con IA y guarda Resumen, Temas, "
+            "Personajes y Momentos en HUB_GrupoSemanas con GeneradoPor='IA'. "
+            "Nunca pisa una semana RESUMIDA o REVISADA. Si la IA falla o está "
+            "apagada (wa_grupo_ia), la semana se queda CAPTURADA y se "
+            "reintenta en la siguiente ventana; no se guarda una crónica "
+            "básica en su lugar. Las citas las valida contra los mensajes "
+            "(no se inventan) y filtra salud, dinero personal, familia e "
+            "insultos graves."),
+    },
     # ── Avisos de asistencia por WhatsApp (solo al propio empleado) ───────────
     "wa_asistencia": {
         "desc": "Avisos de asistencia (entrada, ausencia, salida, resumen)",

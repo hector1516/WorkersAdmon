@@ -219,7 +219,7 @@
 	function detalleItem(x) {
 		if (!x || typeof x === 'string') return '';
 		const partes = [];
-		const desc = x.detalle ?? x.descripcion ?? x.contexto ?? x.que ?? x.cita;
+		const desc = x.detalle ?? x.descripcion ?? x.contexto ?? x.que ?? x.por_que ?? x.cita;
 		if (desc) partes.push(desc);
 		// Un momento del API llega como {autor, fecha, texto}: el texto es el
 		// título y el autor con la fecha, el pie.

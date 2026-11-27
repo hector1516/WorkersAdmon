@@ -158,6 +158,31 @@ WORKERS_SPEC = {
            ayuda="Fuera de la ventana no sale nada; el ciclo siguiente lo "
                  "recoge. El resumen del lunes sale sólo entre 09:00 y 09:30."),
     ],
+    "wa_grupo_semana": [
+        _f("WA_GRUPO_SEMANA_CICLO_SEG", "Intervalo de revisión", "number",
+           "env", default=3600, min=60, max=86400, unidad="seg",
+           ayuda="Cada cuántos segundos mira si ya es la ventana de los "
+                 "lunes. La ventana es de media hora, así que 1 h basta."),
+        _f("wa_grupo_ia", "Crónica con IA", "bool", "hub_config",
+           clave="wa_grupo_ia", default="1",
+           ayuda="Con No la semana se resume con el método determinista "
+                 "(conteo por día y citas más largas), sin llamar a la IA. "
+                 "Requiere ApiKey y modelo en Notificaciones → IA."),
+        _f("wa_grupo_semana_dia", "Día de la crónica", "number", "hub_config",
+           clave="wa_grupo_semana_dia", default=1, min=1, max=7,
+           unidad="(1=lunes, 7=domingo)",
+           ayuda="Día ISO en que se resume la semana anterior."),
+        _f("wa_grupo_semana_hora", "Hora de la crónica", "text", "hub_config",
+           clave="wa_grupo_semana_hora", default="09:00",
+           ayuda="Hora de México en que abre la ventana de 30 minutos. Si la "
+                 "IA falla, la semana queda CAPTURADA y se reintenta el "
+                 "siguiente día configurado."),
+        _f("ventana", "Ventana de la crónica", "const", "const",
+           valor="30 minutos desde la hora configurada",
+           ayuda="Fuera de la ventana el worker late pero no genera nada. "
+                 "Nunca pisa una semana RESUMIDA o REVISADA: para rehacerla "
+                 "está «Regenerar» en el módulo ECCSita."),
+    ],
     "wa_asistencia": [
         _f("WA_ASIST_CICLO_SEG", "Intervalo de revisión", "number", "env",
            default=300, min=60, max=86400, unidad="seg",

@@ -9,9 +9,9 @@ Un solo dueno de las tablas del modulo (migracion 0071):
     `marcar_revisada()` las usa `panel/api_eccsita.py`.
 
 La semana es ISO y se calcula con la `Fecha` en hora de Mexico (`tz_mx`), que
-es la misma que guarda el webhook. La cronica de esta fase es determinista
-(`GeneradoPor='BASICO'`): no hay IA todavia, y por eso `Temas` queda vacio en
-vez de inventar cosas que nadie dijo.
+es la misma que guarda el webhook. Este modulo arma la cronica determinista
+(`GeneradoPor='BASICO'`); la version con IA vive en `panel/eccsita_cronica.py`,
+que reusa `_guardar_semana()` para escribir (`GeneradoPor='IA'`).
 
 Reglas:
 
@@ -40,6 +40,9 @@ CLAVES_CONFIG = (
     "wa_grupo_resumen_dia",
     "wa_grupo_resumen_hora",
     "wa_grupo_retencion_dias",
+    "wa_grupo_ia",
+    "wa_grupo_semana_dia",
+    "wa_grupo_semana_hora",
 )
 
 MAX_LIMITE = 52
@@ -68,6 +71,11 @@ def config():
         "resumen_dia": valores.get("wa_grupo_resumen_dia") or "1",
         "resumen_hora": valores.get("wa_grupo_resumen_hora") or "09:00",
         "retencion_dias": valores.get("wa_grupo_retencion_dias") or "365",
+        # IA de la cronica: encendida por omision solo si hay ApiKey y modelo
+        # (lo comprueba `eccsita_cronica.ia_disponible`).
+        "ia": _si(valores.get("wa_grupo_ia"), True),
+        "semana_dia": valores.get("wa_grupo_semana_dia") or "1",
+        "semana_hora": valores.get("wa_grupo_semana_hora") or "09:00",
     }
 
 
@@ -363,8 +371,9 @@ def resumen_basico(mensajes, anio, semana):
 
 
 def _guardar_semana(chat_id, anio, semana, mensajes, participantes,
-                    resumen, temas, personajes, momentos):
-    """MERGE de la cronica en HUB_GrupoSemanas."""
+                    resumen, temas, personajes, momentos,
+                    generado_por="BASICO"):
+    """MERGE de la cronica en HUB_GrupoSemanas (`generado_por`: BASICO | IA)."""
     inicio, fin = _semana_fechas(anio, semana)
     db._execute(
         "MERGE HUB_GrupoSemanas AS t "
@@ -372,20 +381,22 @@ def _guardar_semana(chat_id, anio, semana, mensajes, participantes,
         "  ON t.ChatId = s.ChatId AND t.Anio = s.Anio AND t.Semana = s.Semana "
         "WHEN MATCHED THEN UPDATE SET Inicio = %s, Fin = %s, Mensajes = %s, "
         "  Participantes = %s, Resumen = %s, Temas = %s, Personajes = %s, "
-        "  Momentos = %s, Estado = 'RESUMIDA', GeneradoPor = 'BASICO', "
+        "  Momentos = %s, Estado = 'RESUMIDA', GeneradoPor = %s, "
         "  FechaGeneracion = %s "
         "WHEN NOT MATCHED THEN INSERT "
         "  (ChatId, Anio, Semana, Inicio, Fin, Mensajes, Participantes, "
         "   Resumen, Temas, Personajes, Momentos, Estado, GeneradoPor, "
         "   FechaGeneracion) "
         "  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'RESUMIDA', "
-        "          'BASICO', %s);",
+        "          %s, %s);",
         (chat_id, int(anio), int(semana), inicio, fin, len(mensajes),
          participantes, resumen, _texto_json(temas),
-         _texto_json(personajes), _texto_json(momentos), now_mx(),
+         _texto_json(personajes), _texto_json(momentos), generado_por,
+         now_mx(),
          chat_id, int(anio), int(semana), inicio, fin, len(mensajes),
          participantes, resumen, _texto_json(temas),
-         _texto_json(personajes), _texto_json(momentos), now_mx()))
+         _texto_json(personajes), _texto_json(momentos), generado_por,
+         now_mx()))
 
 
 def generar_basico(chat_id, anio, semana):

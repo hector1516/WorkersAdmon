@@ -2,14 +2,15 @@
 panel/api_eccsita.py — API JSON del modulo ECCSita
 ==================================================
 Expone la memoria semanal del grupo de WhatsApp ECCSita. La captura la hace
-`panel/wa_webhook.py`; aqui solo se lee, se resume (sin IA en esta fase) y se
-exporta.
+`panel/wa_webhook.py`; aqui solo se lee, se resume (con IA o determinista) y
+se exporta.
 
 Rutas (todas bajo la sesion del panel y CSRF en los POST):
 
   GET  /api/panel/eccsita/semanas
   GET  /api/panel/eccsita/semanas/{anio}/{semana}
   POST /api/panel/eccsita/semanas/{anio}/{semana}/generar
+  POST /api/panel/eccsita/semanas/{anio}/{semana}/regenerar
   POST /api/panel/eccsita/semanas/{anio}/{semana}/revisar
   GET  /api/panel/eccsita/semanas/{anio}/{semana}/export?formato=md|json
   GET  /api/panel/eccsita/grupo
@@ -19,9 +20,11 @@ Rutas (todas bajo la sesion del panel y CSRF en los POST):
   GET  /api/panel/eccsita/personas/{idUsuario}
   POST /api/panel/eccsita/perfiles/{id}
 
-La cronica de esta fase es determinista (`GeneradoPor='BASICO'`): cuenta quien
-hablo cada dia y guarda las citas mas largas. `Temas` se guarda vacio a
-proposito: sin IA, inventar temas seria inventar conversacion.
+La cronica la arma `eccsita_cronica.generar_semana()` cuando
+`HUB_Config.wa_grupo_ia` esta encendida (por omision) y hay ApiKey + modelo;
+si la IA falla o esta apagada, cae al resumen determinista (`BASICO`) de
+`eccsita.generar_basico()`. `regenerar` hace lo mismo aunque la semana ya
+este RESUMIDA.
 
 El export responde `None` para avisar a `panel/api.py` de que la respuesta ya
 salió con su propio `Content-Disposition` (ver `_responder`).
@@ -36,6 +39,7 @@ import urllib.parse
 
 from . import api as _api
 from . import db, eccsita
+from . import eccsita_cronica as cronica
 
 log = logging.getLogger("panel.api.eccsita")
 
@@ -111,7 +115,34 @@ def _detalle(handler, params, cuerpo):
     return 200, datos
 
 
-def _generar(handler, params, cuerpo):
+def _cronica(anio, semana):
+    """
+    Genera la semana con IA si el dueno la prendio; si no, determinista.
+
+    `eccsita.config()` devuelve `ia` con la clave `wa_grupo_ia` (encendida por
+    omision). Sin la clave (config doblada en pruebas) se queda apagada: nunca
+    se gasta IA por accidente.
+    """
+    grupo = _grupo()
+    if not eccsita.config().get("ia"):
+        return eccsita.generar_basico(grupo, anio, semana)
+
+    conn = _conexion()
+    try:
+        return cronica.generar_semana(conn, anio, semana, usar_ia=True,
+                                      chat_id=grupo)
+    except Exception as exc:
+        # La IA nunca debe tumbar el boton: si algo falla, queda la básica.
+        log.warning("crónica con IA de %s/%s falló: %s", anio, semana, exc)
+        return eccsita.generar_basico(grupo, anio, semana)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _generar(handler, params, cuerpo, accion="crónica"):
     user, error = _api._sesion(handler)
     if error:
         return error
@@ -123,11 +154,17 @@ def _generar(handler, params, cuerpo):
     if malo:
         return malo
     anio, semana = valores
-    datos = eccsita.generar_basico(grupo, anio, semana)
+    datos = _cronica(anio, semana)
     if not datos:
         return 404, {"error": "Esa semana no tiene mensajes que resumir."}
-    _log(user, f"ECCSita: crónica básica de la semana {semana} de {anio}")
+    _log(user, f"ECCSita: {accion} de la semana {semana} de {anio} "
+               f"({datos.get('generadoPor') or 'BASICO'})")
     return 200, datos
+
+
+def _regenerar(handler, params, cuerpo):
+    """Igual que generar, aunque la semana ya esté RESUMIDA."""
+    return _generar(handler, params, cuerpo, accion="recrónica")
 
 
 def _revisar(handler, params, cuerpo):
@@ -179,6 +216,8 @@ def _markdown(semana):
         for m in momentos:
             lineas.append(f"- «{m.get('texto') or ''}» — "
                           f"{m.get('autor') or ''} ({m.get('fecha') or ''})")
+            if m.get("por_que"):
+                lineas.append(f"  {m['por_que']}")
         lineas.append("")
 
     temas = semana.get("temas") or []
@@ -376,6 +415,7 @@ _SEMANA = r"/api/panel/eccsita/semanas/(?P<anio>\d{4})/(?P<semana>\d{1,2})"
 _api.registrar("GET", r"/api/panel/eccsita/semanas", _semanas)
 _api.registrar("GET", _SEMANA, _detalle)
 _api.registrar("POST", _SEMANA + r"/generar", _generar)
+_api.registrar("POST", _SEMANA + r"/regenerar", _regenerar)
 _api.registrar("POST", _SEMANA + r"/revisar", _revisar)
 _api.registrar("GET", _SEMANA + r"/export", _export)
 _api.registrar("GET", r"/api/panel/eccsita/grupo", _grupo_get)
