@@ -26,12 +26,20 @@ VIERNES_RESUMEN = datetime(2026, 11, 27, 18, 35)
 HECTOR = 7
 ANA = 8
 SIN_DEVICE = 9
+ROSY = 11
+
+# Turnos como los devuelve la consulta: (LV_Entrada, LV_Salida, Sab_Entrada,
+# Sab_Salida, Dom_Entrada, Dom_Salida, Tol_Llegada_Min).
+OPERATIVO = (time(9, 0), time(18, 30), time(9, 30), time(13, 30),
+             None, None, 15)
+ADMINISTRATIVO = (time(8, 0), time(18, 30), None, None, None, None, 15)
 
 
 class BaseFalsa:
     def __init__(self):
         self.usuarios = []      # (id, nombre, telefono, wa_activo, device_activo)
-        self.horarios = {}      # (uid, dia) -> (entrada, salida, descanso)
+        self.turnos = {}        # id_turno -> 7 columnas del turno
+        self.turnos_usuario = []  # (uid, id_turno, desde, hasta, activo)
         self.escaneos = []      # (uid, datetime)
         self.avisos = []        # dict(tipo, uid, fecha, enviado, ok, detalle)
         self.config = {}
@@ -82,9 +90,14 @@ class CursorFalso:
                           for uid, nombre, telefono, wa_ok, device_ok in b.usuarios
                           if wa_ok and device_ok and telefono]
 
-        elif "FROM HUB_ASISTENCIAUSUARIOHORARIO" in q:
-            uid, dia = p
-            self.una = b.horarios.get((uid, dia))
+        elif "FROM HUB_USUARIOTURNO" in q:
+            uid, hoy = p
+            vigentes = sorted(
+                ((desde, b.turnos.get(id_turno))
+                 for u, id_turno, desde, hasta, activo in b.turnos_usuario
+                 if u == uid and activo and (hasta is None or hasta >= hoy)),
+                key=lambda par: par[0], reverse=True)
+            self.una = vigentes[0][1] if vigentes else None
 
         elif "FROM HUB_NETWORKSCANRESULTS" in q:
             self._escaneos(q, p)
@@ -163,6 +176,13 @@ def aviso(base, tipo, uid, dia, ok=True):
     base.avisos.append({"tipo": tipo, "uid": uid, "fecha": dia,
                         "enviado": datetime.combine(dia, time(9, 0)),
                         "ok": ok, "detalle": ""})
+
+
+def con_turno(base, uid, turno, id_turno=1, desde=date(2026, 1, 1),
+              hasta=None, activo=True):
+    """Asigna un turno a una persona, como `HUB_UsuarioTurno`."""
+    base.turnos[id_turno] = turno
+    base.turnos_usuario.append((uid, id_turno, desde, hasta, activo))
 
 
 def dia(momento):
@@ -290,21 +310,46 @@ class Ausencia(unittest.TestCase):
 
 
 class Horario(unittest.TestCase):
-    def test_descanso_no_avisa(self):
+    def test_administrativo_entra_a_las_8(self):
         base = base_con_hector()
-        base.horarios[(HECTOR, 4)] = (None, None, True)
+        con_turno(base, HECTOR, ADMINISTRATIVO)
+        base.escaneos = [(HECTOR, datetime(2026, 11, 26, 8, 10))]
         envios = Envios()
 
-        _, enviados = wa.ciclo(ahora=datetime(2026, 11, 26, 11, 35),
+        _, enviados = wa.ciclo(ahora=datetime(2026, 11, 26, 8, 15),
                                conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 1)
+        # Con el horario por defecto (9:00) serían 50 minutos temprano.
+        self.assertIn("Puntual", envios.llamadas[0][1])
+
+    def test_administrativo_sabado_no_avisa(self):
+        base = base_con_hector()
+        con_turno(base, ROSY, ADMINISTRATIVO)
+        base.usuarios = [(ROSY, "Rosy", "528100000001", True, True)]
+        base.escaneos = [(ROSY, datetime(2026, 11, 28, 9, 31))]
+        envios = Envios()
+
+        _, enviados = wa.ciclo(ahora=SABADO, conn=base, enviar=envios)
 
         self.assertEqual(enviados, 0)
         self.assertEqual(envios.llamadas, [])
 
+    def test_operativo_entrada_y_sabado(self):
+        base = base_con_hector()
+        con_turno(base, HECTOR, OPERATIVO)
+
+        self.assertEqual(
+            wa.horario_dia(base, HECTOR, date(2026, 11, 26))[:2],
+            (time(9, 0), time(18, 30)))
+        self.assertEqual(
+            wa.horario_dia(base, HECTOR, date(2026, 11, 28))[:2],
+            (time(9, 30), time(13, 30)))
+
     def test_sabado_solo_a_quien_trabaja(self):
         base = base_con_hector()
-        base.horarios[(HECTOR, 6)] = (time(9, 30), time(13, 30), False)
-        base.horarios[(ANA, 6)] = (None, None, True)
+        con_turno(base, HECTOR, OPERATIVO, id_turno=2)
+        con_turno(base, ANA, ADMINISTRATIVO, id_turno=1)
         base.usuarios = [(HECTOR, "Héctor Peña", "5218123211516", True, True),
                          (ANA, "Ana Ruiz", "528100000000", True, True)]
         base.escaneos = [
@@ -317,6 +362,90 @@ class Horario(unittest.TestCase):
 
         self.assertEqual(enviados, 1)
         self.assertEqual(envios.llamadas[0][0], "5218123211516@c.us")
+
+    def test_domingo_sin_horas_no_avisa(self):
+        base = base_con_hector()
+        con_turno(base, HECTOR, OPERATIVO)
+        base.escaneos = [(HECTOR, datetime(2026, 11, 29, 9, 31))]
+        envios = Envios()
+
+        _, enviados = wa.ciclo(ahora=datetime(2026, 11, 29, 10, 0),
+                               conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 0)
+        self.assertEqual(envios.llamadas, [])
+
+    def test_sin_turno_usa_horario_de_oficina(self):
+        base = base_con_hector()
+
+        self.assertEqual(
+            wa.horario_dia(base, HECTOR, date(2026, 11, 26))[:2],
+            (time(9, 0), time(18, 30)))
+        self.assertEqual(
+            wa.horario_dia(base, HECTOR, date(2026, 11, 28))[:2],
+            (time(9, 30), time(13, 30)))
+        self.assertIsNone(wa.horario_dia(base, HECTOR, date(2026, 11, 29)))
+
+    def test_vale_el_turno_vigente_mas_reciente(self):
+        base = base_con_hector()
+        con_turno(base, HECTOR, OPERATIVO, id_turno=2,
+                  desde=date(2026, 1, 1), hasta=date(2026, 9, 30))
+        con_turno(base, HECTOR, ADMINISTRATIVO, id_turno=1,
+                  desde=date(2026, 10, 1))
+
+        self.assertEqual(
+            wa.horario_dia(base, HECTOR, date(2026, 11, 26))[0], time(8, 0))
+
+    def test_turno_vencido_cae_al_horario_de_oficina(self):
+        base = base_con_hector()
+        con_turno(base, HECTOR, ADMINISTRATIVO, hasta=date(2026, 10, 31))
+
+        self.assertEqual(
+            wa.horario_dia(base, HECTOR, date(2026, 11, 26))[0], time(9, 0))
+
+
+class Tolerancia(unittest.TestCase):
+    def test_tolerancia_del_turno(self):
+        base = base_con_hector()
+        con_turno(base, HECTOR, (time(9, 0), time(18, 30), time(9, 30),
+                                 time(13, 30), None, None, 5))
+        base.escaneos = [(HECTOR, datetime(2026, 11, 26, 9, 6))]
+        envios = Envios()
+
+        _, enviados = wa.ciclo(ahora=datetime(2026, 11, 26, 9, 10),
+                               conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 1)
+        # Con la tolerancia por defecto (10) esta llegada sería puntual.
+        self.assertNotIn("Puntual", envios.llamadas[0][1])
+
+    def test_config_solo_si_el_turno_no_la_fija(self):
+        base = base_con_hector()
+        base.config["wa_asist_tolerancia_min"] = "5"
+        con_turno(base, HECTOR, (time(9, 0), time(18, 30), time(9, 30),
+                                 time(13, 30), None, None, None))
+        base.escaneos = [(HECTOR, datetime(2026, 11, 26, 9, 6))]
+        envios = Envios()
+
+        _, enviados = wa.ciclo(ahora=datetime(2026, 11, 26, 9, 10),
+                               conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 1)
+        self.assertNotIn("Puntual", envios.llamadas[0][1])
+
+    def test_el_turno_manda_sobre_la_config(self):
+        base = base_con_hector()
+        base.config["wa_asist_tolerancia_min"] = "30"
+        con_turno(base, HECTOR, (time(9, 0), time(18, 30), time(9, 30),
+                                 time(13, 30), None, None, 5))
+        base.escaneos = [(HECTOR, datetime(2026, 11, 26, 9, 6))]
+        envios = Envios()
+
+        _, enviados = wa.ciclo(ahora=datetime(2026, 11, 26, 9, 10),
+                               conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 1)
+        self.assertNotIn("Puntual", envios.llamadas[0][1])
 
 
 class Salida(unittest.TestCase):
@@ -363,6 +492,39 @@ class Salida(unittest.TestCase):
         envios = Envios()
 
         _, enviados = wa.ciclo(ahora=datetime(2026, 11, 26, 16, 40),
+                               conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 0)
+
+    def test_sabado_salida_a_la_1_y_1(self):
+        base = base_con_hector()
+        con_turno(base, HECTOR, OPERATIVO)
+        aviso(base, "ENTRADA", HECTOR, date(2026, 11, 28))
+        base.config["wa_asist_salida_gap_min"] = "10"
+        base.escaneos = [
+            (HECTOR, datetime(2026, 11, 28, 9, 31)),
+            (HECTOR, datetime(2026, 11, 28, 12, 50)),
+        ]
+        envios = Envios()
+
+        _, enviados = wa.ciclo(ahora=datetime(2026, 11, 28, 13, 1),
+                               conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 1)
+        self.assertIn("12:50", envios.llamadas[0][1])
+
+    def test_sabado_antes_de_la_1_no_avisa_salida(self):
+        base = base_con_hector()
+        con_turno(base, HECTOR, OPERATIVO)
+        aviso(base, "ENTRADA", HECTOR, date(2026, 11, 28))
+        base.config["wa_asist_salida_gap_min"] = "10"
+        base.escaneos = [
+            (HECTOR, datetime(2026, 11, 28, 9, 31)),
+            (HECTOR, datetime(2026, 11, 28, 12, 20)),
+        ]
+        envios = Envios()
+
+        _, enviados = wa.ciclo(ahora=datetime(2026, 11, 28, 12, 59),
                                conn=base, enviar=envios)
 
         self.assertEqual(enviados, 0)
@@ -438,7 +600,7 @@ class Limites(unittest.TestCase):
         envios = Envios()
         for ahora in (datetime(2026, 11, 26, 7, 59),
                       datetime(2026, 11, 26, 19, 31),
-                      datetime(2026, 11, 28, 14, 1)):
+                      datetime(2026, 11, 28, 14, 31)):
             detalle, enviados = wa.ciclo(ahora=ahora, conn=base, enviar=envios)
             self.assertEqual(enviados, 0)
             self.assertIn("fuera de ventana", detalle)

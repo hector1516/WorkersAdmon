@@ -12,8 +12,9 @@ avisos al **propio empleado**, nunca a su jefe:
      (150 por omisión: 08:00 → 10:30; 09:00 → 11:30) y un segundo aviso a las
      13:00. Máximo dos.
   3. **SALIDA**: cuando lleva `wa_asist_salida_gap_min` minutos sin escaneo
-     pasadas las 17:00. Si el último escaneo fue 15 minutos o más antes de la
-     hora de salida, el texto lo dice.
+     pasadas las 17:00 (el sábado y el domingo, 30 minutos antes de la salida
+     del turno). Si el último escaneo fue 15 minutos o más antes de la hora de
+     salida, el texto lo dice.
   4. **RESUMEN**: viernes 18:30, días presente, llegadas tarde y racha. Sin
      datos no se manda.
 
@@ -21,11 +22,15 @@ avisos al **propio empleado**, nunca a su jefe:
 
 - Solo al empleado. Hace falta WhatsApp activo en `HUB_UsuariosWhatsapp` **y**
   un dispositivo activo con su `IdUsuario` en `HUB_NetworkDevices`.
-- El horario es por persona: `HUB_AsistenciaUsuarioHorario` +
-  `HUB_AsistenciaHorarioDias`. `DiaSemana` 1..7 = lunes..domingo y
-  `Descanso = 1` no avisa. Si la persona no tiene horario se usan las horas de
-  oficina (L-V 09:00-18:30, sábado 09:30-13:30).
-- Ventana de envío 08:00-19:30 (sábado hasta 14:00).
+- El horario es el **turno del usuario**: `HUB_UsuarioTurno` sobre
+  `HUB_Turnos`. Vale el registro activo y vigente (`Activo = 1` y
+  `FechaHasta` NULL o no vencida); si hay varios, el `FechaDesde` más
+  reciente. Lunes a viernes usa `LV_*`, sábado `Sab_*` y domingo `Dom_*`; un
+  sábado o domingo sin horas es descanso y no avisa. Sin turno vigente se usan
+  las horas de oficina (L-V 09:00-18:30, sábado 09:30-13:30).
+- La tolerancia de llegada es `Tol_Llegada_Min` del turno; si viene NULL, la
+  clave `wa_asist_tolerancia_min`.
+- Ventana de envío 08:00-19:30 (sábado hasta 14:30).
 - Tope de `wa_asist_max_dia` avisos por persona y día; el resumen del viernes
   no cuenta.
 - Nada de burlas si hay tres o más ausencias seguidas o si el aviso saldría
@@ -60,13 +65,16 @@ WA_ASIST_CICLO_SEG = max(60, int(os.environ.get("WA_ASIST_CICLO_SEG") or 300))
 # Ventana de envío. Sábado cierra temprano porque la jornada termina a 13:30.
 VENTANA_INICIO = 8 * 60
 VENTANA_FIN = 19 * 60 + 30
-VENTANA_FIN_SABADO = 14 * 60
+VENTANA_FIN_SABADO = 14 * 60 + 30
 
 # Hora del segundo aviso de ausencia.
 SEGUNDA_AUSENCIA = 13 * 60
 
-# Salida: a partir de esta hora se mide el hueco sin escaneo.
+# Salida: a partir de esta hora se mide el hueco sin escaneo. Entre semana la
+# gente se queda después de su hora; el fin de semana la jornada acaba antes,
+# así que ahí se mide desde 30 minutos antes de la salida del turno.
 SALIDA_DESDE = 17 * 60
+MARGEN_SALIDA_FIN_SEMANA = 30
 
 # Salida temprana: el último escaneo cae al menos estos minutos antes de la
 # hora de salida esperada.
@@ -118,12 +126,14 @@ SQL_USUARIOS = (
     "ORDER BY u.Id"
 )
 
-SQL_HORARIO = (
-    "SELECT TOP 1 hd.HoraEntrada, hd.HoraSalida, hd.Descanso "
-    "FROM HUB_AsistenciaUsuarioHorario uh "
-    "JOIN HUB_AsistenciaHorarioDias hd ON hd.IdHorario = uh.IdHorario "
-    "WHERE uh.IdUsuario = %s AND hd.DiaSemana = %s "
-    "ORDER BY uh.VigenteDesde DESC"
+SQL_TURNO = (
+    "SELECT TOP 1 t.LV_Entrada, t.LV_Salida, t.Sab_Entrada, t.Sab_Salida, "
+    "       t.Dom_Entrada, t.Dom_Salida, t.Tol_Llegada_Min "
+    "FROM HUB_UsuarioTurno ut "
+    "JOIN HUB_Turnos t ON t.Id = ut.IdTurno "
+    "WHERE ut.IdUsuario = %s AND ut.Activo = 1 "
+    "  AND (ut.FechaHasta IS NULL OR ut.FechaHasta >= %s) "
+    "ORDER BY ut.FechaDesde DESC"
 )
 
 # La MAC se compara normalizada (mayúsculas y sin espacios) porque el escáner
@@ -300,41 +310,94 @@ def _frase(lista, indice):
 # ── Ventana y horario ────────────────────────────────────────────────────────
 
 def en_ventana(ahora):
-    """08:00-19:30; sábado hasta 14:00."""
+    """08:00-19:30; sábado hasta 14:30."""
     minutos = ahora.hour * 60 + ahora.minute
     fin = VENTANA_FIN_SABADO if ahora.weekday() == 5 else VENTANA_FIN
     return VENTANA_INICIO <= minutos <= fin
 
 
 def _horario_default(dia_semana):
-    """Oficina cuando la persona no tiene horario propio."""
-    if 1 <= dia_semana <= 5:
-        return hora_del_dia(9, 0), hora_del_dia(18, 30)
-    if dia_semana == 6:
-        return hora_del_dia(9, 30), hora_del_dia(13, 30)
+    """Oficina cuando la persona no tiene turno vigente (`0` = lunes)."""
+    if dia_semana <= 4:
+        return hora_del_dia(9, 0), hora_del_dia(18, 30), None
+    if dia_semana == 5:
+        return hora_del_dia(9, 30), hora_del_dia(13, 30), None
     return None
 
 
-def horario_dia(conn, usuario_id, dia_semana):
-    """
-    `(entrada, salida)` del día, o None si es descanso.
+def _tolerancia_turno(valor):
+    """`Tol_Llegada_Min` como entero; None deja decidir a `HUB_Config`."""
+    if valor is None:
+        return None
+    try:
+        return max(0, int(str(valor).strip()))
+    except (TypeError, ValueError):
+        return None
 
-    Si la persona no tiene horario se devuelven las horas de oficina. Una fila
-    con `Descanso = 1` (o sin horas) es descanso y no se avisa.
+
+def _salida_desde(dia_semana, salida_esperada):
+    """
+    Minuto del día a partir del cual se mide el hueco de salida.
+
+    Entre semana, 17:00: la gente se queda después de su hora. El fin de
+    semana la jornada termina antes (sábado 13:30), así que el umbral es 30
+    minutos antes de la salida del turno; si no hay salida esperada no se usa
+    (ese día es descanso y no se llega aquí).
+    """
+    if dia_semana >= 5 and salida_esperada is not None:
+        minutos = salida_esperada.hour * 60 + salida_esperada.minute
+        return max(0, minutos - MARGEN_SALIDA_FIN_SEMANA)
+    return SALIDA_DESDE
+
+
+def turno_vigente(conn, usuario_id, dia):
+    """
+    Las 7 columnas del turno vigente (`LV_*`, `Sab_*`, `Dom_*`,
+    `Tol_Llegada_Min`) o None si la persona no tiene turno asignado.
+
+    Vigente = `Activo = 1` y `FechaHasta` NULL o no vencida; si hay varios,
+    gana el de `FechaDesde` más reciente.
     """
     try:
-        fila = _una(conn, SQL_HORARIO, (usuario_id, dia_semana))
+        return _una(conn, SQL_TURNO, (usuario_id, dia))
     except Exception as exc:
-        _log(f"sin horario de {usuario_id} día {dia_semana}: {exc}")
-        fila = None
+        _log(f"sin turno de {usuario_id} al {dia}: {exc}")
+        return None
+
+
+def horario_dia(conn, usuario_id, dia):
+    """
+    `(entrada, salida, tolerancia_min)` del día, o None si es descanso.
+
+    El horario sale del turno del usuario: L-V usa `LV_*`, sábado `Sab_*` y
+    domingo `Dom_*`. Un sábado o domingo sin horas es descanso y no se avisa.
+    Sin turno vigente se devuelven las horas de oficina. `tolerancia_min` es
+    None cuando el turno no fija `Tol_Llegada_Min`.
+    """
+    fila = turno_vigente(conn, usuario_id, dia)
 
     if not fila:
-        return _horario_default(dia_semana)
+        return _horario_default(dia.weekday())
 
-    entrada, salida, descanso = limpiar_hora(fila[0]), limpiar_hora(fila[1]), bool(fila[2])
-    if descanso or entrada is None or salida is None:
-        return None
-    return entrada, salida
+    indice_entrada, indice_salida = {
+        5: (2, 3),                  # sábado
+        6: (4, 5),                  # domingo
+    }.get(dia.weekday(), (0, 1))    # lunes a viernes
+
+    entrada = limpiar_hora(fila[indice_entrada])
+    salida = limpiar_hora(fila[indice_salida])
+    if entrada is None or salida is None:
+        if dia.weekday() >= 5:
+            return None             # fin de semana sin horas: descanso
+        return _horario_default(dia.weekday())
+    return entrada, salida, _tolerancia_turno(fila[6])
+
+
+def tolerancia_de(horario, cfg):
+    """Tolerancia de llegada del turno; si no la fija, la de `HUB_Config`."""
+    if horario and horario[2] is not None:
+        return horario[2]
+    return cfg["tolerancia_min"]
 
 
 # ── Consultas de apoyo ───────────────────────────────────────────────────────
@@ -388,7 +451,7 @@ def _hist_tipo(conn, usuario_id, tipo):
 
 def _fue_tarde(conn, usuario_id, dia, tolerancia_min):
     """¿La primera llegada de ese día pasó la tolerancia?"""
-    horario = horario_dia(conn, usuario_id, dia.weekday() + 1)
+    horario = horario_dia(conn, usuario_id, dia)
     if not horario:
         return False
     escaneos = _escaneos_dia(conn, usuario_id, dia)
@@ -426,7 +489,7 @@ def _ausencias_seguidas(conn, usuario_id, hoy):
             return True
         if dia in ausentes:
             consecutivas += 1
-        elif horario_dia(conn, usuario_id, dia.weekday() + 1) is not None:
+        elif horario_dia(conn, usuario_id, dia) is not None:
             break               # día laborable sin ausencia: se corta la racha
         dia -= timedelta(days=1)
     return consecutivas >= 3
@@ -440,21 +503,22 @@ def _permitir_humor(conn, usuario_id, ahora):
 
 # ── Textos de cada aviso ─────────────────────────────────────────────────────
 
-def texto_entrada(conn, usuario_id, nombre, llegada, esperada, hoy, cfg, ahora):
+def texto_entrada(conn, usuario_id, nombre, llegada, esperada, hoy,
+                  tolerancia_min, ahora):
     hora = _hm(llegada)
     esperada_dt = datetime.combine(hoy, esperada)
     minutos = (llegada - esperada_dt).total_seconds() / 60.0
     humor = _permitir_humor(conn, usuario_id, ahora)
     historial = _hist_tipo(conn, usuario_id, "ENTRADA")
 
-    if minutos > cfg["tolerancia_min"]:
+    if minutos > tolerancia_min:
         if not humor:
             return NEUTRAL_ENTRADA.format(nombre=nombre, hora=hora)
         # El contexto (ayer o la tercera de la semana) alterna con la lista:
         # decirlo todos los días también sería repetirse.
         if historial % 2 == 0 and _fue_tarde(
                 conn, usuario_id, hoy - timedelta(days=1),
-                cfg["tolerancia_min"]):
+                tolerancia_min):
             return f"{nombre}, {hora}. Otra vez tarde como ayer."
         if historial % 2 == 0:
             primera = _primera_por_dia(
@@ -464,10 +528,10 @@ def texto_entrada(conn, usuario_id, nombre, llegada, esperada, hoy, cfg, ahora):
                 datetime.combine(hoy + timedelta(days=1), hora_del_dia.min))
             tardes = 0
             for dia, llegada_dia in primera.items():
-                horario_dia_d = horario_dia(conn, usuario_id, dia.weekday() + 1)
+                horario_dia_d = horario_dia(conn, usuario_id, dia)
                 if (dia.weekday() < 5 and horario_dia_d
                         and llegada_dia > datetime.combine(dia, horario_dia_d[0])
-                        + timedelta(minutes=cfg["tolerancia_min"])):
+                        + timedelta(minutes=tolerancia_min)):
                     tardes += 1
             if tardes >= 3:
                 return f"{nombre}, {hora}. Tercera tarde de la semana."
@@ -602,7 +666,7 @@ def _resumen_semana(conn, usuario_id, nombre, ahora, cfg):
     # suelto, que sería el equipo de otra persona o un error del inventario).
     presente = {}
     for dia, llegada in primera.items():
-        horario = horario_dia(conn, usuario_id, dia.weekday() + 1)
+        horario = horario_dia(conn, usuario_id, dia)
         if horario:
             presente[dia] = (llegada, horario)
 
@@ -612,7 +676,7 @@ def _resumen_semana(conn, usuario_id, nombre, ahora, cfg):
     tardes = 0
     for dia, (llegada, horario) in presente.items():
         if llegada > datetime.combine(dia, horario[0]) + timedelta(
-                minutes=cfg["tolerancia_min"]):
+                minutes=tolerancia_de(horario, cfg)):
             tardes += 1
 
     # Racha: días laborables seguidos con presencia, desde el último día
@@ -620,7 +684,7 @@ def _resumen_semana(conn, usuario_id, nombre, ahora, cfg):
     racha = 0
     dia = max(presente)
     while dia >= lunes:
-        horario = horario_dia(conn, usuario_id, dia.weekday() + 1)
+        horario = horario_dia(conn, usuario_id, dia)
         if horario is not None:
             if dia not in presente:
                 break
@@ -640,11 +704,12 @@ def atender_usuario(conn, fila, cfg, ahora, enviar):
         return 0
 
     hoy = ahora.date()
-    horario = horario_dia(conn, usuario_id, hoy.weekday() + 1)
+    horario = horario_dia(conn, usuario_id, hoy)
     if not horario:
         return 0                    # descanso o día sin turno: no se avisa
 
-    esperada, salida_esperada = horario
+    esperada, salida_esperada, _ = horario
+    tolerancia_min = tolerancia_de(horario, cfg)
     escaneos = _escaneos_dia(conn, usuario_id, hoy)
     usados = _contar_dia(conn, usuario_id, hoy)
     enviados = 0
@@ -670,7 +735,7 @@ def atender_usuario(conn, fila, cfg, ahora, enviar):
     # escaneos de ayer para un aviso que ya se mandó es trabajo tirado.
     if escaneos and not _ya_hoy(conn, "ENTRADA", usuario_id, hoy):
         texto = texto_entrada(conn, usuario_id, nombre, escaneos[0],
-                              esperada, hoy, cfg, ahora)
+                              esperada, hoy, tolerancia_min, ahora)
         intentar("ENTRADA", texto, f"entrada {_hm(escaneos[0])}")
 
     # 2) Ausencia: primer aviso a los `ausencia_min` y segundo a las 13:00.
@@ -686,8 +751,11 @@ def atender_usuario(conn, fila, cfg, ahora, enviar):
                                    segundo=True)
             intentar("AUSENCIA2", texto, "sin escaneo (segundo)")
 
-    # 3) Salida: 30 minutos sin escaneo pasadas las 17:00.
-    if escaneos and ahora.hour * 60 + ahora.minute >= SALIDA_DESDE:
+    # 3) Salida: 30 minutos sin escaneo pasada la hora de corte del día
+    #    (17:00 entre semana; el fin de semana, 30 min antes de la salida).
+    if (escaneos
+            and ahora.hour * 60 + ahora.minute >= _salida_desde(
+                hoy.weekday(), salida_esperada)):
         ultimo = escaneos[-1]
         if (ahora - ultimo) >= timedelta(minutes=cfg["salida_gap_min"]):
             texto = texto_salida(conn, usuario_id, nombre, ultimo,

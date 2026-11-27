@@ -169,7 +169,8 @@ WORKERS_SPEC = {
         _f("wa_asist_tolerancia_min", "Tolerancia de entrada", "number",
            "hub_config", clave="wa_asist_tolerancia_min", default=10, min=0,
            max=120, unidad="min",
-           ayuda="Pasada esta tolerancia, la llegada se avisa como tarde."),
+           ayuda="Pasada esta tolerancia, la llegada se avisa como tarde. Solo "
+                 "aplica si el turno del usuario no fija Tol_Llegada_Min."),
         _f("wa_asist_ausencia_min", "Minutos para la ausencia", "number",
            "hub_config", clave="wa_asist_ausencia_min", default=150, min=1,
            max=1440, unidad="min",
@@ -179,7 +180,8 @@ WORKERS_SPEC = {
            "number", "hub_config", clave="wa_asist_salida_gap_min", default=30,
            min=1, max=240, unidad="min",
            ayuda="Pasadas las 17:00, este hueco sin escaneo se toma como "
-                 "salida."),
+                 "salida. El fin de semana se mide 30 min antes de la salida "
+                 "del turno."),
         _f("wa_asist_max_dia", "Avisos por persona al día", "number",
            "hub_config", clave="wa_asist_max_dia", default=3, min=1, max=20,
            ayuda="Tope diario por persona; cuenta sólo lo enviado y el "
@@ -188,7 +190,7 @@ WORKERS_SPEC = {
            clave="wa_asist_resumen", default="1",
            ayuda="Con No se omite el resumen del viernes a las 18:30."),
         _f("ventana", "Ventana de envío", "const", "const",
-           valor="08:00-19:30 (sábado hasta 14:00), hora México",
+           valor="08:00-19:30 (sábado hasta 14:30), hora México",
            ayuda="Fuera de la ventana no sale nada. Solo al propio empleado y "
                  "solo si tiene WhatsApp y un dispositivo activo."),
     ],
