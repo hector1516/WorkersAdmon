@@ -30,6 +30,8 @@ JSON y sirve el `dist/`.
 | GET | `/api/panel/logs/{nombre}` | `{nombre, texto}` |
 | GET | `/api/panel/config` | config por worker |
 | POST | `/api/panel/config` | guarda claves |
+| GET | `/api/panel/bot` | interruptores de Volt y del bot |
+| POST | `/api/panel/bot` | `{clave, valor}` de un interruptor |
 | GET | `/api/panel/apps` | catálogo + valores |
 | POST | `/api/panel/apps` | `accion: save|edit|del|add|clasificar` |
 | GET | `/api/panel/avisos` | avisos y contexto |
@@ -61,6 +63,10 @@ JSON y sirve el `dist/`.
 // conversación
 {"chat":"5218...@lid","nombre":"Hector","estado":"BOT","asignado":null,
  "mensajes":[{"dir":"IN","texto":"hola","fecha":"2026-11-27T10:00:00"}]}
+
+// bot de WhatsApp (Volt)
+{"sarcasmo":true,"roast_grupo":true,"volt":true,"volt_cada":12,
+ "ia":false,"asistencia":true}
 ```
 
 ## SPA

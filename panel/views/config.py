@@ -132,9 +132,15 @@ def _secciones(fields, env_vals, cfg_vals, worker):
     return "".join(bloques)
 
 
-def _card(name, estado, fields, env_vals, cfg_vals):
-    """Tarjeta de un worker: cabecera + formulario con todos sus campos."""
-    cls, label = ST_TAG.get(estado, ("badge-info", estado or "SIN ESTADO"))
+def _card(name, estado, fields, env_vals, cfg_vals, titulo=None, desc=None,
+          tag=None):
+    """Tarjeta de un worker: cabecera + formulario con todos sus campos.
+
+    `titulo`/`desc`/`tag` permiten pintar un catálogo que no es un programa de
+    supervisord (la tarjeta del bot de WhatsApp) con el mismo markup.
+    """
+    cls, label = tag or ST_TAG.get(estado, ("badge-info",
+                                            estado or "SIN ESTADO"))
 
     test_form = ""
     if any(f.get("test") for f in fields):
@@ -151,7 +157,8 @@ def _card(name, estado, fields, env_vals, cfg_vals):
             if workers.log_path(name) else "")
 
     # Qué hace el worker (mismo texto que la pestaña Workers)
-    desc = workers.CATALOGO.get(name, {}).get("descripcion", "")
+    if desc is None:
+        desc = workers.CATALOGO.get(name, {}).get("descripcion", "")
     desc_html = (f'<p class="desc">{esc(desc)}</p>' if desc else "")
 
     hint = ""
@@ -184,7 +191,7 @@ def _card(name, estado, fields, env_vals, cfg_vals):
     return f"""
   <div class="card" id="cfg-{esc(name)}">
     <div class="wcard-top">
-      <div class="wcard-name">{icono("settings", 20)} {esc(name)}</div>
+      <div class="wcard-name">{icono("settings", 20)} {esc(titulo or name)}</div>
       <span class="badge {cls}">{esc(label)}</span>
     </div>
     {desc_html}
@@ -201,10 +208,19 @@ def render(status, user, flash_ok="", flash_err="", csrf="", lugar="desconocido"
 
     # Valores vigentes: variables de entorno (confs) y HUB_Config (SQL)
     env_vals = {w: envconf.read_env(w) for w in spec.all_workers()}
-    cfg_claves = [c for w in spec.all_workers() for c in spec.hub_config_keys(w)]
+    cfg_claves = ([c for w in spec.all_workers() for c in spec.hub_config_keys(w)]
+                  + spec.hub_config_keys("wa_bot"))
     cfg_vals = db.get_config_values(cfg_claves)     # {} si la BD no responde
 
-    cards = []
+    # La tarjeta del bot va primero: no es un programa, pero es lo que más se
+    # apaga a mano. Comparte catálogo y validación con los workers.
+    cards = [_card(
+        "wa_bot", "BOT", spec.spec_for("wa_bot"), {}, cfg_vals,
+        titulo="Bot de WhatsApp (Volt)",
+        desc=("Interruptores del bot público de WhatsApp. Se guardan en "
+              "HUB_Config y aplican en la siguiente respuesta, sin reiniciar "
+              "nada."),
+        tag=("badge-info", "BOT"))]
     for name in spec.all_workers():
         fields = spec.spec_for(name)
         estado = (progs.get(name) or {}).get("state", "NO_HABILITADO")

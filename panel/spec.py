@@ -435,10 +435,49 @@ WORKERS_SPEC = {
 
 }
 
+# ─── Bot de WhatsApp / Volt ──────────────────────────────────────────────────
+# Las seis llaves NO son un programa de supervisord: `wa_bot.py` atiende el
+# webhook de `openwa_worker`. Por eso el catálogo vive aparte de WORKERS_SPEC
+# (no aparece como una tarjeta por worker) y su tarjeta propia es «Bot de
+# WhatsApp (Volt)» en Configuración. Las leen `wa_bot`, `wa_persona`,
+# `wa_volt`, `wa_redaccion` y `wa_asistencia`.
+BOT_SPEC = [
+    _f("wa_bot_sarcasmo", "Sarcasmo con registrados", "bool", "hub_config",
+       clave="wa_bot_sarcasmo", default="1", app="workersadmon",
+       ayuda="Con No el bot contesta el dato sin bromas sobre vales, retardos, "
+             "reportes u odómetro. A un desconocido nunca se le hace roast."),
+    _f("wa_roast_grupo", "Usar lo que se dice en ECCSita", "bool",
+       "hub_config", clave="wa_roast_grupo", default="1", app="workersadmon",
+       ayuda="Con No el roast ignora lo que se dice en el grupo ECCSita y se "
+             "arma solo con los datos de la persona."),
+    _f("wa_volt_activo", "Mensajes sueltos de Volt", "bool", "hub_config",
+       clave="wa_volt_activo", default="1", app="workersadmon",
+       ayuda="Con No Volt deja de soltar su línea propia. El dato y el humor "
+             "de los registrados no dependen de esto."),
+    _f("wa_volt_cada", "Interacciones entre mensajes de Volt", "number",
+       "hub_config", clave="wa_volt_cada", default=12, min=1, max=100,
+       unidad="msgs", app="workersadmon",
+       ayuda="Cada cuántos mensajes entrantes del chat toca el múltiplo (y aun "
+             "así habla 6 de 10 veces). Uno al día como máximo."),
+    _f("wa_bot_ia", "Redacción con IA", "bool", "hub_config",
+       clave="wa_bot_ia", default="0", app="workersadmon",
+       ayuda="Con Sí el texto se pule con la IA de Notificaciones → IA. Si la "
+             "IA falla o cambia cifras, ligas o emojis, se manda el original."),
+    _f("wa_asist_activo", "Avisos de asistencia", "bool", "hub_config",
+       clave="wa_asist_activo", default="1", app="workersadmon",
+       ayuda="Interruptor del worker wa_asistencia: entradas tarde, ausencias "
+             "y resumen del viernes. Aquí se apaga sin tocar la base."),
+]
+
+# Pseudo-workers: catálogos que no son programas de supervisord. No salen en la
+# lista de Configuración, pero `spec_for()` los resuelve para su tarjeta propia
+# y `panel/config_form.py` valida sus campos igual que los de un worker.
+PSEUDO_SPEC = {"wa_bot": BOT_SPEC}
+
 
 def spec_for(name):
     """Lista de campos de un worker (vacío si no tiene configuración declarada)."""
-    return WORKERS_SPEC.get(name, [])
+    return WORKERS_SPEC.get(name) or PSEUDO_SPEC.get(name, [])
 
 
 def editable_fields(name):

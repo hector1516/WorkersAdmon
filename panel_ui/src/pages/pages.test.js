@@ -3,6 +3,7 @@ import { mount, unmount } from 'svelte';
 import Dashboard from './Dashboard.svelte';
 import Logs from './Logs.svelte';
 import Eccsita from './Eccsita.svelte';
+import Configuracion from './Configuracion.svelte';
 import { navigate } from '../lib/router.js';
 
 let componente = null;
@@ -235,6 +236,55 @@ function apiEccsita({ grupo = true } = {}) {
 		return respuesta({});
 	});
 }
+
+describe('Configuración', () => {
+	const BOT = {
+		sarcasmo: true,
+		roast_grupo: true,
+		volt: true,
+		volt_cada: 12,
+		ia: false,
+		asistencia: true
+	};
+
+	function apiConfig() {
+		return vi.fn(async (url, opciones = {}) => {
+			const u = String(url);
+			const metodo = opciones.method || 'GET';
+			if (u.endsWith('/bot') && metodo === 'POST') return respuesta({ ok: true });
+			if (u.endsWith('/bot')) return respuesta(BOT);
+			if (u.endsWith('/canales')) return respuesta({});
+			return respuesta({ workers: [] });
+		});
+	}
+
+	it('pinta los seis controles del bot y guarda al cambiar', async () => {
+		const fetchMock = apiConfig();
+		vi.stubGlobal('fetch', fetchMock);
+
+		const el = pintar(Configuracion);
+		await esperar();
+
+		expect(el.textContent).toContain('Bot de WhatsApp (Volt)');
+		expect(el.querySelectorAll('input[name^="bot-"]').length).toBe(6);
+		expect(el.querySelectorAll('input[type="checkbox"][name^="bot-"]').length).toBe(5);
+		const cada = el.querySelector('input[type="number"][name="bot-volt_cada"]');
+		expect(cada).not.toBeNull();
+		expect(cada.value).toBe('12');
+
+		const sarcasmo = el.querySelector('input[name="bot-sarcasmo"]');
+		sarcasmo.checked = false;
+		sarcasmo.dispatchEvent(new Event('change', { bubbles: true }));
+		await esperar();
+
+		const llamada = fetchMock.mock.calls.find(
+			([url, opciones]) =>
+				String(url).endsWith('/api/panel/bot') && opciones?.method === 'POST'
+		);
+		expect(llamada).toBeTruthy();
+		expect(JSON.parse(llamada[1].body)).toEqual({ clave: 'sarcasmo', valor: 0 });
+	});
+});
 
 describe('Eccsita', () => {
 	it('pinta semanas, abre una semana y muestra los mensajes', async () => {

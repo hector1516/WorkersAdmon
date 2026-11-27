@@ -18,6 +18,42 @@
 		{ clave: 'push', nombre: 'PWA', nota: 'Avisos push en las apps' }
 	];
 
+	// Bot de WhatsApp (Volt). Las seis claves viven en HUB_Config y se guardan
+	// de inmediato con POST /bot: no hay botón Guardar para estos controles.
+	const BOT = [
+		{
+			clave: 'sarcasmo',
+			nombre: 'Sarcasmo con registrados',
+			nota: 'Roast con sus propios datos: vales, retardos, reportes, odómetro.'
+		},
+		{
+			clave: 'roast_grupo',
+			nombre: 'Usar lo que se dice en ECCSita',
+			nota: 'Toma lo del grupo para el roast de los registrados.'
+		},
+		{
+			clave: 'volt',
+			nombre: 'Mensajes sueltos de Volt',
+			nota: 'Una línea propia de vez en cuando, solo a registrados.'
+		},
+		{
+			clave: 'volt_cada',
+			tipo: 'number',
+			nombre: 'Interacciones entre mensajes de Volt',
+			nota: 'Cada cuántos mensajes entrantes del chat toca el múltiplo (1–100).'
+		},
+		{
+			clave: 'ia',
+			nombre: 'Redacción con IA',
+			nota: 'Pule el texto sin cambiar cifras, ligas ni emojis.'
+		},
+		{
+			clave: 'asistencia',
+			nombre: 'Avisos de asistencia',
+			nota: 'Entradas tarde, ausencias y resumen del viernes.'
+		}
+	];
+
 	let cargando = $state(true);
 	let error = $state('');
 	let aviso = $state(null);
@@ -25,12 +61,17 @@
 	let valores = $state({});
 	let guardando = $state({});
 
+	let bot = $state(null);
+	let errorBot = $state('');
+	let guardandoBot = $state({});
+
 	let canales = $state(CANALES.map((c) => ({ ...c, activo: false })));
 	let errorCanales = $state('');
 	let guardandoCanal = $state({});
 
 	onMount(() => {
 		cargar();
+		cargarBot();
 		cargarCanales();
 	});
 
@@ -104,6 +145,49 @@
 		} finally {
 			guardando = { ...guardando, [nombre]: false };
 		}
+	}
+
+	async function cargarBot() {
+		errorBot = '';
+		try {
+			bot = await get('/bot');
+		} catch (e) {
+			errorBot = e.message || 'No se pudieron leer los interruptores del bot.';
+		}
+	}
+
+	async function guardarBot(control, valor) {
+		const anterior = bot?.[control.clave];
+		guardandoBot = { ...guardandoBot, [control.clave]: true };
+		// Optimista: el control responde al instante y se revierte si el POST falla.
+		bot = {
+			...bot,
+			[control.clave]: control.tipo === 'number' ? valor : !!valor
+		};
+		try {
+			await post('/bot', { clave: control.clave, valor });
+			const estado = control.tipo === 'number' ? valor : valor ? 'encendido' : 'apagado';
+			aviso = { tipo: 'ok', mensaje: `${control.nombre}: ${estado}.` };
+		} catch (e) {
+			bot = { ...bot, [control.clave]: anterior };
+			aviso = { tipo: 'err', mensaje: e.message || `No se pudo guardar ${control.nombre}.` };
+		} finally {
+			guardandoBot = { ...guardandoBot, [control.clave]: false };
+		}
+	}
+
+	function alternarBot(control) {
+		guardarBot(control, bot[control.clave] ? 0 : 1);
+	}
+
+	function cambiarCada(evento) {
+		const valor = Number(evento.currentTarget.value);
+		if (!Number.isInteger(valor) || valor < 1 || valor > 100) {
+			evento.currentTarget.value = bot?.volt_cada ?? 12;
+			aviso = { tipo: 'err', mensaje: 'Interacciones entre mensajes de Volt: entero entre 1 y 100.' };
+			return;
+		}
+		guardarBot(BOT.find((c) => c.clave === 'volt_cada'), valor);
 	}
 
 	function activoDe(valor) {
@@ -200,6 +284,64 @@
 				</div>
 			{/each}
 		</div>
+	</Card>
+
+	<Card
+		titulo="Bot de WhatsApp (Volt)"
+		sub="Interruptores que aplican en la siguiente respuesta del bot, sin reiniciar nada"
+	>
+		{#snippet acciones()}
+			<Badge tone={bot && (bot.sarcasmo || bot.volt || bot.ia) ? 'ok' : ''}>
+				{bot && (bot.sarcasmo || bot.volt || bot.ia) ? 'Activo' : 'Apagado'}
+			</Badge>
+		{/snippet}
+
+		{#if errorBot}
+			<p class="help"><Badge tone="bad">Error</Badge> {errorBot}</p>
+		{/if}
+		{#if !bot && !errorBot}
+			<Skeleton alto="18px" lineas={6} />
+		{:else if bot}
+			<div class="grid2">
+				{#each BOT as control (control.clave)}
+					<div class="field">
+						{#if control.tipo === 'number'}
+							<label for="bot-{control.clave}">{control.nombre}</label>
+							<input
+								id="bot-{control.clave}"
+								name="bot-{control.clave}"
+								class="input"
+								type="number"
+								inputmode="numeric"
+								min="1"
+								max="100"
+								value={bot[control.clave]}
+								disabled={guardandoBot[control.clave]}
+								onchange={cambiarCada}
+							/>
+							<p class="help">{control.nota}</p>
+						{:else}
+							<label>
+								<input
+									type="checkbox"
+									name="bot-{control.clave}"
+									checked={bot[control.clave]}
+									disabled={guardandoBot[control.clave]}
+									onchange={() => alternarBot(control)}
+								/>
+								{control.nombre}
+							</label>
+							<p class="help">
+								{control.nota}
+								<Badge tone={bot[control.clave] ? 'ok' : ''}>
+									{bot[control.clave] ? 'Activo' : 'Apagado'}
+								</Badge>
+							</p>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</Card>
 
 	{#if cargando}

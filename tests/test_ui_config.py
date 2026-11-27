@@ -102,6 +102,16 @@ class ConfiguracionTest(unittest.TestCase):
             self.assertIn(etiqueta, html)
         self.assertIn('id="cfg-bing_worker"', html)
 
+    def test_tarjeta_del_bot_de_whatsapp(self):
+        """El pseudo-worker `wa_bot` tiene tarjeta propia, con sus seis claves."""
+        html = config_view.render({"programs": []}, user=USER)
+        self.assertIn('id="cfg-wa_bot"', html)
+        self.assertIn("Bot de WhatsApp (Volt)", html)
+        for clave in ("wa_bot_sarcasmo", "wa_roast_grupo", "wa_volt_activo",
+                      "wa_volt_cada", "wa_bot_ia", "wa_asist_activo"):
+            self.assertIn(f'name="{clave}"', html)
+        self.assertIn('action="/configuracion/wa_bot"', html)
+
     def test_los_secretos_no_se_pintan(self):
         html = config_view.render({"programs": []}, user=USER)
         self.assertNotIn(SECRETO_CFG, html)
@@ -122,6 +132,8 @@ class ConfiguracionTest(unittest.TestCase):
     def test_un_formulario_por_bloque(self):
         html = config_view.render({"programs": []}, user=USER)
         con_campos = sum(1 for w in spec.all_workers() if spec.editable_fields(w))
+        # más la tarjeta propia del bot (pseudo-worker fuera de all_workers())
+        con_campos += 1 if spec.editable_fields("wa_bot") else 0
         con_prueba = sum(
             1 for w in spec.all_workers()
             if any(f.get("test") for f in spec.spec_for(w)))
