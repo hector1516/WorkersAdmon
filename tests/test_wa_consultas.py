@@ -31,19 +31,6 @@ YO = 7
 AUTORIZADO = 11
 
 
-def _coincide(folio, params):
-    """Mismo criterio que la consulta: exacto o terminación '...-digitos'."""
-    valor = str(folio).upper()
-    for param in params:
-        candidato = str(param).upper()
-        if "%" in candidato:
-            if valor.endswith(candidato.replace("%", "")):
-                return True
-        elif valor == candidato:
-            return True
-    return False
-
-
 class BaseFalsa:
     def __init__(self):
         self.vales = []        # (Id, MontoUnit, FechaSolicitud, IdSolicitante, Estatus)
@@ -52,8 +39,6 @@ class BaseFalsa:
         self.tickets = []      # (Folio, Descripcion, FechaRegistro, Estacion, IdUsuario)
         self.km = []           # (Kilometros, FechaHora, IdUsuario)
         self.config = None
-        self.servproy = []     # (Folio, IdCliente, Contacto, Total, Fecha, Elaboro)
-        self.calc = []         # (FolioCalculo, IdCliente, Total, Fecha)
         self.error = None
         self.sqls = []
         self.consultas = 0
@@ -109,22 +94,6 @@ class CursorFalso:
                 filas.sort(key=lambda k: k[1], reverse=True)
                 self.una = (filas[0][0], filas[0][1]) if filas else None
 
-        elif "FROM INDICE_COTIZACIONESSERVPROY" in q:
-            if "TOP 1" in q:
-                self.una = next((r for r in base.servproy
-                                 if _coincide(r[0], params)), None)
-            else:
-                filas = sorted(base.servproy, key=lambda r: r[4], reverse=True)
-                self.todas = filas[:5]
-
-        elif "FROM INDICE_CALCULOCOTIZACION" in q:
-            if "TOP 1" in q:
-                self.una = next((r for r in base.calc
-                                 if _coincide(r[0], params)), None)
-            else:
-                filas = sorted(base.calc, key=lambda r: r[3], reverse=True)
-                self.todas = filas[:5]
-
         else:
             raise AssertionError(f"SQL inesperado: {q}")
 
@@ -146,10 +115,85 @@ class ConexionFalsa:
         return CursorFalso(self.base)
 
 
+class BaseQuotely:
+    """Dobles de la base `quotely` (cotizaciones de materiales)."""
+
+    def __init__(self):
+        self.indice = []       # (Folio, Empresa, Contacto, Fecha, Usuario)
+        self.partidas = []     # (Folio, Partida, Cantidad, UME, Descripcion, PrecioUnitario)
+        self.usuarios = {}     # ID -> nombre
+        self.sqls = []
+        self.consultas = 0
+
+
+class CursorQuotely:
+    def __init__(self, base):
+        self.base = base
+        self.una = None
+        self.todas = []
+
+    def execute(self, sql, params=()):
+        base = self.base
+        q = " ".join(str(sql).split()).upper()
+        base.sqls.append((q, tuple(params)))
+        base.consultas += 1
+
+        if "FROM TAB_INDICE" in q:
+            if "WHERE UPPER(LTRIM(RTRIM(I.FOLIO)))" in q:
+                folio = str(params[0]).upper()
+                fila = next((r for r in base.indice
+                             if str(r[0]).strip().upper() == folio), None)
+                if fila:
+                    elaboro = base.usuarios.get(str(fila[4] or "").strip(), "")
+                    self.una = (fila[0], fila[1], fila[2], fila[3], elaboro)
+                else:
+                    self.una = None
+            else:
+                filas = sorted(base.indice, key=lambda r: r[3], reverse=True)
+                self.todas = []
+                for fila in filas[:5]:
+                    total = sum(p[2] * p[5] for p in base.partidas
+                                if str(p[0]).strip().upper() ==
+                                str(fila[0]).strip().upper())
+                    self.todas.append((fila[0], fila[1], fila[3], total))
+
+        elif "FROM TAB_PARTIDAS" in q:
+            folio = str(params[0]).upper()
+            filas = [p for p in base.partidas
+                     if str(p[0]).strip().upper() == folio]
+            if "SUM(CANTIDAD * PRECIOUNITARIO)" in q:
+                self.una = (sum(p[2] * p[5] for p in filas),)
+            else:
+                filas.sort(key=lambda p: p[1])
+                self.todas = [(p[1], p[2], p[3], p[4], p[5], p[2] * p[5])
+                              for p in filas[:3]]
+        else:
+            raise AssertionError(f"SQL inesperado en quotely: {q}")
+
+    def fetchone(self):
+        return self.una
+
+    def fetchall(self):
+        return self.todas
+
+    def close(self):
+        pass
+
+
+class ConexionQuotely:
+    def __init__(self, base):
+        self.base = base
+
+    def cursor(self, *args, **kwargs):
+        return CursorQuotely(self.base)
+
+
 class ConsultasWa(unittest.TestCase):
     def setUp(self):
         self.base = BaseFalsa()
         self.conn = ConexionFalsa(self.base)
+        self.qbase = BaseQuotely()
+        self.quotely = ConexionQuotely(self.qbase)
         self._ahora = wa_consultas.now_mx
         wa_consultas.now_mx = lambda: AHORA
 
@@ -157,7 +201,8 @@ class ConsultasWa(unittest.TestCase):
         wa_consultas.now_mx = self._ahora
 
     def responder(self, texto, usuario=YO):
-        return wa_consultas.responder(texto, usuario, conn=self.conn)
+        return wa_consultas.responder(texto, usuario, conn=self.conn,
+                                      conn_quotely=self.quotely)
 
     # ── vales ────────────────────────────────────────────────────────────────
     def _vales(self):
@@ -258,62 +303,93 @@ class ConsultasWa(unittest.TestCase):
         self.assertIn("2 registros", r)
         self.assertIn("Último: 250.50 km el 15 nov 2026", r)
 
-    # ── cotizaciones ─────────────────────────────────────────────────────────
-    def _autorizado(self):
+    # ── cotizaciones (materiales, base quotely) ──────────────────────────────
+    def _cotizaciones(self):
         self.base.config = "[11, 4, 2]"
-        self.base.servproy = [
-            ("CSP-2026-0001", "ACME", "Juan Perez", 12345.0,
-             datetime(2026, 11, 24), "Daniel"),
-            ("C-1234", "Beta", "Ana", 500.0,
-             datetime(2026, 11, 20), "Rosy"),
+        self.qbase.usuarios = {"USR001": "Juan Perez", "USR002": "Luis Ruiz"}
+        self.qbase.indice = [
+            ("3K17WZ", "HEDESA Hermosillo", "Ana Lopez",
+             datetime(2026, 5, 8), "USR001"),
+            ("2I1AYL", "HEDESA Hermosillo", "Luis Ruiz",
+             datetime(2026, 3, 31), "USR002"),
         ]
-        self.base.calc = [
-            ("CALC-2026-0007", "Gamma", 900.0, datetime(2026, 11, 25)),
+        self.qbase.partidas = [
+            ("3K17WZ", 1, 2, "pza", "Tornillo 1/4", 10.0),
+            ("3K17WZ", 2, 5, "pza", "Tuerca 1/4", 4.5),
+            ("3K17WZ", 3, 1, "pza", "Arandela", 2.0),
+            ("3K17WZ", 4, 3, "pza", "No debe salir", 99.0),
+            ("2I1AYL", 1, 1, "pza", "Cable calibre 12", 100.0),
         ]
 
-    def test_cotizacion_por_folio_con_prefijo(self):
-        self._autorizado()
-        r = self.responder("cotización 0001", usuario=AUTORIZADO)
-        self.assertIn("CSP-2026-0001", r)
-        self.assertIn("$12,345.00", r)
-        self.assertIn("24 nov 2026", r)
-        self.assertIn("Daniel", r)
+    def test_cotizaciones_materiales_lista(self):
+        self._cotizaciones()
+        r = self.responder("cotizaciones", usuario=AUTORIZADO)
+        self.assertIn("Últimas 2 cotizaciones de materiales", r)
+        self.assertIn("3K17WZ", r)
+        self.assertIn("HEDESA Hermosillo", r)
+        self.assertIn("$341.50", r)         # 20 + 22.5 + 2 + 297 (todas las partidas)
+        self.assertIn("8 may 2026", r)
+        self.assertIn("2I1AYL", r)
 
-    def test_cotizacion_por_folio_corto(self):
-        self._autorizado()
-        r = self.responder("folio C-1234", usuario=AUTORIZADO)
-        self.assertIn("C-1234", r)
-        self.assertIn("$500.00", r)
-        self.assertIn("Rosy", r)
+    def test_cotizacion_por_folio_con_partidas_y_total(self):
+        self._cotizaciones()
+        r = self.responder("cotización 3k17wz", usuario=AUTORIZADO)
+        self.assertIn("Cotización 3K17WZ", r)
+        self.assertIn("HEDESA Hermosillo", r)
+        self.assertIn("Contacto: Ana Lopez", r)
+        self.assertIn("8 may 2026", r)
+        self.assertIn("Elaboró: Juan Perez", r)
+        self.assertIn("Total: $341.50", r)  # 20 + 22.5 + 2 + 297
+        self.assertIn("Tornillo 1/4", r)
+        self.assertIn("$10.00 c/u", r)
+        self.assertIn("$20.00", r)
+        self.assertIn("Arandela", r)
+        self.assertNotIn("No debe salir", r)   # solo las primeras 3 partidas
 
-    def test_cotizaciones_lista_vacia(self):
+    def test_cotizacion_con_guiones_y_minusculas(self):
+        self._cotizaciones()
+        r = self.responder("folio 3K-17WZ", usuario=AUTORIZADO)
+        self.assertIn("Cotización 3K17WZ", r)
+
+    def test_cotizacion_inexistente(self):
+        self._cotizaciones()
+        r = self.responder("cotización ZZZ999", usuario=AUTORIZADO)
+        self.assertEqual(r, "No encontré la cotización ZZZ999.")
+
+    def test_cotizaciones_tabla_vacia(self):
         self.base.config = "[11, 4, 2]"
         r = self.responder("cotizaciones", usuario=AUTORIZADO)
-        self.assertEqual(r, "No hay cotizaciones registradas en el sistema.")
-
-    def test_cotizaciones_lista_une_ambas_tablas_por_fecha(self):
-        self._autorizado()
-        r = self.responder("últimas cotizaciones", usuario=AUTORIZADO)
-        lineas = [linea for linea in r.splitlines() if linea.startswith("- ")]
-        self.assertEqual(len(lineas), 3)
-        self.assertIn("CALC-2026-0007", lineas[0])   # 25 nov, la más nueva
-        self.assertIn("CSP-2026-0001", lineas[1])
+        self.assertEqual(r, "No hay cotizaciones de materiales registradas.")
 
     def test_usuario_no_autorizado_a_cotizaciones(self):
-        self._autorizado()
+        self._cotizaciones()
         r = self.responder("cotizaciones", usuario=YO)
         self.assertIn("equipo autorizado", r)
         self.assertIn("Priscila", r)
-        self.assertFalse(any("INDICE_COTIZACIONES" in q or
-                             "INDICE_CALCULOCOTIZACION" in q
-                             for q, _ in self.base.sqls))
+        self.assertEqual(self.qbase.consultas, 0)   # no se lee quotely
+
+    def test_usa_la_conexion_quotely_falsa(self):
+        self._cotizaciones()
+        original = wa_consultas._abrir_quotely
+
+        def prohibido():
+            raise AssertionError("no debe abrir la conexión real a quotely")
+
+        wa_consultas._abrir_quotely = prohibido
+        try:
+            r = self.responder("cotizaciones", usuario=AUTORIZADO)
+        finally:
+            wa_consultas._abrir_quotely = original
+        self.assertIn("3K17WZ", r)
+        self.assertGreater(self.qbase.consultas, 0)
 
     def test_sin_config_manda_la_lista_por_defecto(self):
         self.base.config = None
-        self.base.servproy = [("CSP-2026-0001", "ACME", "", 10.0,
-                               datetime(2026, 11, 24), "Daniel")]
-        r = self.responder("cotización CSP-2026-0001", usuario=AUTORIZADO)
-        self.assertIn("CSP-2026-0001", r)
+        self.qbase.indice = [
+            ("3K17WZ", "HEDESA Hermosillo", "", datetime(2026, 5, 8), "USR001"),
+        ]
+        r = self.responder("cotización 3K17WZ", usuario=AUTORIZADO)
+        self.assertIn("3K17WZ", r)
 
     # ── bordes ───────────────────────────────────────────────────────────────
     def test_sin_intencion_no_contesta(self):
