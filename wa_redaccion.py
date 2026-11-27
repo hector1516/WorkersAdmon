@@ -35,7 +35,7 @@ import time
 CLAVE_ACTIVA = "wa_bot_ia"         # HUB_Config: "1" prende la redaccion
 PROVEEDOR = "google_gemini"
 TEMPERATURA = 0.3
-TIMEOUT_S = 8
+TIMEOUT_S = 15
 
 # La IA solo pule textos cortos; lo largo se manda tal cual.
 MAX_TEXTO = 600
