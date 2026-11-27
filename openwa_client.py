@@ -30,6 +30,7 @@ historial de la cola.
 
 import base64
 import os
+import urllib.parse
 
 import requests
 
@@ -380,6 +381,29 @@ def enviar_texto(chat_id, texto, base=None, clave=None, session_id=None, sesion=
     if base is None and clave is None and session_id is None:
         cfg = obtener_config()
     return _enviar('send-text', payload_texto(chat_id, texto), cfg, sesion, timeout)
+
+
+def telefono_de_contacto(chat_id, base=None, clave=None, session_id=None, sesion=None):
+    """
+    Numero real de un chat. Devuelve '' si no se puede resolver.
+
+    WhatsApp ya manda a veces un **LID** (un identificador largo que termina en
+    `@lid`) en vez del telefono, y con ese id el bot no reconoce a nadie. OpenWA
+    guarda la relacion y la expone en `/contacts/<id>/phone`.
+    """
+    cfg = {'api_key': clave or '', 'base_url': base or BASE_POR_DEFECTO,
+           'session_id': session_id or ''}
+    if base is None and clave is None and session_id is None:
+        cfg = obtener_config()
+    if not chat_id or not cfg.get('api_key') or not cfg.get('session_id'):
+        return ''
+    url = (f'{str(cfg.get("base_url") or BASE_POR_DEFECTO).rstrip("/")}'
+           f'/api/sessions/{cfg["session_id"]}/contacts/'
+           f'{urllib.parse.quote(str(chat_id), safe="")}/phone')
+    ok, datos, _ = _pedir_json(url, {'X-API-Key': cfg['api_key']}, sesion)
+    if not ok or not isinstance(datos, dict):
+        return ''
+    return ''.join(c for c in str(datos.get('phone') or '') if c.isdigit())
 
 
 def _enviar_archivo(sufijo, chat_id, datos, nombre, caption, mimetype,

@@ -121,6 +121,7 @@ class WebhookWa(unittest.TestCase):
 
     def tearDown(self):
         wa_webhook.db.get_config_values, wa_webhook.db.get_connection = self._orig
+        wa_webhook._CACHE_LID.clear()
 
     def _atender(self, cuerpo, token=TOKEN):
         h = HandlerFalso(cuerpo)
@@ -181,6 +182,44 @@ class WebhookWa(unittest.TestCase):
         h = self._atender({"event": "message", "data": mensaje(id="wamid-2")})
         self.assertEqual(h.payload["estado"], "guardado")
         self.assertEqual(self.base.filas[0][0], "wamid-2")
+
+    # ── LID: WhatsApp manda un id largo en vez del telefono ──────────────────
+    def test_lid_se_resuelve_al_telefono_real(self):
+        import types
+
+        falso = types.ModuleType("openwa_client")
+        falso.telefono_de_contacto = lambda chat: "5218123211516"
+        previo = sys.modules.get("openwa_client")
+        sys.modules["openwa_client"] = falso
+        try:
+            datos = wa_webhook._extraer(mensaje(
+                **{"chatId": "244534030106783@lid",
+                   "from": "244534030106783@lid"}))
+        finally:
+            if previo is None:
+                sys.modules.pop("openwa_client", None)
+            else:
+                sys.modules["openwa_client"] = previo
+        self.assertEqual(datos["telefono"], "5218123211516")
+        self.assertEqual(datos["chat_id"], "244534030106783@lid")
+
+    def test_lid_sin_respuesta_conserva_el_id(self):
+        import types
+
+        falso = types.ModuleType("openwa_client")
+        falso.telefono_de_contacto = lambda chat: ""
+        previo = sys.modules.get("openwa_client")
+        sys.modules["openwa_client"] = falso
+        try:
+            datos = wa_webhook._extraer(mensaje(
+                **{"chatId": "244534030106783@lid",
+                   "from": "244534030106783@lid"}))
+        finally:
+            if previo is None:
+                sys.modules.pop("openwa_client", None)
+            else:
+                sys.modules["openwa_client"] = previo
+        self.assertEqual(datos["telefono"], "244534030106783")
 
     # ── ruta pública, antes del gate ─────────────────────────────────────────
     def test_ruta_publica_atiende_antes_del_gate_de_sesion(self):

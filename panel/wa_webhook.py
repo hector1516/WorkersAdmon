@@ -28,6 +28,7 @@ Reglas:
 """
 import hmac
 import json
+import time
 from datetime import datetime, timezone
 
 from tz_mx import now_mx, to_mx
@@ -41,6 +42,12 @@ MAX_CHAT = 80         # .ChatId
 MAX_TELEFONO = 20     # .Telefono
 MAX_NOMBRE = 120      # .Nombre
 MAX_TEXTO = 2000      # .Texto
+
+# WhatsApp puede mandar un LID (`...@lid`) en vez del telefono. OpenWA lo
+# resuelve, pero es una llamada HTTP: se guarda el resultado una hora para no
+# pedirlo en cada mensaje del mismo chat.
+_CACHE_LID = {}
+LID_TTL = 3600
 
 
 def _token_configurado():
@@ -170,7 +177,7 @@ def _extraer(cuerpo):
     return {
         "id_mensaje": _id_mensaje(msg),
         "chat_id": chat_id,
-        "telefono": _telefono(chat_id),
+        "telefono": _telefono_real(chat_id, _telefono(chat_id)),
         "nombre": _nombre(msg),
         "texto": _texto(_buscar(msg, ("body", "text", "content", "caption")),
                         MAX_TEXTO),
@@ -179,6 +186,29 @@ def _extraer(cuerpo):
         "grupo": (_verdadero(msg, ("isGroup", "isGroupMsg", "isGroupChat"))
                   or str(chat_id or "").endswith("@g.us")),
     }
+
+
+def _telefono_real(chat_id, telefono):
+    """
+    Telefono del chat; si WhatsApp mando un LID, lo resuelve con OpenWA.
+
+    Nunca lanza: si OpenWA no contesta se devuelve el id tal cual y el bot
+    atiende como desconocido, que es el peor caso aceptable.
+    """
+    chat = str(chat_id or "")
+    if not chat.endswith("@lid"):
+        return telefono
+    cache = _CACHE_LID.get(chat)
+    if cache and cache[1] > time.time():
+        return cache[0] or telefono
+    real = ""
+    try:
+        from openwa_client import telefono_de_contacto
+        real = (telefono_de_contacto(chat) or "")[:MAX_TELEFONO]
+    except Exception as exc:
+        print(f"[wa_webhook] no se pudo resolver el LID {chat}: {exc}")
+    _CACHE_LID[chat] = (real, time.time() + LID_TTL)
+    return real or telefono
 
 
 # ─── Guardado ────────────────────────────────────────────────────────────────
