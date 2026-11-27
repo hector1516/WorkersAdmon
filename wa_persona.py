@@ -570,12 +570,16 @@ def respuesta_insulto(persona, hechos, norm, con_roast=True):
     datos = hechos if isinstance(hechos, dict) else {}
     nombre = _pila(datos.get("nombre") or (persona or {}).get("nombre"))
     quien = f", {nombre}" if nombre else ""
-    reconocimiento = f"{RECONOCIMIENTO}{quien}."
+
+    frase = sarcasmo((persona or {}).get("id"), hechos=datos) if con_roast else ""
+    # Si la frase ya trae el nombre, no se repite en el reconocimiento.
+    if frase and nombre and nombre.lower() in frase.lower():
+        reconocimiento = f"{RECONOCIMIENTO}."
+    else:
+        reconocimiento = f"{RECONOCIMIENTO}{quien}."
 
     if not con_roast:
         return reconocimiento
-
-    frase = sarcasmo((persona or {}).get("id"), hechos=datos)
     if not frase:
         return f"{reconocimiento} {CIERRE_SECO}"
     return f"{reconocimiento} {frase}"
