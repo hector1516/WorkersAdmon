@@ -39,6 +39,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import api, auth, config, db, envconf, probes, spec, wa_webhook, webauthn, workers
+from .config_form import parse_config_form
 from tz_mx import now_mx
 from .templates import (esc, forbidden_page, lugar_de, login_page,
                         offline_page, page)
@@ -1103,19 +1104,10 @@ class Handler(BaseHTTPRequestHandler):
     def _apps_guardar_todo(self, user, form):
         """Guarda de una vez todos los valores del formulario de una app."""
         app = (form.get("app", [""])[0] or "").strip()
-        valores, claves = {}, []
-        for fila in db.get_config_catalog():
-            if fila["App"] != app:
-                continue
-            raw = form.get(f"val{fila['Id']}", [None])[0]
-            if raw is None:
-                continue                      # el campo no estaba en el form
-            if fila["Tipo"] == "readonly":
-                continue
-            if fila["Tipo"] == "secret" and not str(raw).strip():
-                continue                      # en blanco = no cambiar
-            valores[fila["Clave"]] = raw
-            claves.append(fila["Clave"])
+        filas = [f for f in db.get_config_catalog() if f["App"] == app]
+        por_id = {str(f["Id"]): form.get(f"val{f['Id']}", [None])[0]
+                  for f in filas}
+        valores, claves = apps_view.valores_del_bloque(filas, por_id)
         if not valores:
             return self._apps_flash("Sin cambios: no hay valores que guardar.")
         ok, err = db.set_config_values(valores)
@@ -1139,9 +1131,9 @@ class Handler(BaseHTTPRequestHandler):
                                          fila["Unidad"], fila["Orden"])
         if not ok:
             return self._apps_flash(f"No se pudo guardar: {err}", err=True)
-        raw = form.get(f"val{fid}", [None])[0]
-        if (raw is not None and tipo != "readonly"
-                and not (tipo == "secret" and not str(raw).strip())):
+        incluir, raw = apps_view.valor_editable(
+            tipo, form.get(f"val{fid}", [None])[0])
+        if incluir:
             okv, errv = db.set_config_values({fila["Clave"]: raw})
             if not okv:
                 return self._apps_flash(
@@ -1521,7 +1513,7 @@ class Handler(BaseHTTPRequestHandler):
         if action:
             return self._send(404, "Acción no válida", "text/plain")
 
-        env_updates, cfg_updates, error = _parse_config_form(name, form)
+        env_updates, cfg_updates, error = parse_config_form(name, form)
         if error:
             url = "/configuracion?" + urllib.parse.urlencode({"err": error})
             return self._redirect(url)
@@ -1552,56 +1544,6 @@ class Handler(BaseHTTPRequestHandler):
                             f"{', '.join(sorted(list(env_updates) + list(cfg_updates)))}")
         url = "/configuracion?" + urllib.parse.urlencode({"ok": msg})
         return self._redirect(url)
-
-
-def _parse_config_form(name, form):
-    """
-    Valida el formulario de un worker.
-    Devuelve (env_updates, hub_config_updates, error).
-    Convierte/tacha según el tipo: números con rango, booleanos 0/1,
-    secretos en blanco = sin cambios y límite de 500 caracteres de HUB_Config.
-    """
-    env_updates, cfg_updates, error = {}, {}, None
-    for f in spec.editable_fields(name):
-        raw = form.get(f["id"])
-        if raw is None:                     # el campo no vino en el POST
-            continue
-        value = str(raw[0] or "").strip()
-        tipo, origen = f["tipo"], f["origen"]
-        key = f.get("clave") if origen == "hub_config" else f["id"]
-
-        if tipo == "secret" and value == "":
-            continue                        # no cambiar el secreto guardado
-
-        if tipo in ("number", "hour", "minute"):
-            if value == "":
-                value = str(f.get("default", ""))
-            try:
-                number = int(value)
-            except ValueError:
-                error = f"{f['label']}: debe ser un número entero."
-                break
-            if f.get("min") is not None and number < f["min"]:
-                error = f"{f['label']}: mínimo {f['min']}."
-                break
-            if f.get("max") is not None and number > f["max"]:
-                error = f"{f['label']}: máximo {f['max']}."
-                break
-            value = str(number)
-
-        if tipo == "bool" and value not in ("0", "1"):
-            error = f"{f['label']}: valor no válido."
-            break
-        if len(value) > db.MAX_CONFIG_VALUE:
-            error = (f"{f['label']}: demasiado largo "
-                     f"({len(value)} > {db.MAX_CONFIG_VALUE}).")
-            break
-
-        if origen == "env":
-            env_updates[key] = value
-        else:
-            cfg_updates[key] = value
-    return env_updates, cfg_updates, error
 
 
 def run_server(host="0.0.0.0", port=None):

@@ -35,6 +35,40 @@ ETIQUETA_TIPO = {
 MAX_GRUPO = 300        # filas mostradas por grupo (tope de rendimiento)
 
 
+def valor_editable(tipo, raw):
+    """
+    ¿Este valor se escribe en HUB_Config? Devuelve `(incluir, valor)`.
+
+    Las reglas viven aquí y no en cada formulario (SSR o API): `readonly` no se
+    escribe nunca y un `secret` en blanco significa «no cambiar», no «borrar».
+    """
+    if raw is None:
+        return False, ""
+    if tipo == "readonly":
+        return False, ""
+    if tipo == "secret" and not str(raw).strip():
+        return False, ""
+    return True, raw
+
+
+def valores_del_bloque(filas, valores_por_id):
+    """
+    `{clave: valor}` de un bloque de app, ya filtrado por `valor_editable`.
+
+    `filas` son las del catálogo de esa app y `valores_por_id` llega con la
+    forma `{str(Id): valor}` (los `name="val<Id>"` del formulario).
+    """
+    valores, claves = {}, []
+    for fila in filas:
+        incluir, valor = valor_editable(fila["Tipo"],
+                                        valores_por_id.get(str(fila["Id"])))
+        if not incluir:
+            continue
+        valores[fila["Clave"]] = valor
+        claves.append(fila["Clave"])
+    return valores, claves
+
+
 def set_csrf(token):
     _CSRF["token"] = token or ""
 
