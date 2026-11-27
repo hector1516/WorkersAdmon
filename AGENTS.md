@@ -363,17 +363,23 @@ inferior), `href`, `modulo` (el título de la página) y `desc`.
 
 | id | Módulo | Ruta | Permiso |
 |---|---|---|---|
-| `estado` | 📊 Estado | `/` | — |
+| `estado` | 📊 Estado | `/` (y `/estado`) | — |
 | `logs` | 📄 Logs | `/logs` | — |
 | `config` | ⚙️ Configuración | `/configuracion` | — |
 | `notificaciones` | 🔔 Notificaciones | `/notificaciones` | AccesoTelegram / AccesoConfigurarCorreo / AccesoConfigAI |
 | `apps` | ⚙️ Apps | `/apps` | AccesoAppConfig |
 | `avisos` | 📣 Avisos | `/avisos` | AccesoAppConfig |
 
+- **La raíz `/` ES el Estado**: al abrir el panel se ve el tablero, no una
+  grilla de módulos (se retiró; `/estado` se conserva por los enlaces y los
+  marcadores viejos). `config.MODULO_RAIZ` marca ese módulo como inicio, así
+  que no muestra «Volver al panel».
 - El `id` es lo que las vistas pasan a `templates.page(id, ...)` para marcar la
   pestaña activa. **Renombrar un `id` obliga a actualizar las llamadas.**
-- La barra inferior (`templates._nav`) usa `.bottom-nav` / `.nav-item` / `.nav-icon`
-  del shell. Un módulo sin permiso o deshabilitado sale como `.nav-item off`.
+- La barra inferior (`templates._nav`) tiene **cuatro destinos + «Más»** (cinco
+  huecos: Estado, Logs, WhatsApp, Notificaciones y Más). Avisos, Configuración,
+  Apps, Asistencia, Correo y Triaje viven en la hoja «Más». Un módulo sin
+  permiso o deshabilitado sale como `.nav-item is-off`.
 - `views/workers.py` implementa dos módulos: `logs_index()` (el índice de Logs)
   y `logs_page()` (el log crudo de un worker, en `/workers/<nombre>/logs`).
 

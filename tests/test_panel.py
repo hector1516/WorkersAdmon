@@ -1166,14 +1166,16 @@ class PanelTest(unittest.TestCase):
     # ── descripción de cada worker ──────────────────────────────────────────
     def test_25_descripcion_de_cada_worker(self):
         c = self._logged()
-        # pestaña Workers: párrafo plegado "ℹ️ Qué hace"
+        # El tablero no repite la descripción en cada fila: vive en la ficha
+        # de Configuración (y en /api/status para monitoreo).
         code, _, html = c.get("/estado")
         self.assertEqual(code, 200)
-        self.assertIn("Qué hace", html)
-        self.assertIn("Descarga los wallpapers de Bing", html)
+        self.assertNotIn("Qué hace", html)
+        self.assertNotIn("Descarga los wallpapers de Bing", html)
         # pestaña Configuración: el mismo texto en la tarjeta
         code, _, html = c.get("/configuracion")
         self.assertEqual(code, 200)
+        self.assertIn("Descarga los wallpapers de Bing", html)
         self.assertIn("regenera los PDFs del día anterior", html)
         # /api/status la expone para monitoreo
         code, _, body = c.get("/api/status")
@@ -2030,8 +2032,9 @@ class PanelTest(unittest.TestCase):
             self.assertIn('class="rail rail--bottom"', html_r, ruta)
             self.assertNotIn('<nav class="bottom-nav"', html_r, ruta)
             self.assertNotIn("engrane.png", html_r, ruta)
-        self.assertIn('<div class="module-grid"', html)   # el menú es la grilla
-        self.assertIn('class="module-card"', html)
+        # La raíz ES el tablero de Estado: la grilla de módulos se retiró.
+        self.assertIn('class="dash dash--estado"', html)
+        self.assertNotIn('class="module-grid"', html)
         self.assertNotIn('<div class="nav">', html)      # ya no hay pills arriba
         self.assertIn("position: sticky", html)          # barra superior fija
         self.assertIn("badge-live", html)                # piloto de conexión
@@ -2039,7 +2042,7 @@ class PanelTest(unittest.TestCase):
         self.assertIn("shell-actions", html)
         # El destino actual se anuncia con aria-current.
         self.assertIn('aria-current="page"', html)
-        # Cinco destinos diarios + «Más» (seis objetivos en la barra inferior).
+        # Cuatro destinos diarios + «Más» (cinco huecos en la barra inferior).
         self.assertEqual(html.count('aria-label="Más destinos"'), 1)
 
     def test_53_workers_en_tarjetas_por_app(self):
@@ -2219,24 +2222,24 @@ class PanelTest(unittest.TestCase):
         self.assertIn("ScoreLog", textos)
 
 
-    def test_67_home_es_grilla_de_modulos(self):
-        """La home es la grilla de módulos, como la de Field (contrato 5)."""
+    def test_67_la_raiz_es_el_estado(self):
+        """`/` entra directo al tablero; la grilla de módulos ya no existe."""
         c = self._logged()
         code, _, html = c.get("/")
         self.assertEqual(code, 200)
-        self.assertIn('class="module-grid"', html)
-        # Una tarjeta por módulo, y los cuatro que pidió el panel.
+        self.assertNotIn('class="module-grid"', html)
+        self.assertIn('class="dash dash--estado"', html)
+        # Los cuatro KPIs exactos: el quinto creaba una fila y hacía scroll.
+        self.assertEqual(html.count('<div class="kpi'), 4)
+        # La navegación conserva todos los destinos (los demás en «Más»).
         for mid in ("estado", "logs", "config", "notificaciones"):
             href = next(x["href"] for x in config.TABS if x["id"] == mid)
             self.assertIn(href, html)
-        # Las tarjetas usan los componentes del shell, no clases propias.
-        self.assertIn('class="module-card"', html)
-        self.assertIn('class="module-icon"', html)
-        # El estado se corre a /estado y sigue mostrando los workers.
+        # `/estado` sigue sirviendo el mismo tablero.
         code2, _, html2 = c.get("/estado")
         self.assertEqual(code2, 200)
         self.assertIn("wgroup", html2)
-        # El logo vuelve a la home, y la barra no repite un botón Inicio.
+        # El logo vuelve a la raíz, y la barra no repite un botón Inicio.
         self.assertIn('class="logo-link" href="/"', html)
 
     def test_60_chequeo_diario_del_shell(self):
@@ -2317,21 +2320,17 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn('<div class="actions">', estado)
 
-    def test_62_boton_de_volver_en_todo_modulo(self):
-        """Todo módulo que no es la home ofrece volver, con texto y destino."""
+    def test_62_boton_de_volver_solo_fuera_de_la_raiz(self):
+        """Estado es la raíz: no ofrece «Volver al panel» (ya hay navegación)."""
         c = self._logged()
-        # La home no vuelve a ningún lado: no debe arrastrar el botón.
-        _, _, home = c.get("/")
-        self.assertNotIn('class="btn btn-sm btn-secondary modulo-back"', home)
-        # Estado sí, y apunta a la home.
-        code, _, estado = c.get("/estado")
-        self.assertEqual(code, 200)
-        self.assertIn(
-            'class="btn btn-sm btn-secondary modulo-back" href="/"', estado)
-        self.assertIn("← Volver al panel", estado)
-        self.assertIn('title="Volver atrás"', estado)
-        # El detalle de un log es una ficha de un worker: vuelve a Estado,
-        # no a la home, y ya no tiene la flecha suelta dentro del <h2>.
+        # Ni en `/` ni en `/estado`: los dos son el tablero.
+        for ruta in ("/", "/estado"):
+            code, _, html = c.get(ruta)
+            self.assertEqual(code, 200, ruta)
+            self.assertNotIn(
+                'class="btn btn-sm btn-secondary modulo-back"', html, ruta)
+            self.assertNotIn("← Volver al panel", html, ruta)
+        # El detalle de un log es una ficha de un worker: vuelve a Estado.
         code, _, logs = c.get("/workers/status_web/logs")
         self.assertEqual(code, 200)
         self.assertIn("← Volver a Estado", logs)
@@ -2359,13 +2358,32 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(esc_sub('<a href="/x">no</a>'),
                          '&lt;a href=&quot;/x&quot;&gt;no&lt;/a&gt;')
 
-    def test_64_home_sin_descripcion_duplicada(self):
-        """La home no repite «elegí un módulo»: ya lo dice su descripción."""
+    def test_64_la_raiz_es_el_tablero(self):
+        """`/` pinta el Estado (no una grilla de módulos) y sin scroll de página."""
         c = self._logged()
-        code, _, home = c.get("/")
+        code, _, raiz = c.get("/")
         self.assertEqual(code, 200)
-        self.assertNotIn("elegí un módulo", home)
-        self.assertIn('class="module-grid"', home)
+        self.assertNotIn('<div class="module-grid"', raiz)
+        self.assertIn('class="dash dash--estado"', raiz)
+        self.assertEqual(raiz.count('<div class="kpi'), 4)
+        # La página `/estado` sigue existiendo con el mismo tablero.
+        code, _, estado = c.get("/estado")
+        self.assertEqual(code, 200)
+        self.assertIn('class="dash dash--estado"', estado)
+
+    def test_64b_nav_inferior_cuatro_mas_mas(self):
+        """Cinco huecos en el teléfono: Estado, Logs, WhatsApp, Notificaciones
+        y «Más». Avisos y el resto viven en la hoja «Más»."""
+        c = self._logged()
+        _, _, html = c.get("/")
+        barra = html.split('<nav class="rail rail--bottom"', 1)[1]
+        barra = barra.split("</nav>", 1)[0]
+        directos = barra.split('<details class="rail__more"', 1)[0]
+        self.assertEqual(directos.count('class="rail__link nav-item'), 4)
+        for href in ("/estado", "/logs", "/whatsapp", "/notificaciones"):
+            self.assertIn(f'href="{href}"', directos)
+        self.assertIn(">Más</span>", barra)
+        self.assertIn('href="/avisos"', barra)      # en la hoja «Más»
 
     def test_65_botones_de_apps_en_fila(self):
         """En la tabla de Apps los botones quedan en una sola fila."""
@@ -2996,16 +3014,16 @@ class AvisosTest(unittest.TestCase):
         code, _, _ = c.get("/avisos")
         self.assertIn(code, (302, 303, 401, 403))
 
-    def test_la_tarjeta_sale_apagada_sin_el_permiso(self):
-        # Sin el permiso, la tarjeta se VE pero no es un enlace: es un <span>
+    def test_la_pestana_sale_apagada_sin_el_permiso(self):
+        # Sin el permiso, el destino se VE pero no es un enlace: es un <span>
         # con el motivo, no un <a href>. Así se sabe que el módulo existe y qué
         # falta, en vez de desaparecer y que el usuario piense que no hay nada.
         c = Client()
         c.login("sin_app@ecc-sa.com.mx", "s3cret")
         _, _, html = c.get("/")
         self.assertIn("Avisos", html)
-        self.assertIn("module-card off", html)
-        self.assertIn("AccesoAppConfig", html)
+        self.assertIn('class="rail__link nav-item is-off"', html)
+        self.assertIn('title="Requiere el permiso AccesoAppConfig"', html)
         self.assertNotIn('href="/avisos"', html)
 
 

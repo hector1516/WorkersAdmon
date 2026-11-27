@@ -144,6 +144,40 @@ class EstadoTest(_Base):
         self.assertTrue(any(n == "warn" and "latido" in t for n, t in avisos))
         self.assertTrue(any(n == "bad" and "status_web" in t for n, t in avisos))
 
+    def test_cuatro_kpis_exactos_en_una_fila(self):
+        """Cuatro indicadores: el quinto se iba a otra fila y hacía scroll."""
+        html = wv.render(_status(CON_DATOS), USER)
+        self.assertEqual(html.count('<div class="kpi'), 4)
+        for label in ("Corriendo", "Con error", "Detenidos", "Latidos viejos"):
+            self.assertIn(label, html)
+        # La cifra de avisos entra como badge en la tarjeta Control.
+        self.assertRegex(html, r"\d+ avisos</span>")
+
+    def test_fila_de_worker_sin_ruido(self):
+        """El tablero queda en estado + latido + Logs; el control vive aparte."""
+        html = wv.render(_status(CON_DATOS), USER)
+        self.assertNotIn("Qué hace", html)
+        self.assertNotIn('class="wdesc"', html)
+        # Los formularios siguen existiendo, en las filas de Control.
+        self.assertIn('class="list__row dashx__ctrl"', html)
+        self.assertIn('action="/workers/demo_on/restart"', html)
+        self.assertIn('action="/workers/demo_on/disable"', html)
+
+    def test_nav_inferior_cinco_huecos(self):
+        """Cuatro destinos diarios + «Más»: cinco huecos, no seis."""
+        html = wv.render(_status(CON_DATOS), USER)
+        barra = html.split('<nav class="rail rail--bottom"', 1)[1]
+        barra = barra.split("</nav>", 1)[0]
+        directos = barra.split('<details class="rail__more"', 1)[0]
+        self.assertEqual(directos.count('class="rail__link nav-item'), 4)
+        self.assertIn('href="/estado"', directos)
+        self.assertIn('href="/logs"', directos)
+        self.assertIn('href="/notificaciones"', directos)
+        self.assertIn(">Más</span>", barra)
+        # Avisos sigue alcanzable desde la hoja «Más» (aquí sin permiso, como
+        # texto apagado con su aria-label).
+        self.assertIn('aria-label="Avisos"', barra)
+
 
 class LogsTest(_Base):
     def test_indice_es_una_lista(self):

@@ -128,8 +128,11 @@ LOGIN_LOCK_SECONDS = 60
 #
 # "disabled": la pestaña se muestra grisada hasta que llegue su fase.
 # "perm": si el usuario no lo tiene, la pestaña sale grisada con el motivo.
-MODULO_INICIO = {"id": "inicio", "modulo": "Panel",
-              "desc": "Elegí un módulo para empezar."}
+#
+# No hay menú de inicio aparte: la raíz del panel (`/`) ES el estado de los
+# workers. La grilla de módulos se retiró porque el tablero es la pantalla
+# que se necesita al entrar (y la navegación ya lleva a todo lo demás).
+MODULO_RAIZ = "estado"
 
 TABS = [
     {"id": "estado", "label": "📊 Estado", "href": "/estado", "enabled": True,
@@ -172,8 +175,6 @@ TABS = [
 
 def tab_por_id(tab_id):
     """Devuelve la definición del módulo, o None si el id no existe."""
-    if tab_id == MODULO_INICIO["id"]:
-        return MODULO_INICIO
     for t in TABS:
         if t["id"] == tab_id:
             return t

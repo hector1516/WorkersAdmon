@@ -111,8 +111,9 @@ NAV_ICONS = {
     "triaje": "ticket",
 }
 
-# Los cinco destinos diarios de la barra inferior; el resto cabe en «Más».
-NAV_INFERIOR = ("estado", "logs", "whatsapp", "notificaciones", "avisos")
+# Los cuatro destinos diarios de la barra inferior; el resto cabe en «Más»,
+# que es el quinto hueco. Seis objetivos no cabían a 390 px sin apretar.
+NAV_INFERIOR = ("estado", "logs", "whatsapp", "notificaciones")
 
 
 def _puede_ver(user, tab):
@@ -164,8 +165,8 @@ def _nav(active, user=None, inferior=False):
 
     inferior=False → barra lateral (escritorio y tableta), con todos los
     destinos. inferior=True → barra inferior del teléfono: los cuatro destinos
-    de siempre y una hoja «Más» con el resto, hecha con `<details>` para no
-    necesitar JavaScript.
+    diarios y una hoja «Más» con el resto, hecha con `<details>` para no
+    necesitar JavaScript (cinco huecos en total, el último es «Más»).
     """
     tabs = [t for t in config.TABS if t.get("enabled", True)]
     if not inferior:
@@ -303,9 +304,9 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
                   if refresh else "")
     tab = config.tab_por_id(active)
     titulo = (tab or {}).get("modulo") or config.TITLE
-    es_inicio = active == config.MODULO_INICIO["id"]
+    es_inicio = active == config.MODULO_RAIZ
     # El subtítulo de la vista manda; si no hay, se usa la descripción del
-    # módulo (la home no: su descripción repetía el título del menú).
+    # módulo (la raíz —Estado— no: ahí el subtítulo es el de la vista).
     detalle = subtitle or ("" if es_inicio or tab is None else tab.get("desc", ""))
     # esc_sub, no esc: los subtítulos traen <code> con rutas y escaparlo los
     # mostraba como texto literal.
@@ -320,20 +321,26 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
                   f'{esc(back_label)}</a>')
     # conn: "online" (verde) / "offline" (rojo) — lo pasa la vista de Workers.
     # La clase `badge-live` se conserva: es el piloto de conexión de siempre.
+    # Ya no es un elemento propio de la cabecera: va como texto pequeño junto
+    # al nombre del usuario (y se oculta en el teléfono con él).
     live = ""
     if conn:
         ok = conn != "offline"
-        live = (f'<span class="badge badge-live {"badge--ok" if ok else "badge--bad"}">'
+        live = (f'<span class="topbar__conn badge-live '
+                f'{"is-ok" if ok else "is-bad"}">'
                 f'{esc("Conectado" if ok else "Sin conexión")}</span>')
     usuario = ""
     salir = ""
     if user is not None:
         nombre = user.get("nombre") or user.get("email") or ""
         donde = "" if lugar in ("", "desconocido") else f' · {esc(lugar)}'
-        usuario = (f'<span class="topbar__user" title="{esc(ip or nombre)}">'
-                   f'{esc(nombre)}{donde}</span>')
+        usuario = (f'<span class="topbar__who" title="{esc(ip or nombre)}">'
+                   f'{live}<span class="topbar__user">{esc(nombre)}{donde}</span>'
+                   f'</span>')
         salir = (f'<a class="btn btn-sm btn-secondary btn--quiet" href="/logout" '
                  f'title="Cerrar sesión">{icono("logout")}<span>Salir</span></a>')
+    elif live:
+        usuario = live
     return f"""<!doctype html>
 <html lang="es">
 <head>
@@ -364,7 +371,6 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
       {detalle_html}
     </div>
     <div class="shell-actions topbar__actions">
-      {live}
       {usuario}
       {salir}
     </div>

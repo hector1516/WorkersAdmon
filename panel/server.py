@@ -49,7 +49,6 @@ from .views import config as config_view
 from .views import correo as correo_view
 
 from .views import triaje as triaje_view
-from .views import home as home_view
 from .views import notifications as notif_view
 from .views import avisos as avisos_view
 from .views import wa_conversaciones as wa_conv_view
@@ -293,17 +292,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/logout":
             return self._redirect("/login")
 
-        # La home es la grilla de módulos (como la de Field). El estado se
-        # corre a /estado.
-        if path == "/":
-            user, done = self._require()
-            if done:
-                return
-            ok, err = self._flash(query)
-            return self._html(home_view.render(
-                user, flash_ok=ok, flash_err=err, **self._shell_ctx()))
-
-        if path == "/estado":
+        # La raíz ES el estado: al abrir el panel se ve el tablero. `/estado`
+        # se conserva porque es el href de la navegación, de los logs y de los
+        # marcadores viejos (la grilla de módulos se retiró).
+        if path in ("/", "/estado"):
             user, done = self._require()
             if done:
                 return

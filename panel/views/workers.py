@@ -146,20 +146,13 @@ def _fila_worker(e):
            f'aria-label="Ver log de {nombre}">{icono("logs", 16)}'
            f'<span>Logs</span></a>'
            if e.get("log_ok") else '<span class="muted">sin log</span>')
-    # La descripción («qué hace») sigue disponible, plegada, para no perder
-    # la documentación del worker al pasar de tarjeta a lista.
-    desc = ""
-    if e.get("descripcion"):
-        desc = (f'<details class="wdesc"><summary>{icono("info", 16)}'
-                f' Qué hace</summary>'
-                f'<div>{esc(e["descripcion"])}</div></details>')
-    elif e.get("desc"):
-        desc = f'<div class="muted dashx__sub">{esc(e["desc"])}</div>'
+    # El tablero es de lectura: la descripción («qué hace») y los botones de
+    # control viven en la tarjeta Control y en la página del worker. Aquí solo
+    # quedan el estado, el último latido y el acceso al log.
     return (f'<li class="list__row">'
             f'<div class="list__main">'
             f'<div class="wcard-name">{nombre}</div>'
             f'<div class="muted dashx__sub">Último latido {esc(_latido(e))}{app}</div>'
-            f'{desc}'
             f'</div>'
             f'<div class="dashx__rowmeta">{_badge(e)}{log}</div>'
             f'</li>')
@@ -206,9 +199,11 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
              f'{t["enabled"]} habilitados', "warn" if t["stopped"] else ""),
         _kpi("clock", "Latidos viejos", len(viejos), "más de 24 h sin latir",
              "warn" if viejos else ""),
-        _kpi("bell", "Avisos", pendientes, "shell, versiones y fallas",
-             "bad" if pendientes else "ok"),
     ])
+    # Avisos no es un KPI más: su cifra entra como badge en la tarjeta Control.
+    # Así la fila de indicadores tiene SIEMPRE cuatro tarjetas y no crece a dos
+    # filas, que era lo que empujaba el tablero fuera del viewport.
+    tono_avisos = "badge--bad" if pendientes else "badge--ok"
 
     if programs:
         filas_worker = "".join(_fila_worker(e) for e in programs)
@@ -248,7 +243,9 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
       {lista_avisos}
     </article>
     <article class="wcard dashx__card">
-      <h2 class="wgroup">{icono("settings")} Control</h2>
+      <h2 class="wgroup">{icono("settings")} Control
+        <span class="badge {tono_avisos}">{icono("bell", 14)} {pendientes} avisos</span>
+      </h2>
       {lista_control}
     </article>
   </div>

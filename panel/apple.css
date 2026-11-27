@@ -224,6 +224,13 @@ textarea:focus-visible {
   color: var(--text-2);
 }
 
+/* Conexión y usuario comparten un solo hueco de la cabecera. El piloto de
+   conexión es texto pequeño, no un badge propio: no compite con el título. */
+.topbar__who { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.topbar__conn { font-size: 13px; white-space: nowrap; }
+.topbar__conn.is-ok { color: var(--success-text); }
+.topbar__conn.is-bad { color: var(--danger-text); }
+
 /* Vuelta al menú: texto plano con el icono de chevron invertido, no un botón
    con caja: en una barra superior un botón compete con el título. */
 .btn.modulo-back { margin: 0; }
@@ -334,10 +341,21 @@ textarea:focus-visible {
   font-weight: 500;
   border-radius: var(--radius-control);
   text-align: center;
+  overflow: hidden;
 }
 .rail--bottom .nav-item.is-active { background: none; color: var(--accent-strong); }
 .rail--bottom .nav-item.is-active svg { color: var(--accent-strong); }
-.rail--bottom .nav-item__text { font-size: 11px; line-height: 1.1; }
+.rail__more[open] .nav-item { overflow: visible; }
+/* Cinco huecos: en 390 px la etiqueta más larga se recorta con puntos suspensivos
+   en vez de montarse sobre la vecina. */
+.rail--bottom .nav-item__text {
+  font-size: 11px;
+  line-height: 1.1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .rail__more { position: relative; flex: 1 1 0; display: flex; }
 .rail__more > summary {
@@ -464,12 +482,16 @@ textarea:focus-visible {
 .dashx__kpi--warn .kpi__value { color: var(--warning-text); }
 .dashx__kpi--bad .kpi__value { color: var(--danger-text); }
 .dash .wgrid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  grid-auto-rows: minmax(0, 1fr);
+  /* Dos columnas exactas en escritorio: Workers a la izquierda (dos filas) y
+     Avisos + Control a la derecha. `minmax(0,1fr)` deja que las tarjetas
+     encojan en vez de empujar la página. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: clamp(8px, 1.4vw, 16px);
   min-height: 0;
   overflow: hidden;
 }
+.dash .wgrid > .dashx__card:first-child { grid-row: span 2; }
 .dash .wcard {
   min-height: 0;
   overflow: hidden;
@@ -490,6 +512,16 @@ textarea:focus-visible {
   -webkit-overflow-scrolling: touch;
 }
 .dashx__ctrl .actions { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+/* Control en el tablero: los botones van en una fila compacta (no la rejilla
+   de dos columnas de las tarjetas viejas), que en el teléfono recortaba
+   «Config» fuera del alto de la lista. */
+.dash .dashx__ctrl .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.dash .dashx__ctrl .actions .btn {
+  width: auto;
+  min-height: 34px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
 .dashx__tablawrap { margin-top: 8px; }
 .nota-sm { font-size: .85rem; }
 .nota-xs { font-size: .8rem; }
@@ -517,10 +549,15 @@ textarea:focus-visible {
    workers ocupando el doble de alto (su scroll es interno). */
 @media (max-width: 767px) {
   .dash .wgrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
   }
+  .dash .wgrid > .dashx__card:first-child { grid-row: auto; }
   .dashx__kpis .kpi__hint { display: none; }
+  /* Cabecera compacta: una sola línea con el título. El subtítulo (zona
+     horaria, ruta de datos) no cabe y era la segunda línea que duplicaba la
+     cabecera. */
+  body:has(.dash) .topbar__sub { display: none; }
 }
 
 /* ─── Listas y tablas ─────────────────────────────────────────────────────── */
@@ -1177,7 +1214,7 @@ tbody tr:hover { background: var(--fill); }
   }
   .hide-sm { display: none; }
   .topbar { gap: 8px; }
-  .topbar__user { display: none; }
+  .topbar__who, .topbar__user { display: none; }
   .cards { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; }
   .wgrid { grid-template-columns: 1fr; gap: 10px; }
   .wcard-facts, .wcard__facts { grid-template-columns: 1fr 1fr; }
@@ -1196,6 +1233,7 @@ tbody tr:hover { background: var(--fill); }
   body { font-size: 16px; }
   .topbar__title { font-size: 22px; }
   .topbar__sub { font-size: 13px; }
+  .rail--bottom .nav-item__text { font-size: 10px; }
   .btn--sm, .btn-sm { font-size: 13px; padding: 6px 10px; }
   .cards { grid-template-columns: repeat(2, 1fr); }
   .tscroll table { min-width: 560px; }

@@ -67,24 +67,50 @@ cifras.
 |---|---|
 | ≥ 1024 px | barra lateral de 248 px, fija, con etiquetas |
 | 768–1023 px | barra lateral de 76 px, solo iconos (tooltip/aria-label) |
-| < 768 px | barra inferior de 5 destinos + hoja «Más» con el resto |
+| < 768 px | barra inferior de 4 destinos + hoja «Más» (5 huecos) |
 
 - Destinos: **Estado** (dashboard), **Logs**, **Configuración**, **Apps**,
   **Avisos**, **Asistencia**, **Notificaciones**, **WhatsApp**, **Correo**,
   **Triaje**.
-- Barra inferior: Estado, Logs, WhatsApp, Notificaciones, Avisos y Más.
+- Barra inferior: Estado, Logs, WhatsApp, Notificaciones y Más. Avisos,
+  Configuración, Apps, Asistencia, Correo y Triaje viven en la hoja «Más».
 - Contenido: `max-width: 1200px`, centrado; `padding` 16/24/32.
 - `height: 100dvh`, `display: flex`; solo el área de contenido hace scroll.
 
 ## Dashboard (Estado)
 
+Es la **raíz**: al abrir `/` se ve el tablero (y `/estado` sigue sirviendo lo
+mismo). Por eso el módulo no muestra «Volver al panel».
+
 - **Sin scroll** ni horizontal ni vertical en ningún tamaño: `overflow: hidden`
   en `.dash`, `min-height: 0` en hijos, tipografía y gráficas con `clamp()`.
-- Rejilla: `grid-template-columns: repeat(auto-fit, minmax(200px, 1fr))`;
-  filas `minmax(0, 1fr)`.
-- En móvil: 2 columnas de KPIs y una tarjeta que ocupa el alto restante con
-  lista interna compacta (la lista sí puede desplazarse dentro de su tarjeta,
-  la página no).
+- **Cuatro KPIs exactos** en una fila: Corriendo, Con error, Detenidos y
+  Latidos viejos. Avisos no es un quinto KPI (creaba una segunda fila y hacía
+  scroll): su cifra va como badge en la cabecera de la tarjeta Control.
+- Rejilla de **2 columnas** (`minmax(0, 1fr)`): Workers ocupa las dos filas de
+  la izquierda; Avisos y Control se reparten la derecha. El `Avisos` de la
+  tarjeta es su lista; el badge de Control es el conteo.
+- La fila de un worker muestra **estado, último latido y Logs**. La descripción
+  («qué hace») vive en Configuración y las acciones (Reiniciar, Deshabilitar,
+  Activar, Config) en la tarjeta Control.
+- En móvil: KPIs 2×2, una columna de tarjetas y la lista de workers con el
+  doble de alto; solo las listas internas se desplazan, la página no.
+
+## Comprobación manual (sin scroll)
+
+Con el panel servido, en `/` y `/estado`, a **1440×900** y **390×844**:
+
+```js
+document.documentElement.scrollHeight <= window.innerHeight + 1   // true
+document.querySelectorAll('.dash--estado').length                  // 1
+document.querySelectorAll('.kpi').length                           // 4
+```
+
+`tests/test_ui_estado.py` fija la estructura (`.dash`, 4 `.kpi`, badge de
+avisos en Control, fila de worker sin ruido) y `tests/test_panel.py` las rutas
+y la barra inferior (4 enlaces + «Más»). Medido el 2026-11-27 en Chrome:
+`scrollHeight` = `innerHeight` (900) en escritorio y (844) en móvil, en las
+dos rutas.
 
 ## Componentes (clases)
 

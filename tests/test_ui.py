@@ -82,16 +82,24 @@ class LayoutTest(unittest.TestCase):
         # Un destino inactivo no lleva el atributo.
         self.assertNotIn('href="/logs" aria-current', html)
 
-    def test_barra_inferior_con_cinco_destinos_y_hoja_mas(self):
+    def test_barra_inferior_cuatro_destinos_mas(self):
+        """Cinco huecos en el teléfono: Estado, Logs, WhatsApp, Notificaciones
+        y «Más». Seis objetivos no caben a 390 px; Avisos y el resto viven en
+        la hoja «Más»."""
         html = templates.page("estado", "<p>x</p>", user=TODO)
         self.assertIn('<nav class="rail rail--bottom"', html)
         self.assertIn('<details class="rail__more"', html)
         self.assertIn('class="sheet rail__sheet"', html)
-        for href in ("/estado", "/logs", "/whatsapp", "/notificaciones",
-                     "/avisos"):
-            self.assertIn(f'href="{href}"', html)
-        # El sexto objetivo de la barra es «Más».
-        self.assertIn(">Más</span>", html)
+        barra = html.split('<nav class="rail rail--bottom"', 1)[1]
+        barra = barra.split("</nav>", 1)[0]
+        directos = barra.split('<details class="rail__more"', 1)[0]
+        for href in ("/estado", "/logs", "/whatsapp", "/notificaciones"):
+            self.assertIn(f'href="{href}"', directos)
+        self.assertEqual(directos.count('class="rail__link nav-item'), 4)
+        self.assertIn(">Más</span>", barra)
+        # Avisos ya no ocupa un hueco fijo, pero sigue alcanzable en «Más».
+        self.assertNotIn('href="/avisos"', directos)
+        self.assertIn('href="/avisos"', barra)
 
     def test_marca_usuario_y_salir(self):
         html = _page()
@@ -110,11 +118,14 @@ class LayoutTest(unittest.TestCase):
         # Ya no hay banner del shell en el layout.
         self.assertNotIn('class="sync-header', html)
 
-    def test_volver_aparece_fuera_de_la_home(self):
-        html = _page()
-        self.assertIn('class="btn btn-sm btn-secondary modulo-back', html)
-        home = templates.page("inicio", "<p>menú</p>", user=USER)
-        self.assertNotIn('class="btn btn-sm btn-secondary modulo-back', home)
+    def test_volver_aparece_solo_fuera_de_la_raiz(self):
+        # Estado ES la raíz: no arrastra «Volver al panel».
+        estado = _page()
+        self.assertNotIn('class="btn btn-sm btn-secondary modulo-back', estado)
+        # Cualquier otro módulo sí vuelve, apuntando a la raíz.
+        otro = templates.page("logs", "<p>x</p>", user=USER)
+        self.assertIn('class="btn btn-sm btn-secondary modulo-back', otro)
+        self.assertIn('href="/"', otro)
 
     def test_titulo_y_subtitulo(self):
         html = _page(subtitle="datos en <code>/data</code>")
