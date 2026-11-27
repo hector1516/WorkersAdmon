@@ -1261,11 +1261,12 @@ class PanelTest(unittest.TestCase):
 
     def test_30_bloque_de_whatsapp_en_la_pestana(self):
         c = self._logged()
-        # Ya es su propio módulo: Notificaciones NO pinta nada de WhatsApp…
+        # Ya es su propio módulo: Notificaciones solo tiene el interruptor
+        # maestro del canal, no la configuración de WhatsApp…
         code, _, html = c.get("/notificaciones")
         self.assertEqual(code, 200)
-        self.assertNotIn("OpenWA", html)
         self.assertNotIn("openwa_api_key", html)
+        self.assertNotIn("Avisos de WhatsApp", html)
         # …y /whatsapp pinta la sub-pestaña Conexión.
         code, _, html = c.get("/whatsapp")
         self.assertEqual(code, 200)
@@ -3056,7 +3057,6 @@ class WaPanelTest(unittest.TestCase):
         _, _, home = c.get("/")
         self.assertIn('href="/whatsapp"', home)
         _, _, notif = c.get("/notificaciones")
-        self.assertNotIn("OpenWA", notif)
         self.assertNotIn("openwa_api_key", notif)
 
     def test_sin_el_permiso_es_403(self):

@@ -17,11 +17,31 @@ El modulo tiene dos cosas muy distintas y aqui se prueban por separado:
 
 import base64
 import unittest
+from unittest import mock
 
 import openwa_client as ow
 
 # Numero real de pruebas del handoff (Hector, la sesion `principal` de OpenWA).
 NUMERO_REAL = '5218123211516'
+
+_PATCH_CANAL = None
+
+
+def setUpModule():
+    """El interruptor maestro consulta la BD; aqui siempre está prendido.
+
+    Sin este doble, cada envío de prueba intentaría conectarse a SQL Server
+    (o esperaría sus reintentos) solo para decidir si manda el mensaje.
+    """
+    global _PATCH_CANAL
+    import canales
+    _PATCH_CANAL = mock.patch.object(canales, "activo", return_value=True)
+    _PATCH_CANAL.start()
+
+
+def tearDownModule():
+    if _PATCH_CANAL:
+        _PATCH_CANAL.stop()
 
 
 # ── Normalizacion de telefonos ───────────────────────────────────────────────

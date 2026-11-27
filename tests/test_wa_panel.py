@@ -328,8 +328,12 @@ class WaPanelTest(unittest.TestCase):
         self.assertEqual(headers.get("Location"), "/login")
 
     def test_notificaciones_ya_no_pinta_whatsapp(self):
+        # La pestaña tiene el interruptor maestro del canal (y la nota de que
+        # Telegram se retira), pero NO la configuración de OpenWA: eso vive en
+        # su propio módulo /whatsapp.
         _, _, html = _logged().get("/notificaciones")
-        self.assertNotIn("OpenWA", html)
+        self.assertNotIn("openwa_api_key", html)
+        self.assertNotIn("Avisos de WhatsApp", html)
 
     def test_las_cinco_sub_pestanas(self):
         _, _, html = _logged().get("/whatsapp")

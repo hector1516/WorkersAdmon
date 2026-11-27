@@ -40,6 +40,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import api, auth, config, db, envconf, probes, spec, wa_webhook, webauthn, workers
 from .config_form import parse_config_form
+import canales
 from tz_mx import now_mx
 from .templates import (esc, forbidden_page, lugar_de, login_page,
                         offline_page, page)
@@ -752,6 +753,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"El bloque '{bloque}' requiere el permiso {perm_label}."), 403)
 
         handler = {
+            ("canales", "guardar"): self._notif_canales,
             ("telegram", "guardar"): self._notif_telegram_token,
             ("telegram", "probar"): self._notif_telegram_probar,
             ("telegram", "evento"): self._notif_telegram_evento,
@@ -1172,6 +1174,26 @@ class Handler(BaseHTTPRequestHandler):
         return self._apps_flash(f"'{clave}' ahora vive en {app}.")
 
     # ── Telegram ───────────────────────────────────────────────────────────
+    def _notif_canales(self, user, form):
+        """Guarda los tres interruptores maestros de canales."""
+        fallidos = []
+        for canal in canales.CANALES:
+            valores = form.get(canal)
+            if not valores:
+                continue
+            valor = str(valores[-1]).strip().lower() in (
+                "1", "true", "on", "si", "sí")
+            try:
+                canales.guardar(canal, valor)
+            except Exception:
+                fallidos.append(canal)
+
+        if fallidos:
+            return self._notif_flash(
+                "No se pudieron guardar: " + ", ".join(fallidos), err=True)
+        self._notif_log(user, "Interruptores de canales actualizados")
+        return self._notif_flash("Canales guardados.")
+
     def _notif_telegram_token(self, user, form):
         token = (form.get("telegram_bot_token", [""])[0] or "").strip()
         if not token:

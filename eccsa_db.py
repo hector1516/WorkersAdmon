@@ -3893,6 +3893,11 @@ def send_push_notification(titulo, mensaje, extra=None):
     """
     import json, base64
     from io import BytesIO
+
+    if not _canal_activo("push"):
+        print("[canales] push apagado", flush=True)
+        return 1, 0
+
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:
@@ -3952,6 +3957,11 @@ def send_push_notification_to_users(titulo, mensaje, user_emails, extra=None, ap
     `extra` son campos adicionales del payload; ver `send_push_notification`.
     """
     import json
+
+    if not _canal_activo("push"):
+        print("[canales] push apagado", flush=True)
+        return 1, 0
+
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:
@@ -6334,6 +6344,17 @@ def _telegram_upload(chat_id, url, field, filename, mime, texto, data_bytes):
     return False, f"API error: {payload.get('description', resp.text[:200])}"
 
 
+def _canal_activo(canal):
+    """Interruptor maestro del canal. Si canales falla, deja pasar el envío."""
+    try:
+        import canales
+        return canales.activo(canal)
+    except Exception as exc:
+        print(f"[canales] no se pudo leer {canal}; se deja activo: {exc}",
+              flush=True)
+        return True
+
+
 def send_telegram_message(chat_id, texto, adjunto=None, adjunto_nombre=None):
     """Envía un mensaje de texto o con adjunto (PDF/foto) a Telegram vía HTTP.
 
@@ -6341,6 +6362,10 @@ def send_telegram_message(chat_id, texto, adjunto=None, adjunto_nombre=None):
     (p. ej. IMAGE_PROCESS_FAILED), se reintenta como sendDocument.
     Si el adjunto sigue fallando, se envía solo el texto para no perder la alerta.
     """
+    if not _canal_activo("telegram"):
+        print("[canales] telegram apagado", flush=True)
+        return True, "canal apagado"
+
     cfg = get_telegram_config()
     token = cfg.get('token', '')
     if not token:

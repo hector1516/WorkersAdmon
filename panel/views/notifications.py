@@ -21,6 +21,7 @@ from .. import db, probes, workers
 from ..icons import icono
 from ..templates import esc, page
 
+import canales
 import importlib
 import time
 
@@ -28,6 +29,7 @@ _CSRF = {"token": ""}
 
 # Permiso de cada bloque (None = basta con AccesoConfiguracion del panel)
 PERMISOS = {
+    "canales": (None, "AccesoConfiguracion"),
     "telegram": ("AccesoTelegram", "AccesoTelegram"),
     # WhatsApp ya es su propio módulo: el permiso es AccesoWhatsapp. Mientras la
     # columna no exista en HUB_Users, `auth.has_perm` lo resuelve con
@@ -847,6 +849,43 @@ def _wa_historial():
     return "".join(out)
 
 
+def _fila_canal(canal, etiqueta, nota, valor):
+    """Interruptor de un canal: checkbox + etiqueta + estado."""
+    marca = _badge("Activo" if valor else "Apagado",
+                   "badge--ok" if valor else "badge--warn")
+    checked = " checked" if valor else ""
+    ayuda = f'<div class="help">{esc(nota)}</div>' if nota else ""
+    return (
+        f'<div class="field"><label>'
+        f'<input type="hidden" name="{esc(canal)}" value="0">'
+        f'<input type="checkbox" name="{esc(canal)}" value="1"{checked}>'
+        f' {esc(etiqueta)}</label>{marca}{ayuda}</div>')
+
+
+def _bloque_canales(user):
+    """Interruptores maestros: lo apagado no sale aunque el worker corra."""
+    valores = canales.estado()
+    activos = sum(1 for v in valores.values() if v)
+    cuerpo = ('<div class="ncard__grid">'
+              + _fila_canal(
+                  "telegram", "Telegram",
+                  "Se va a retirar; WhatsApp/OpenWA lo reemplaza.",
+                  valores.get("telegram", True))
+              + _fila_canal(
+                  "whatsapp", "WhatsApp",
+                  "Avisos, PDFs firmados y respuestas del bot.",
+                  valores.get("whatsapp", True))
+              + _fila_canal(
+                  "push", "Notificaciones PWA",
+                  "Push a los navegadores suscritos de Admon y Field.",
+                  valores.get("push", True))
+              + "</div>" + _save_bar())
+    return _card("Canales", "AccesoConfiguracion", True, cuerpo,
+                 "/notificaciones/canales", icono_nombre="bell",
+                 badge=_badge(f"{activos} de {len(valores)} activos",
+                              "badge--ok" if activos else "badge--warn"))
+
+
 def _bloque_push(user):
     cfg = db.get_push_config()
     subs = db.get_push_subscriptions()
@@ -944,6 +983,7 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
   </div>"""
 
     cuerpo = (kpis
+              + _bloque_canales(user)
               + _bloque_telegram(user, vista_tg)
               + _bloque_push(user)
               + _bloque_correo(user, correo_prueba)

@@ -360,6 +360,10 @@ def health(base=None, clave=None, sesion=None):
 
 def _enviar(sufijo, payload, cfg, sesion, timeout):
     """Camino comun de los tres envíos."""
+    import canales
+    if not canales.activo("whatsapp"):
+        print("[canales] whatsapp apagado", flush=True)
+        return True, "canal apagado"
     if not payload.get('chatId'):
         return False, 'sin chatId: el telefono no se pudo normalizar'
     if not cfg.get('api_key'):
