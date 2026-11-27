@@ -1281,7 +1281,8 @@ tbody tr:hover { background: var(--fill); }
 .ncard__foot form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; }
 .ncard__foot .input { width: auto; min-width: 11rem; max-width: 100%; }
 .ncard__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
-.segmented { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+/* En pantallas angostas los segmentos bajan de renglón: nada de scroll lateral. */
+.segmented { max-width: 100%; flex-wrap: wrap; }
 .segmented > a,
 .segmented > button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .ncard .chiprow { margin: 0 0 12px; }
