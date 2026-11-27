@@ -598,6 +598,25 @@ def _enviar_seguro(enviar, telefono, texto):
         return False, f"{type(exc).__name__}: {exc}"
 
 
+def _marcar_enviado(conn, tipo, usuario_id, dia):
+    """Pasa el aviso de intento (Ok=0) a enviado. Nunca lanza."""
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE HUB_WaAsistenciaAvisos SET Ok = 1, Enviado = GETDATE() "
+                "WHERE Tipo = %s AND IdUsuario = %s AND Fecha = %s",
+                (tipo, usuario_id, dia))
+            conn.commit()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _registrar(conn, tipo, usuario_id, ahora, ok, detalle):
     try:
         cur = conn.cursor()
@@ -741,11 +760,16 @@ def atender_usuario(conn, fila, cfg, ahora, enviar):
         nonlocal usados, enviados
         if cuenta and usados >= cfg["max_dia"]:
             return 0
-        if _ya_hoy(conn, tipo, usuario_id, hoy):
+        # Se marca ANTES de enviar, con Ok=0: el índice único ya impide
+        # repetirlo el mismo día, y si el envío sale bien se actualiza a 1.
+        c = conn
+        if _ya_hoy(c, tipo, usuario_id, hoy):
+            return 0
+        if not _registrar(c, tipo, usuario_id, ahora, False, detalle):
             return 0
         ok, detalle_envio = _enviar_seguro(enviar, telefono, texto)
-        _registrar(conn, tipo, usuario_id, ahora, ok,
-                   f"{detalle}: {detalle_envio}".strip(": "))
+        if ok:
+            _marcar_enviado(c, tipo, usuario_id, hoy)
         if not ok:
             _log(f"no se pudo enviar {tipo} a {usuario_id}: {detalle_envio}")
             return 0

@@ -376,6 +376,47 @@ def _vale_historial(conn, clave, usuario_id):
         return 0
 
 
+def _marcar_enviado(conn, candidato, ahora):
+    """Pasa el intento (Ok=0) a enviado. Nunca lanza."""
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE HUB_WaRecordatorios SET Ok = 1, Enviado = GETDATE() "
+                "WHERE Tipo = %s AND Clave = %s AND IdUsuario = %s AND FechaDia = %s",
+                (candidato["tipo"], candidato["clave"],
+                 candidato["usuario_id"], ahora.date()))
+            conn.commit()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _marcar_fallo(conn, candidato, ahora, detalle):
+    """Deja el motivo del fallo en la fila del intento. Nunca lanza."""
+    try:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE HUB_WaRecordatorios SET Ok = 0, Detalle = %s "
+                "WHERE Tipo = %s AND Clave = %s AND IdUsuario = %s AND FechaDia = %s",
+                (_texto(f"{candidato['motivo']}: {detalle}"),
+                 candidato["tipo"], candidato["clave"],
+                 candidato["usuario_id"], ahora.date()))
+            conn.commit()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _registrar(conn, candidato, ahora, ok, detalle):
     """Guarda el intento. Un fallo de OpenWA queda como Ok=0 y no se reintenta hoy."""
     try:
@@ -633,14 +674,20 @@ def ciclo(ahora=None, conn=None, enviar=None, cfg=None):
             if not _permitido(conn, candidato, cfg, ahora):
                 continue
 
+            # Igual que en asistencia: marcar antes de enviar. OpenWA cierra la
+            # conexión cacheada al leer su configuración; si el registro va
+            # después, falla y el aviso se repite en cada ciclo.
+            if not _registrar(conn, candidato, ahora, False, ""):
+                continue
             ok, detalle = _enviar_seguro(enviar, candidato["telefono"],
                                          candidato["texto"])
-            _registrar(conn, candidato, ahora, ok, detalle)
             if ok:
+                _marcar_enviado(conn, candidato, ahora)
                 enviados += 1
                 hoy_por_usuario[usuario_id] = hoy_por_usuario.get(usuario_id, 0) + 1
                 partes.append(candidato["tipo"].lower())
             else:
+                _marcar_fallo(conn, candidato, ahora, detalle)
                 _log(f"no se pudo enviar {candidato['motivo']} "
                      f"a {usuario_id}: {detalle}")
 

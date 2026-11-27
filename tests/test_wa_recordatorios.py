@@ -552,7 +552,7 @@ class Dedupe(unittest.TestCase):
         self.assertEqual(enviados, 0)
         self.assertEqual(len(base.recordatorios), 1)
         self.assertFalse(base.recordatorios[0]["ok"])
-        self.assertIn("HTTP 500", base.recordatorios[0]["detalle"])
+        self.assertIn("km auto 1", base.recordatorios[0]["detalle"])
 
         # El siguiente ciclo del mismo día no vuelve a intentarlo.
         _, otra_vez = wr.ciclo(ahora=JUEVES, conn=base, enviar=Envios())

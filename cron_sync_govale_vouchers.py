@@ -567,12 +567,16 @@ def avisar_saldo_bajo(saldo=None, ahora=None):
             pass
 
     saldo_fecha = db.get_govale_config('govale_saldo_fecha') or 'sin revisar'
-    encolados = _enviar_aviso_saldo_bajo(saldo, umbral, saldo_fecha)
-    if not encolados:
-        # Ningún canal activo (o sin teléfonos/chats). No se marca como
-        # avisado: cuando el canal vuelva, el aviso sigue pendiente.
-        return 0
-
+    # Sin ningún canal prendido no se marca nada: el aviso sigue pendiente.
+    try:
+        from canales import activo as _canal_activo
+        if not _canal_activo('whatsapp') and not _canal_activo('telegram'):
+            return 0
+    except Exception:
+        pass
+    # Marcar antes de enviar: OpenWA cierra la conexión cacheada al leer su
+    # configuración y el guardado posterior fallaba, así que el aviso salía
+    # otra vez en el siguiente ciclo.
     try:
         db.set_govale_config('govale_aviso_saldo_ticket', marca or avisada)
         db.set_govale_config('govale_aviso_saldo_fecha',
@@ -580,6 +584,10 @@ def avisar_saldo_bajo(saldo=None, ahora=None):
         db.set_govale_config('govale_aviso_saldo_estado', 'BAJO')
     except Exception as e:
         print(f"[govale_sync] no se pudo guardar el dedupe del aviso: {e}")
+
+    encolados = _enviar_aviso_saldo_bajo(saldo, umbral, saldo_fecha)
+    if not encolados:
+        return 0
 
     wlog("govale_vouchers_worker",
          f"Aviso de saldo bajo encolado (${saldo:,.2f} < ${umbral:,.2f})",
