@@ -48,7 +48,9 @@ mismo aviso no sale dos veces el mismo día. Los fallos también se registran
     python -m py_compile wa_asistencia.py
     python -m unittest tests.test_wa_asistencia -v
 """
+import json
 import os
+import re
 import time
 from datetime import date, datetime, time as hora_del_dia, timedelta
 
@@ -94,6 +96,7 @@ CLAVES_CONFIG = (
     "wa_asist_salida_gap_min",
     "wa_asist_max_dia",
     "wa_asist_resumen",
+    "wa_asist_usuarios",
 )
 
 DEFAULTS = {
@@ -110,7 +113,7 @@ DEFAULTS = {
 
 SQL_CONFIG = (
     "SELECT Clave, CAST(Valor AS VARCHAR(200)) FROM HUB_Config "
-    "WHERE Clave IN (%s, %s, %s, %s, %s, %s)"
+    "WHERE Clave IN (" + ", ".join(["%s"] * len(CLAVES_CONFIG)) + ")"
 )
 
 # Universo: WhatsApp activo Y dispositivo activo. Una persona sin dispositivo
@@ -638,7 +641,27 @@ def leer_config(conn):
         "max_dia": _ent(valores.get("wa_asist_max_dia"),
                         DEFAULTS["max_dia"], minimo=1),
         "resumen": _flag(valores.get("wa_asist_resumen"), DEFAULTS["resumen"]),
+        "usuarios": _ids(valores.get("wa_asist_usuarios")),
     }
+
+
+def _ids(texto):
+    """Lista de IdUsuario para un piloto; vacía = todos."""
+    if not texto:
+        return set()
+    try:
+        datos = json.loads(texto)
+    except (TypeError, ValueError):
+        datos = [p for p in re.split(r"[,;\s]+", str(texto)) if p]
+    if not isinstance(datos, list):
+        return set()
+    salida = set()
+    for dato in datos:
+        try:
+            salida.add(int(dato))
+        except (TypeError, ValueError):
+            continue
+    return salida
 
 
 # ── Resumen del viernes ──────────────────────────────────────────────────────
@@ -801,6 +824,8 @@ def ciclo(ahora=None, conn=None, enviar=None, cfg=None):
 
         partes = []
         for fila in _filas(conn, SQL_USUARIOS, ()):
+            if cfg.get("usuarios") and int(fila[0]) not in cfg["usuarios"]:
+                continue
             try:
                 enviados += atender_usuario(conn, fila, cfg, ahora, enviar)
             except Exception as exc:
