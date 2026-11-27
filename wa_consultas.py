@@ -137,12 +137,18 @@ SQL_COT_TOTAL = """
 """
 
 SQL_COT_PARTIDAS = """
-    SELECT TOP 3 Partida, Cantidad, Descripcion,
-           PrecioCompraUnitario * (1.0 + Factor) AS PrecioVenta,
-           (PrecioCompraUnitario * (1.0 + Factor)) * Cantidad AS Importe
+    SELECT TOP 10 Partida, Cantidad, Descripcion, PrecioCompraUnitario,
+           Factor, PrecioCompraUnitario * (1.0 + Factor) AS PrecioVenta,
+           (PrecioCompraUnitario * (1.0 + Factor)) * Cantidad AS Importe,
+           COALESCE(Proveedor, ''), COALESCE(TiempoEntregaDias, 0),
+           COALESCE(Dolar, 0)
     FROM Partidas
     WHERE Folio = %s
     ORDER BY Partida
+"""
+
+SQL_COT_CUENTA = """
+    SELECT COUNT(*) FROM Partidas WHERE Folio = %s
 """
 
 ESTATUS_MATERIALES = {0: "PENDIENTE", 1: "ENTREGADA", 2: "PAGADA"}
@@ -403,7 +409,11 @@ def _estatus(color):
 
 
 def _partidas(conn, folio):
-    """Primeras 3 partidas: cantidad, descripción y precio de VENTA."""
+    """
+    Partidas con TODO el detalle interno: el dueño autorizó que los usuarios de
+    la lista vean costos, factor, proveedor, entrega y dólar. Se cortan en 10
+    para que quepan en un mensaje de WhatsApp.
+    """
     lineas = []
     for fila in _filas(conn, SQL_COT_PARTIDAS, (folio,)):
         cantidad = fila[1]
@@ -411,8 +421,27 @@ def _partidas(conn, folio):
         if len(descripcion) > 70:
             descripcion = descripcion[:67].rstrip() + "…"
         cantidad_texto = str(cantidad if cantidad is not None else "")
-        lineas.append(f"- {cantidad_texto} × {descripcion} · "
-                      f"{_dinero(fila[3])} c/u · {_dinero(fila[4])}")
+        costo = float(fila[3] or 0)
+        factor = float(fila[4] or 0)
+        proveedor = str(fila[7] or "").strip()
+        if len(proveedor) > 40 or proveedor.lower().startswith("http"):
+            proveedor = ""      # enlaces de eBay/ML: no caben ni aportan
+        entrega = int(fila[8] or 0)
+        dolar = float(fila[9] or 0)
+
+        detalle = (f"costo {_dinero(costo)} · factor {factor * 100:,.0f}% · "
+                   f"venta {_dinero(fila[5])} c/u · importe {_dinero(fila[6])}")
+        extra = []
+        if proveedor:
+            extra.append(f"prov: {proveedor}")
+        if entrega:
+            extra.append(f"entrega: {entrega} d")
+        if dolar:
+            extra.append(f"dólar {dolar:,.2f}")
+        if extra:
+            detalle += " · " + " · ".join(extra)
+
+        lineas.append(f"- {cantidad_texto} × {descripcion}\n  {detalle}")
     return lineas
 
 
@@ -425,6 +454,8 @@ def _respuesta_cotizacion_folio(conn, folio):
     suma = float(total[0] or 0) if total else 0.0
     flete = float(total[1] or 0) if total else 0.0
     partidas = _partidas(conn, folio)
+    cuenta = _una(conn, SQL_COT_CUENTA, (folio,))
+    total_partidas = int(cuenta[0] or 0) if cuenta else 0
 
     cliente = str(fila[2] or "").strip()
     contacto = str(fila[3] or "").strip()
@@ -435,15 +466,28 @@ def _respuesta_cotizacion_folio(conn, folio):
     elaboro = str(fila[5] or "").strip()
     if elaboro:
         texto += f" · Elaboró: {elaboro}"
-    texto += f" · Estatus: {_estatus(fila[6])}"
+    texto += f" · Estatus: {_estatus(fila[6])}."
+
+    descripcion = str(fila[7] or "").strip()
+    if descripcion:
+        if len(descripcion) > 200:
+            descripcion = descripcion[:197].rstrip() + "…"
+        texto += f"\n{descripcion}"
+    nota = str(fila[8] or "").strip()
+    if nota:
+        texto += f"\nNota: {nota}"
+
+    texto += (f"\nSubtotal partidas: {_dinero(suma)}")
+    if flete:
+        texto += f" · Flete: {_dinero(flete)}"
     texto += f" · Total: {_dinero(suma + flete)}."
 
     if partidas:
         texto += "\nPartidas:\n" + "\n".join(partidas)
+        if total_partidas > len(partidas):
+            texto += f"\n… y {total_partidas - len(partidas)} partidas más."
     else:
         texto += "\nSin partidas registradas."
-    if flete:
-        texto += f"\nFlete: {_dinero(flete)}"
     return texto
 
 

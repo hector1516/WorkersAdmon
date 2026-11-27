@@ -571,6 +571,9 @@ def _con_humor(texto, persona, norm, tema, siempre=False):
                                         "no hay", "solo las consulta",
                                         "te canalizo")):
         return texto
+    # Un desglose de cotización (costos, partidas) no lleva chiste: tapa datos.
+    if plano.startswith("cotizacion") or "partidas:" in plano:
+        return texto
     saludo = plano.startswith("hola")
     if not (siempre or saludo) and random.random() > 0.5:
         return texto

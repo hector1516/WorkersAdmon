@@ -118,16 +118,21 @@ class CursorFalso:
         elif "FROM PARTIDAS" in q:
             folio = int(params[0])
             filas = [p for p in base.partidas_mat if int(p[0]) == folio]
-            if "SUM(" in q:
+            if "COUNT(*)" in q:
+                self.una = (len(filas),)
+            elif "SUM(" in q:
                 suma = sum((float(p[4]) * (1 + float(p[5]))) * p[2] for p in filas)
                 flete = max((float(p[6] or 0) for p in filas), default=0)
                 self.una = (suma, flete)
             else:
                 filas.sort(key=lambda p: p[1])
-                self.todas = [(p[1], p[2], p[3],
+                self.todas = [(p[1], p[2], p[3], float(p[4]), float(p[5]),
                                float(p[4]) * (1 + float(p[5])),
-                               (float(p[4]) * (1 + float(p[5]))) * p[2])
-                              for p in filas[:3]]
+                               (float(p[4]) * (1 + float(p[5]))) * p[2],
+                               (p[7] if len(p) > 7 else ""),
+                               (p[8] if len(p) > 8 else 0),
+                               (p[9] if len(p) > 9 else 0))
+                              for p in filas[:10]]
 
         else:
             raise AssertionError(f"SQL inesperado: {q}")
@@ -272,11 +277,11 @@ class ConsultasWa(unittest.TestCase):
              datetime(2026, 11, 23), "Alejandro Mata", 2, "Sensores", ""),
         ]
         self.base.partidas_mat = [
-            (1329, 1, 2, "Tornillo 1/4", 100.0, 0.5, 0.0),   # venta $150 -> $300
-            (1329, 2, 1, "Tuerca 1/4", 100.0, 0.0, 0.0),     # $100
-            (1329, 3, 1, "Arandela", 40.0, 0.5, 0.0),        # $60
-            (1329, 4, 1, "No debe salir", 999.0, 0.0, 0.0),
-            (1328, 1, 1, "Cable calibre 12", 100.0, 0.0, 50.0),
+            (1329, 1, 2, "Tornillo 1/4", 100.0, 0.5, 0.0, "Siemens", 5, 0.0),
+            (1329, 2, 1, "Tuerca 1/4", 100.0, 0.0, 0.0, "", 0, 0.0),
+            (1329, 3, 1, "Arandela", 40.0, 0.5, 0.0, "", 0, 18.5),
+            (1329, 4, 1, "No debe salir", 999.0, 0.0, 0.0, "", 0, 0.0),
+            (1328, 1, 1, "Cable calibre 12", 100.0, 0.0, 50.0, "", 0, 0.0),
         ]
 
     def test_cotizaciones_materiales_lista(self):
@@ -300,12 +305,16 @@ class ConsultasWa(unittest.TestCase):
         self.assertIn("25 nov 2026", r)
         self.assertIn("Elaboró: Daniel Quintanilla", r)
         self.assertIn("Estatus: PENDIENTE", r)
+        self.assertIn("Subtotal partidas: $1,459.00", r)
         self.assertIn("Total: $1,459.00", r)
         self.assertIn("Tornillo 1/4", r)
-        self.assertIn("$150.00 c/u", r)
+        self.assertIn("costo $100.00", r)
+        self.assertIn("factor 50%", r)
+        self.assertIn("venta $150.00 c/u", r)
+        self.assertIn("prov: Siemens", r)
+        self.assertIn("entrega: 5 d", r)
+        self.assertIn("dólar 18.50", r)
         self.assertIn("Arandela", r)
-        self.assertNotIn("No debe salir", r)   # solo las primeras 3 partidas
-        self.assertNotIn("$999.00", r)         # ni su costo
 
     def test_cotizacion_inexistente(self):
         self._cotizaciones()
