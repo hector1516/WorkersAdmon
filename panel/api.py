@@ -131,7 +131,12 @@ def _atender_api(handler, metodo, path):
         return True
 
     try:
-        codigo, objeto = funcion(handler, params or {}, cuerpo)
+        resultado = funcion(handler, params or {}, cuerpo)
+        if resultado is None:
+            # La ruta ya respondió por su cuenta (descargas con cabeceras
+            # propias, p. ej. el export de ECCSita).
+            return True
+        codigo, objeto = resultado
     except Exception:
         log.exception("error en %s %s", metodo, path)
         codigo, objeto = 500, {"error": "No se pudo completar la operación."}

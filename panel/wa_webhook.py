@@ -9,13 +9,19 @@ que OpenWA no siempre conserva cabeceras propias.
 Esta fase guarda y, si la conversacion sigue en BOT, contesta:
 
   1. compara el token contra `HUB_Config.wa_bot_token` (tiempo constante);
-  2. ignora lo que manda el propio bot (`fromMe`) y los grupos (`@g.us`);
+  2. ignora lo que manda el propio bot (`fromMe`); de los grupos solo guarda
+     el de ECCSita (`wa_grupo_eccsita_id`), sin contestar, y descarta el resto;
   3. deduplica por id de mensaje (OpenWA reintenta si no recibe 200);
   4. inserta en `HUB_WhatsappEntrante` y asegura la fila del chat en
      `HUB_WhatsappConversaciones` (nueva en estado BOT);
   5. si el chat esta en BOT, pide la respuesta a `wa_bot.responder()`, la manda
      con `openwa_client.enviar_texto()` y guarda la salida (Direccion OUT);
   6. responde 200 rapido con un JSON minimo.
+
+El grupo de ECCSita se guarda en `HUB_GrupoMensajes` (ver `panel/eccsita.py`)
+con su semana ISO en hora de Mexico. `wa_grupo_captura = 0` apaga la captura.
+Si guardar el grupo falla, el webhook igual responde 200: OpenWA no debe
+reintentar por culpa de la cronica.
 
 Reglas:
   * NUNCA lanza hacia el servidor: un 500 hace que OpenWA reintente el mismo
@@ -36,12 +42,15 @@ from tz_mx import now_mx, to_mx
 from . import db
 
 CLAVE_TOKEN = "wa_bot_token"
+CLAVE_GRUPO = "wa_grupo_eccsita_id"
+CLAVE_CAPTURA = "wa_grupo_captura"
 
 MAX_ID = 120          # HUB_WhatsappEntrante.IdMensaje
 MAX_CHAT = 80         # .ChatId
 MAX_TELEFONO = 20     # .Telefono
 MAX_NOMBRE = 120      # .Nombre
 MAX_TEXTO = 2000      # .Texto
+MAX_AUTOR = 80        # HUB_GrupoMensajes.AutorId
 
 # WhatsApp puede mandar un LID (`...@lid`) en vez del telefono. OpenWA lo
 # resuelve, pero es una llamada HTTP: se guarda el resultado una hora para no
@@ -170,21 +179,57 @@ def _nombre(msg):
     return _texto(valor, MAX_NOMBRE)
 
 
+def _autor(msg):
+    """Quien manda en un grupo: `author`/`participant`, no el id del grupo."""
+    valor = _buscar(msg, ("author", "participant", "sender", "from"))
+    if isinstance(valor, dict):
+        valor = valor.get("_serialized") or valor.get("id")
+    return _texto(valor, MAX_AUTOR)
+
+
+TIPOS = {"chat": "text", "ptt": "audio", "document": "document"}
+
+
+def _tipo(msg, texto):
+    """text, image, sticker, audio, video (o `otro` si no se reconoce)."""
+    valor = _buscar(msg, ("type", "mediaType", "messageType"))
+    if isinstance(valor, dict):
+        valor = valor.get("_serialized") or valor.get("id")
+    tipo = str(valor or "").strip().lower()
+    tipo = TIPOS.get(tipo, tipo)
+
+    if tipo not in ("text", "image", "sticker", "audio", "video"):
+        mimetype = str(_buscar(msg, ("mimetype", "mimeType")) or "").lower()
+        for prefijo, nombre in (("image/", "image"), ("audio/", "audio"),
+                                ("video/", "video")):
+            if mimetype.startswith(prefijo):
+                tipo = nombre
+                break
+    if tipo not in ("text", "image", "sticker", "audio", "video"):
+        tipo = "text" if texto else "otro"
+    return tipo[:20]
+
+
 def _extraer(cuerpo):
     """Normaliza el mensaje a las columnas de HUB_WhatsappEntrante."""
     msg = _candidato(cuerpo)
     chat_id = _chat_id(msg)
+    texto = _texto(_buscar(msg, ("body", "text", "content", "caption")),
+                   MAX_TEXTO)
     return {
         "id_mensaje": _id_mensaje(msg),
         "chat_id": chat_id,
         "telefono": _telefono_real(chat_id, _telefono(chat_id)),
         "nombre": _nombre(msg),
-        "texto": _texto(_buscar(msg, ("body", "text", "content", "caption")),
-                        MAX_TEXTO),
+        "texto": texto,
         "fecha": _fecha(_buscar(msg, ("timestamp", "t", "time"))),
         "propio": _verdadero(msg, ("fromMe", "from_me")),
         "grupo": (_verdadero(msg, ("isGroup", "isGroupMsg", "isGroupChat"))
                   or str(chat_id or "").endswith("@g.us")),
+        # Solo los usa la captura de ECCSita; el chat individual los ignora.
+        "autor_id": _autor(msg),
+        "autor_nombre": _nombre(msg),
+        "tipo": _tipo(msg, texto),
     }
 
 
@@ -260,6 +305,43 @@ def _guardar(datos, crudo):
         raise
     finally:
         conn.close()
+
+
+# ─── Captura del grupo de ECCSita ────────────────────────────────────────────
+def _grupo_capturado(chat_id):
+    """
+    True solo si `chat_id` es exactamente el grupo configurado y la captura
+    esta encendida (`wa_grupo_captura` ausente = encendida).
+    """
+    chat = str(chat_id or "").strip()
+    if not chat.endswith("@g.us"):
+        return False
+    try:
+        valores = db.get_config_values([CLAVE_GRUPO, CLAVE_CAPTURA])
+    except Exception:
+        return False
+    grupo = (valores.get(CLAVE_GRUPO) or "").strip()
+    if not grupo or chat != grupo:
+        return False
+    captura = valores.get(CLAVE_CAPTURA)
+    if captura is not None and str(captura).strip().lower() in (
+            "0", "false", "no", "off"):
+        return False
+    return True
+
+
+def _capturar_grupo(datos, crudo):
+    """Guarda el mensaje del grupo. Nunca lanza: el webhook necesita su 200."""
+    if not datos.get("id_mensaje"):
+        # Sin id no hay dedupe posible: se descarta en vez de llenar la tabla
+        # de filas que OpenWA volvería a entregar.
+        return "ignorado"
+    try:
+        from . import eccsita
+        return eccsita.guardar_mensaje(datos, crudo)
+    except Exception as exc:
+        print(f"[wa_webhook] no se pudo guardar el mensaje de ECCSita: {exc}")
+        return "error"
 
 
 # ─── Respuesta del bot ───────────────────────────────────────────────────────
@@ -343,8 +425,16 @@ def atender(handler, token):
         if not datos["chat_id"]:
             handler._json({"ok": True, "estado": "sin_chat"}, 200)
             return
-        if datos["propio"] or datos["grupo"]:
+        if datos["propio"]:
             handler._json({"ok": True, "estado": "ignorado"}, 200)
+            return
+        if datos["grupo"]:
+            # De todos los grupos solo se escucha ECCSita, y ese no se contesta.
+            if _grupo_capturado(datos["chat_id"]):
+                estado = _capturar_grupo(datos, crudo)
+            else:
+                estado = "ignorado"
+            handler._json({"ok": True, "estado": estado}, 200)
             return
 
         estado = _guardar(datos, crudo)
