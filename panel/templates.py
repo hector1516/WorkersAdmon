@@ -312,8 +312,9 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     # mostraba como texto literal.
     detalle_html = (f'<p class="topbar__sub">{esc_sub(detalle)}</p>'
                     if detalle else "")
-    if back_href is None and not es_inicio:
-        back_href = "/"
+    # Sin flecha por defecto: la navegación lateral ya dice dónde estás. Solo
+    # se pinta cuando una vista la pide a propósito (p. ej. el log de un worker
+    # vuelve a Estado).
     volver = ""
     if back_href:
         volver = (f'<a class="btn btn-sm btn-secondary modulo-back" '
