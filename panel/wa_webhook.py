@@ -6,22 +6,25 @@ es publica (sin sesion ni CSRF) porque quien llama es el gateway, no una
 persona: el secreto viaja en la propia ruta, `/api/wa/entrante/<token>`, ya
 que OpenWA no siempre conserva cabeceras propias.
 
-Esta fase SOLO guarda:
+Esta fase guarda y, si la conversacion sigue en BOT, contesta:
 
   1. compara el token contra `HUB_Config.wa_bot_token` (tiempo constante);
   2. ignora lo que manda el propio bot (`fromMe`) y los grupos (`@g.us`);
   3. deduplica por id de mensaje (OpenWA reintenta si no recibe 200);
   4. inserta en `HUB_WhatsappEntrante` y asegura la fila del chat en
      `HUB_WhatsappConversaciones` (nueva en estado BOT);
-  5. responde 200 rapido con un JSON minimo.
+  5. si el chat esta en BOT, pide la respuesta a `wa_bot.responder()`, la manda
+     con `openwa_client.enviar_texto()` y guarda la salida (Direccion OUT);
+  6. responde 200 rapido con un JSON minimo.
 
 Reglas:
   * NUNCA lanza hacia el servidor: un 500 hace que OpenWA reintente el mismo
     mensaje y, peor, puede cortar la entrega de los siguientes.
   * El cuerpo varia entre versiones de OpenWA: se guarda el JSON crudo y de ahi
     se extrae lo que se pueda, sin exigir una forma exacta.
-
-El bot que contesta es la siguiente fase; aqui no se manda nada.
+  * Si el bot falla (sin configuracion, OpenWA caido, etc.) el webhook igual
+    responde 200 y solo lo deja en el log: el mensaje ya quedo guardado y una
+    persona puede contestarlo desde el panel.
 """
 import hmac
 import json
@@ -229,6 +232,60 @@ def _guardar(datos, crudo):
         conn.close()
 
 
+# ─── Respuesta del bot ───────────────────────────────────────────────────────
+def _estado_conversacion(chat_id):
+    """Estado de la conversacion ('BOT', 'HUMANO', ...) o "" si no existe."""
+    conn = db.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT Estado FROM HUB_WhatsappConversaciones WHERE ChatId = %s",
+                (chat_id,))
+            fila = cur.fetchone()
+    finally:
+        conn.close()
+    return str(fila[0]).strip().upper() if fila and fila[0] else ""
+
+
+def _guardar_salida(chat_id, telefono, texto):
+    """Registra la respuesta del bot como mensaje de salida ya enviado."""
+    conn = db.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO HUB_WhatsappEntrante "
+                "(IdMensaje, ChatId, Telefono, Nombre, Texto, Estado, Direccion) "
+                "VALUES (NULL, %s, %s, NULL, %s, 'ENVIADO', 'OUT')",
+                (chat_id, telefono, (texto or "")[:MAX_TEXTO]))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _contestarbot(datos):
+    """
+    Contesta el mensaje si el chat sigue en BOT. Nunca lanza: el webhook ya
+    guardo el mensaje y OpenWA solo necesita su 200.
+    """
+    try:
+        if _estado_conversacion(datos["chat_id"]) != "BOT":
+            return
+        import wa_bot
+        from openwa_client import enviar_texto
+
+        respuesta = wa_bot.responder(datos["chat_id"], datos["telefono"],
+                                     datos["texto"])
+        if not respuesta:
+            return
+        ok, detalle = enviar_texto(datos["chat_id"], respuesta)
+        if not ok:
+            print(f"[wa_webhook] no se pudo enviar la respuesta: {detalle}")
+            return
+        _guardar_salida(datos["chat_id"], datos["telefono"], respuesta)
+    except Exception as exc:
+        print(f"[wa_webhook] el bot fallo y se ignora: {exc}")
+
+
 # ─── Entrada ─────────────────────────────────────────────────────────────────
 def atender(handler, token):
     """
@@ -253,6 +310,10 @@ def atender(handler, token):
             return
 
         estado = _guardar(datos, crudo)
+        if estado == "guardado":
+            # Despues de guardar: si el chat esta en BOT, el bot contesta.
+            # Va envuelto para que un fallo del bot no rompa el webhook.
+            _contestarbot(datos)
         handler._json({"ok": True, "estado": estado}, 200)
     except Exception:
         # OpenWA reintenta si no recibe 200. El cuerpo ya pudo quedar guardado o
