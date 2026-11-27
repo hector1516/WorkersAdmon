@@ -37,6 +37,7 @@ from urllib.parse import quote
 
 from tz_mx import now_mx
 import wa_consultas
+import wa_redaccion
 
 SITIO = "https://ecc-sa.com.mx"
 MAPA_BASE = "https://maps.google.com/?q="
@@ -59,6 +60,7 @@ CLAVES_CONFIG = {
     "horario_sab": "colab_empresa_horario_sab",
     "rutas": "wa_bot_rutas",                     # JSON tema -> [ids]
     "servicios": "wa_bot_servicios",             # una linea por servicio
+    "ia": "wa_bot_ia",                           # "1" = pulir con IA
 }
 
 KB_TTL = 60
@@ -74,6 +76,7 @@ KB_DEFECTO = {
     "rutas": {},
     "servicios": [],
     "personal": [],
+    "ia": "0",
 }
 
 # Reparto por defecto. En la base manda `wa_bot_rutas` (tema -> ids de
@@ -621,6 +624,24 @@ def responder(chat_id, telefono, texto, kb=None, ahora=None):
     """
     Devuelve la respuesta para un mensaje entrante, o None si no hay que
     contestar. No envia nada y no toca la base si recibe `kb`.
+
+    Primero deciden las reglas (`_responder_reglas`); al final, y solo si el
+    dueno prendio `wa_bot_ia`, `wa_redaccion.mejorar` pule el texto. Si la IA
+    falla o cambia un dato, sale el texto de las reglas: el bot nunca se queda
+    mudo por la redaccion.
+    """
+    respuesta = _responder_reglas(chat_id, telefono, texto, kb=kb, ahora=ahora)
+    if respuesta is None:
+        return None
+    try:
+        return wa_redaccion.mejorar(respuesta, kb)
+    except Exception:
+        return respuesta
+
+
+def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None):
+    """
+    Motor de reglas: decide QUE contestar. Sin IA.
     """
     # Grupos: el webhook ya los filtra, pero el motor tambien se cuida.
     if chat_id and str(chat_id).strip().endswith("@g.us"):
