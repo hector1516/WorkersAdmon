@@ -75,6 +75,18 @@ STATIC_DIR = _static_dir()
 MANIFEST_FILE = os.path.join(STATIC_DIR, "manifest.webmanifest")
 SW_FILE = os.path.join(STATIC_DIR, "sw.js")
 ICONS_DIR = os.path.join(STATIC_DIR, "icons")
+
+# ─── Frontend Svelte compilado (panel_ui/dist) ───────────────────────────────
+# Python deja de generar HTML y sirve el build; el fallback de rutas del SPA
+# devuelve este index.html. Mientras no exista el build, el panel sigue con las
+# vistas SSR y la API responde 404 con un mensaje claro.
+def _ui_dist_dir():
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.environ.get("PANEL_UI_DIST", os.path.join(base, "panel_ui", "dist"))
+
+
+UI_DIST_DIR = _ui_dist_dir()
+UI_INDEX_FILE = os.path.join(UI_DIST_DIR, "index.html")
 # Whitelist de iconos: nada de `..` ni archivos arbitrarios desde /icons/
 ICONS_WHITELIST = ("icon-120x120.png", "icon-152x152.png", "icon-167x167.png",
                    "icon-180x180.png", "icon-192x192.png", "icon-512x512.png",

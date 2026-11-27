@@ -43,13 +43,13 @@ def _badge(e):
     return f'<span class="badge {clase}">{esc(label)}</span>'
 
 
-def _latido(e):
+def latido_texto(e):
     """Texto relativo del último latido, o 'sin latido'."""
     dt = workers.parse_dt(e.get("last_run"))
     return workers.rel_time(dt) if dt else "sin latido"
 
 
-def _latidos_viejos(programs):
+def latidos_viejos(programs):
     """Programas cuyo último latido pasó de _LATIDO_VIEJO (derivado, sin consultar)."""
     ahora = workers.now()
     out = []
@@ -60,40 +60,65 @@ def _latidos_viejos(programs):
     return out
 
 
-def _avisos(status, chk, vchk):
-    """Lista de (nivel, texto) con lo que requiere atención. nivel: ok/warn/bad."""
+def worker_viejo(e):
+    """True si ese programa lleva más de _LATIDO_VIEJO sin latir."""
+    dt = workers.parse_dt(e.get("last_run"))
+    return dt is not None and (workers.now() - dt) > _LATIDO_VIEJO
+
+
+def avisos_datos(status, chk, vchk):
+    """
+    Avisos de Estado como datos puros, sin HTML.
+
+    Lo usan el tablero (que los pinta) y la API JSON (que los manda tal cual).
+    Cada aviso es {nivel: ok|warn|bad, titulo, detalle, ok}.
+    """
     out = []
     if status.get("supervisor_error"):
-        out.append(("bad", f'supervisord no responde: {status["supervisor_error"]}'))
+        out.append({"nivel": "bad", "titulo": "Supervisord", "ok": False,
+                    "detalle": f'supervisord no responde: {status["supervisor_error"]}'})
 
     if chk is None:
-        out.append(("warn", "Sin datos del chequeo del shell todavía."))
+        out.append({"nivel": "warn", "titulo": "Shell", "ok": False,
+                    "detalle": "Sin datos del chequeo del shell todavía."})
     elif chk.get("ok"):
-        out.append(("ok", f'Shell {chk.get("shell_version", "?")} al día · '
-                          f'revisado {chk.get("revisado", "?")}'))
+        out.append({"nivel": "ok", "titulo": "Shell", "ok": True,
+                    "detalle": f'Shell {chk.get("shell_version", "?")} al día · '
+                               f'revisado {chk.get("revisado", "?")}'})
     else:
         probs = "; ".join(str(p) for p in (chk.get("problemas") or [])[:2])
-        out.append(("bad", f"Shell desincronizado: {probs or 'revisar'}"))
+        out.append({"nivel": "bad", "titulo": "Shell", "ok": False,
+                    "detalle": f"Shell desincronizado: {probs or 'revisar'}"})
 
     if vchk is None:
-        out.append(("warn", "Sin datos del chequeo de versiones todavía."))
+        out.append({"nivel": "warn", "titulo": "Versiones", "ok": False,
+                    "detalle": "Sin datos del chequeo de versiones todavía."})
     elif vchk.get("ok"):
-        out.append(("ok", f'Versiones al día · revisado {vchk.get("revisado", "?")}'))
+        out.append({"nivel": "ok", "titulo": "Versiones", "ok": True,
+                    "detalle": f'Versiones al día · revisado {vchk.get("revisado", "?")}'})
     else:
         probs = "; ".join(str(p) for p in (vchk.get("problemas") or [])[:2])
-        out.append(("bad", f"Versiones desincronizadas: {probs or 'revisar'}"))
+        out.append({"nivel": "bad", "titulo": "Versiones", "ok": False,
+                    "detalle": f"Versiones desincronizadas: {probs or 'revisar'}"})
 
     for e in status["programs"]:
         if e.get("state") in ("FATAL", "BACKOFF"):
             label = ST_TAG.get(e["state"], ("", e["state"]))[1]
-            out.append(("bad", f'{e["name"]} · {label}'))
+            out.append({"nivel": "bad", "titulo": e["name"], "ok": False,
+                        "detalle": f'{e["name"]} · {label}'})
 
-    viejos = _latidos_viejos(status["programs"])
+    viejos = latidos_viejos(status["programs"])
     if viejos:
         nombres = ", ".join(e["name"] for e in viejos[:3])
         resto = "" if len(viejos) <= 3 else f" (+{len(viejos) - 3})"
-        out.append(("warn", f"{len(viejos)} sin latido en 24 h: {nombres}{resto}"))
+        out.append({"nivel": "warn", "titulo": "Latidos", "ok": False,
+                    "detalle": f"{len(viejos)} sin latido en 24 h: {nombres}{resto}"})
     return out
+
+
+def _avisos(status, chk, vchk):
+    """Lista de (nivel, texto) con lo que requiere atención. nivel: ok/warn/bad."""
+    return [(a["nivel"], a["detalle"]) for a in avisos_datos(status, chk, vchk)]
 
 
 # ── acciones (activar / deshabilitar / reiniciar) ────────────────────────────
@@ -152,7 +177,7 @@ def _fila_worker(e):
     return (f'<li class="list__row">'
             f'<div class="list__main">'
             f'<div class="wcard-name">{nombre}</div>'
-            f'<div class="muted dashx__sub">Último latido {esc(_latido(e))}{app}</div>'
+            f'<div class="muted dashx__sub">Último latido {esc(latido_texto(e))}{app}</div>'
             f'</div>'
             f'<div class="dashx__rowmeta">{_badge(e)}{log}</div>'
             f'</li>')
@@ -188,7 +213,7 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
     vchk = workers.versiones_check()
     avisos = _avisos(status, chk, vchk)
     pendientes = sum(1 for nivel, _ in avisos if nivel in ("warn", "bad"))
-    viejos = _latidos_viejos(programs)
+    viejos = latidos_viejos(programs)
 
     kpis = "".join([
         _kpi("play", "Corriendo", t["running"],
@@ -383,7 +408,7 @@ def _fila_log(e):
     return (f'<li class="list__row">'
             f'<div class="list__main">'
             f'<div class="wcard-name">{nombre}</div>'
-            f'<div class="muted dashx__sub">Último latido {esc(_latido(e))}</div>'
+            f'<div class="muted dashx__sub">Último latido {esc(latido_texto(e))}</div>'
             f'</div>'
             f'<div class="dashx__rowmeta">{_badge(e)}{marca_err}{accion}</div>'
             f'</li>')

@@ -566,6 +566,34 @@ def restart(name):
                  "restart", name])
 
 
+def start(name):
+    """Arranca un programa detenido (supervisorctl start).
+
+    `enable` habilita y arranca (script CLI); `start` solo arranca un programa
+    que ya está en la conf activa. Lo usa la API JSON para el botón «Iniciar».
+    """
+    if name in PROTECTED:
+        return False, f"'{name}' no se puede arrancar desde su propia interfaz"
+    if not _NAME_RE.match(name or ""):
+        return False, "nombre inválido"
+    return _run([config.SUPERVISORCTL, "-c", config.SUPERVISOR_CONF,
+                 "start", name])
+
+
+def stop(name):
+    """Detiene un programa sin deshabilitarlo (supervisorctl stop).
+
+    `disable` lo apaga y lo saca de la lista persistente; `stop` solo lo
+    detiene. Lo usa la API JSON para el botón «Detener».
+    """
+    if name in PROTECTED:
+        return False, f"'{name}' no se puede detener desde su propia interfaz"
+    if not _NAME_RE.match(name or ""):
+        return False, "nombre inválido"
+    return _run([config.SUPERVISORCTL, "-c", config.SUPERVISOR_CONF,
+                 "stop", name])
+
+
 def log_path(name):
     if not _NAME_RE.match(name or ""):
         return None

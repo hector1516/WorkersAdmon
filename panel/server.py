@@ -38,7 +38,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import auth, config, db, envconf, probes, spec, wa_webhook, webauthn, workers
+from . import api, auth, config, db, envconf, probes, spec, wa_webhook, webauthn, workers
 from tz_mx import now_mx
 from .templates import (esc, forbidden_page, lugar_de, login_page,
                         offline_page, page)
@@ -223,6 +223,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── GET ──────────────────────────────────────────────────────────────────
     def do_GET(self):
+        # API JSON del frontend Svelte y fallback del SPA. Va ANTES del routing
+        # SSR: devuelve True solo para /api/panel/... y para un GET del SPA, así
+        # que las vistas de Python siguen respondiendo todo lo demás.
+        if api.atender(self):
+            return
         path, query = self._parts()
 
         if path == "/healthz":
@@ -456,6 +461,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── POST ─────────────────────────────────────────────────────────────────
     def do_POST(self):
+        if api.atender(self):
+            return
         path, _query = self._parts()
 
         form = self._read_form()
