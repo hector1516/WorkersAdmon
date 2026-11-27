@@ -478,13 +478,14 @@ textarea:focus-visible {
   line-height: 1;
   letter-spacing: -.02em;
 }
-.dashx__kpi--ok .kpi__value { color: var(--success-text); }
-.dashx__kpi--warn .kpi__value { color: var(--warning-text); }
-.dashx__kpi--bad .kpi__value { color: var(--danger-text); }
+.dashx__kpi--ok .kpi__value, .kpi--ok .kpi__value { color: var(--success-text); }
+.dashx__kpi--warn .kpi__value, .kpi--warn .kpi__value { color: var(--warning-text); }
+.dashx__kpi--bad .kpi__value, .kpi--bad .kpi__value { color: var(--danger-text); }
 .dash .wgrid {
   /* Dos columnas exactas en escritorio: Workers a la izquierda (dos filas) y
      Avisos + Control a la derecha. `minmax(0,1fr)` deja que las tarjetas
      encojan en vez de empujar la página. */
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: clamp(8px, 1.4vw, 16px);
@@ -493,10 +494,61 @@ textarea:focus-visible {
 }
 .dash .wgrid > .dashx__card:first-child { grid-row: span 2; }
 .dash .wcard {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
   gap: 6px;
   padding: clamp(10px, 1.2vw, 16px);
+}
+/* Dos gráficos dentro de la tarjeta Actividad. En el teléfono van lado a
+   lado para que la tarjeta no empuje la página. */
+.dashx__charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(6px, 1vw, 12px);
+  min-height: 0;
+  overflow: hidden;
+}
+.dashx__chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+}
+.dashx__chart h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 590;
+  color: var(--text-2);
+}
+.dashx__chart h3 span:last-child { font-variant-numeric: tabular-nums; }
+.dashx__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.dashx__legend > span { display: inline-flex; align-items: center; gap: 4px; }
+.dashx__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-2);
+  flex: 0 0 auto;
+}
+.dashx__dot--ok { background: var(--success-text); }
+.dashx__dot--warn { background: var(--warning-text); }
+.dashx__dot--bad { background: var(--danger-text); }
+@media (max-width: 767px) {
+  .dashx__charts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 }
 .dash .wgroup { margin: 0; font-size: 13px; }
 .dash .wgroup::after { display: none; }
@@ -532,7 +584,14 @@ textarea:focus-visible {
 .peso-400 { font-weight: 400; }
 
 /* Página de log: la tarjeta llena el alto y solo el <pre> se desplaza. */
-.content:has(.dashx__log) { display: flex; flex-direction: column; min-height: 0; }
+.content:has(.dashx__log) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 0;
+}
 .content:has(.dashx__log) .foot { display: none; }
 .dashx__log { flex: 1 1 auto; display: flex; flex-direction: column;
               min-height: 0; overflow: hidden; gap: 10px; }
@@ -550,7 +609,7 @@ textarea:focus-visible {
 @media (max-width: 767px) {
   .dash .wgrid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 2.2fr) minmax(0, 1.5fr) minmax(0, 1fr);
   }
   .dash .wgrid > .dashx__card:first-child { grid-row: auto; }
   .dashx__kpis .kpi__hint { display: none; }

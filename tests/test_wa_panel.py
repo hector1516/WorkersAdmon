@@ -300,7 +300,7 @@ class Client:
         return ""
 
     def login(self, email, password):
-        self.get("/login")
+        self.get("/clasico/login")
         code, _, _ = self.post("/login", email=email, password=password,
                                csrf=self.csrf())
         assert code == 303, f"login {email} → {code}"

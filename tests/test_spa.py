@@ -185,6 +185,15 @@ class SpaTest(unittest.TestCase):
         finally:
             config.UI_DIST_DIR, config.UI_INDEX_FILE = original
 
+    def test_13_login_sirve_el_index(self):
+        code, headers, texto = _get("/login")
+        self.assertEqual(code, 200)
+        self.assertIn("text/html", headers.get("Content-Type", ""))
+        self.assertIn("/assets/app-abc123.js", texto)
+        self.assertEqual(headers.get("Cache-Control"), "no-store")
+        # El SSR viejo sigue disponible en /clasico/login (test_09).
+        self.assertNotIn('name="csrf"', texto)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -903,7 +903,7 @@ class Client:
         return self.cookie("panel_csrf") or ""
 
     def login(self, email, password, expect_ok=True):
-        code, _, html = self.get("/login")
+        code, _, html = self.get("/clasico/login")
         assert code == 200, f"GET /login → {code}"
         code, _, html = self.post("/login", email=email, password=password,
                                   csrf=self.csrf())
@@ -954,7 +954,7 @@ class PanelTest(unittest.TestCase):
 
     def test_03_login_y_tabla(self):
         c = Client()
-        code, _, html = c.get("/login")
+        code, _, html = c.get("/clasico/login")
         self.assertEqual(code, 200)
         self.assertIn("csrf", html)
         self.assertTrue(c.cookie("panel_csrf"), "falta la cookie panel_csrf")
@@ -1812,7 +1812,7 @@ class PanelTest(unittest.TestCase):
     def _begin(self, c):
         """Helper: emite el challenge y devuelve (state, challenge)."""
         if not c.cookie("panel_csrf"):
-            c.get("/login")
+            c.get("/clasico/login")
         code, _, body = c.post_json("/passkey/begin",
                                     {"csrf": c.csrf()}, origin=self.ORIGIN_OK)
         self.assertEqual(code, 200, body)
@@ -1822,7 +1822,7 @@ class PanelTest(unittest.TestCase):
 
     def test_42_login_con_passkey_ui(self):
         c = Client()
-        code, _, html = c.get("/login")
+        code, _, html = c.get("/clasico/login")
         self.assertEqual(code, 200)
         for trozo in ('id="pk" hidden', 'id="pk_btn"', "Entrar con passkey",
                       "/passkey/begin", "/passkey/finish", "o con contraseña",
@@ -1994,7 +1994,7 @@ class PanelTest(unittest.TestCase):
                 'viewport-fit=cover')
         # login (sin sesión)
         c = Client()
-        _, _, html = c.get("/login")
+        _, _, html = c.get("/clasico/login")
         for trozo in head:
             self.assertIn(trozo, html, f"login sin {trozo}")
         # página autenticada
@@ -2012,7 +2012,7 @@ class PanelTest(unittest.TestCase):
     # ── UI para teléfonos (responsive, patrón "ECCSA Shell") ─────────────────
     def test_51_ui_para_movil(self):
         c = Client()
-        _, _, html = c.get("/login")
+        _, _, html = c.get("/clasico/login")
         # Estas reglas comparan sobre el HTML SERVIDO, que es un solo <style>
         # con apple.css. Se normalizan los espacios antes de comparar: lo que
         # importa es que la regla exista, no cómo esté espaciada.
@@ -2212,7 +2212,7 @@ class PanelTest(unittest.TestCase):
         self.assertFalse(os.path.isfile(os.path.join(base, "panel.css")),
                          "panel.css era el diseño viejo y ya no se carga")
         c = Client()
-        _, _, html = c.get("/login")
+        _, _, html = c.get("/clasico/login")
         self.assertIn(".rail", html)       # navegación del diseño nuevo
         self.assertIn(".wcard", html)      # tarjeta de worker (vista Estado)
         self.assertNotIn("url('/engrane.png')", html)

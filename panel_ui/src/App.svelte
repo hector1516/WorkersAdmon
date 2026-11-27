@@ -37,7 +37,7 @@
 	let listo = $state(false);
 	let ruta = $derived(matchRoute($path));
 	let Pagina = $derived(
-		ruta.nombre === 'logs' && ruta.params.nombre ? LogDetalle : (PAGINAS[ruta.id] ?? null)
+		ruta.id === 'logs' && ruta.params.nombre ? LogDetalle : (PAGINAS[ruta.id] ?? null)
 	);
 
 	onMount(() => {
@@ -50,8 +50,8 @@
 	// Sin sesión no se pinta el shell; con sesión, /login vuelve a la raíz.
 	$effect(() => {
 		if (!listo) return;
-		if (!$auth.user && ruta.nombre !== 'login') navigate('/login', { replace: true });
-		else if ($auth.user && ruta.nombre === 'login') navigate('/', { replace: true });
+		if (!$auth.user && ruta.id !== 'login') navigate('/login', { replace: true });
+		else if ($auth.user && ruta.id === 'login') navigate('/', { replace: true });
 	});
 
 	async function cerrarSesion() {
@@ -74,7 +74,7 @@
 	<Splash />
 {:else if !$auth.user}
 	<Login />
-{:else if $auth.user && ruta.nombre === 'login'}
+{:else if $auth.user && ruta.id === 'login'}
 	<Splash texto="Volviendo al panel…" />
 {:else}
 	<AppShell

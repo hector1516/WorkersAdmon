@@ -231,7 +231,7 @@ class Handler(BaseHTTPRequestHandler):
     # de Python quedan de respaldo bajo /clasico/... para emergencias.
     _GET_SERVIDOR = {"/healthz", "/logo.png", "/engrane.png", "/favicon.ico",
                      "/manifest.webmanifest", "/sw.js", "/offline",
-                     "/login", "/logout", "/api/status", "/api/shell/state"}
+                     "/logout", "/api/status", "/api/shell/state"}
     _GET_PREFIJOS = ("/api/", "/passkey/", "/icons/")
 
     def do_GET(self):
