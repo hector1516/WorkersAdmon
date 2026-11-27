@@ -6,6 +6,8 @@ Lo que se vigila:
   · que los hechos sean SOLO del propio usuario (vales, reportes, km, tickets);
   · que las llegadas tarde salgan del primer escaneo contra el turno;
   · que el sarcasmo use un hecho real y no invente cuando no hay datos;
+  · que un insulto se detecte por palabra completa (no dentro de otra) y se
+    responda con reconocimiento seco y un hecho real;
   · que no repita la frase anterior de la misma persona;
   · que con tres o más ausencias seguidas se calle (texto neutro);
   · que las cotizaciones solo cuenten si está en `wa_bot_cotizaciones`;
@@ -304,6 +306,45 @@ class Sarcasmo(PersonaBase):
         frase = self.sarcasmo()
         self.assertTrue(frase)
         self.assertNotIn("\n", frase)
+
+
+class Insultos(unittest.TestCase):
+    """Detección de insultos y respuesta seca con un hecho propio."""
+
+    def test_detecta_insulto_con_y_sin_acentos(self):
+        for texto in ("esta bien eso bot menso, son cada lunes",
+                      "CÁLLATE", "no sirves", "pinche bot", "me cae mal"):
+            self.assertTrue(wa_persona.es_insulto(texto), texto)
+
+    def test_no_dispara_dentro_de_otra_palabra(self):
+        for texto in ("inmenso trabajo", "mensos no son", "pensamiento",
+                      "el bot es bueno", "", None):
+            self.assertFalse(wa_persona.es_insulto(texto), repr(texto))
+
+    def test_con_hecho_real_remata_con_el(self):
+        datos = {"usuario_id": YO, "nombre": "Héctor Salas",
+                 "vales": {"total": 3, "mas_viejo": datetime(2026, 11, 2)},
+                 "ausencias_seguidas": False}
+        wa_persona._ULTIMA.clear()
+        r = wa_persona.respuesta_insulto(
+            {"id": YO, "nombre": "Héctor Salas"}, datos, "bot menso")
+        self.assertTrue(r.startswith("Acepto la queja"), r)
+        self.assertIn("vale", r)
+        self.assertNotIn("\n", r)
+
+    def test_sin_hechos_responde_seco(self):
+        r = wa_persona.respuesta_insulto(
+            {"id": YO, "nombre": "Héctor Salas"}, {}, "menso")
+        self.assertIn("Acepto la queja, Héctor", r)
+        self.assertIn(wa_persona.CIERRE_SECO, r)
+
+    def test_con_roast_apagado_solo_reconoce(self):
+        datos = {"usuario_id": YO, "nombre": "Héctor Salas",
+                 "vales": {"total": 3, "mas_viejo": None}}
+        r = wa_persona.respuesta_insulto(
+            {"id": YO, "nombre": "Héctor Salas"}, datos, "menso",
+            con_roast=False)
+        self.assertEqual(r, "Acepto la queja, Héctor.")
 
 
 if __name__ == "__main__":

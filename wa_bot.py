@@ -29,6 +29,10 @@ Reglas de contenido:
 - El humor de los registrados sale de sus propios datos (`wa_persona`): vales
   sin comprobante, llegadas tarde, ultimo reporte, odometro. Se apaga con
   `HUB_Config.wa_bot_sarcasmo = 0`.
+- Si el mensaje insulta o se burla del bot, primero se acepta la queja en seco
+  y luego se remata con UN hecho propio (mismo interruptor). Urgencia,
+  factura/cobranza y tres o mas ausencias seguidas lo apagan y se canaliza; a
+  un desconocido se le contesta formal, nunca con roast.
 - El humor se apaga con palabras urgentes y con los temas factura/cobranza.
 - Nunca se dan precios, cotizaciones, datos de otros clientes ni informacion
   interna: se rechaza y se canaliza con el responsable.
@@ -873,6 +877,32 @@ def _respuesta_sin_intencion(nombre, obtener):
     return f"No entendí ese mensaje. {MENU_CORTO}"
 
 
+def _respuesta_insulto(persona, norm, kb, conn=None, permitido=True):
+    """
+    Respuesta a un registrado que insulta al bot: reconocimiento seco y, si se
+    puede, un roast con un hecho propio. Devuelve None cuando hay que
+    canalizar neutro (tres o mas ausencias seguidas).
+
+    `permitido=False` (kb inyectado sin conexion, es decir una prueba) evita
+    tocar la base: sale solo el reconocimiento.
+    """
+    datos = None
+    if permitido:
+        try:
+            datos = wa_persona.hechos(persona.get("id"), conn=conn)
+        except Exception as exc:
+            print(f"[wa_bot] sin hechos para el roast: {exc}")
+    if isinstance(datos, dict) and datos.get("ausencias_seguidas"):
+        return None
+
+    texto = wa_persona.respuesta_insulto(persona, datos, norm,
+                                         con_roast=_sarcasmo_activo(kb))
+    if len(texto) > MAX_RESPUESTA:
+        texto = wa_persona.respuesta_insulto(persona, datos, norm,
+                                             con_roast=False)
+    return texto
+
+
 def _respuesta_opcion(opcion, kb, ahora):
     if opcion == 1:
         return _respuesta_horario(kb, ahora)
@@ -940,6 +970,22 @@ def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None, conn=None):
                     "¿Me lo resumes en una o dos líneas, por favor?")
         return ("Tu mensaje es muy largo. "
                 "¿Me lo resumes en una o dos líneas, por favor?")
+
+    # Insulto o burla al bot. El registrado recibe reconocimiento seco y, si se
+    # puede, un roast con sus datos; al externo se le contesta formal y se le
+    # canaliza. Urgencia, factura/cobranza y ausencias seguidas van neutro.
+    if wa_persona.es_insulto(norm):
+        tema = _tema(norm)
+        if _es_urgente(norm) or tema in ("facturas", "cobranza"):
+            return _respuesta_canalizar(kb, tema or "default")
+        if not persona:
+            return _respuesta_canalizar(
+                kb, tema or "default", prefijo="Entiendo la molestia;")
+        respuesta = _respuesta_insulto(
+            persona, norm, kb, conn, permitido=kb_propia or conn is not None)
+        if respuesta:
+            return respuesta
+        return _respuesta_canalizar(kb, tema or "default")
 
     # Un numero solo es la lectura del odometro de un usuario registrado. Va
     # antes que el menu: escribir "179679" no es pedir informacion.

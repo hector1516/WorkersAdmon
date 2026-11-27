@@ -16,10 +16,16 @@ para hablarle con gracia en vez de repetir el menú:
 hechos, o `""` si no hay nada real que decir. Nunca inventa un dato y nunca
 repite la frase anterior de la misma persona.
 
+`es_insulto(norm)` reconoce un insulto o burla hacia el bot y
+`respuesta_insulto(...)` contesta con un reconocimiento seco y, si hay un hecho
+propio, un roast corto con el. Nunca hay groserías ni ataques personales.
+
 Contrato:
 
     hechos(usuario_id, conn=None) -> dict          # cache 5 min
     sarcasmo(usuario_id, hechos=None, conn=None) -> str
+    es_insulto(norm) -> bool
+    respuesta_insulto(persona, hechos, norm, con_roast=True) -> str
     olvidar(usuario_id=None) -> None               # tira la cache
 
 - `conn=None` usa `eccsa_db.get_connection()`; los tests pasan una conexión
@@ -41,7 +47,9 @@ Reglas que no se rompen:
     python -m unittest tests.test_wa_persona -v
 """
 import random
+import re
 import time
+import unicodedata
 from datetime import datetime, time as hora_del_dia, timedelta
 
 from tz_mx import now_mx
@@ -103,6 +111,31 @@ HECHOS_VACIOS = {
 
 _CACHE = {}       # usuario_id -> (monotonic, hechos)
 _ULTIMA = {}      # usuario_id -> última frase dicha
+
+# Insultos y burlas hacia el bot. Se buscan como palabra o frase completa sobre
+# el texto normalizado: "inmenso" o "mensos" no cuentan como "menso".
+
+
+def _sin_acentos(texto):
+    """Minusculas, sin acentos y con espacios colapsados (para comparar)."""
+    txt = unicodedata.normalize("NFD", str(texto or ""))
+    txt = "".join(c for c in txt if unicodedata.category(c) != "Mn")
+    return " ".join(txt.lower().split())
+
+
+INSULTOS = (
+    "menso", "tonto", "pendejo", "idiota", "inutil", "inútil", "estupido",
+    "estúpido", "baboso", "tarado", "no sirves", "eres malo", "pinche bot",
+    "bot pendejo", "callate", "cállate", "me cae mal",
+)
+
+# Lo que se dice primero cuando alguien insulta: se acepta la queja sin pelear.
+RECONOCIMIENTO = "Acepto la queja"
+
+# Sin un hecho que rematar, se cierra con una pregunta util y seca.
+CIERRE_SECO = "¿Seguimos con el horario o quieres sacar algo más?"
+
+_INSULTOS_NORM = tuple(_sin_acentos(frase) for frase in INSULTOS)
 
 
 # ─── Acceso a la base ────────────────────────────────────────────────────────
@@ -415,3 +448,43 @@ def sarcasmo(usuario_id, hechos=None, conn=None):
     frase = random.choice(opciones)
     _ULTIMA[propio] = frase
     return frase
+
+
+# ─── Insultos ────────────────────────────────────────────────────────────────
+
+def es_insulto(norm):
+    """
+    True si el mensaje insulta o se burla del bot. Acepta texto normalizado o
+    crudo (lo normaliza igual) y exige palabra o frase completa, para que
+    «inmenso» no cuente como «menso».
+    """
+    texto = _sin_acentos(norm)
+    if not texto:
+        return False
+    for frase in _INSULTOS_NORM:
+        if re.search(r"\b" + re.escape(frase) + r"\b", texto):
+            return True
+    return False
+
+
+def respuesta_insulto(persona, hechos, norm, con_roast=True):
+    """
+    Reconocer la queja en seco y, si hay un hecho real del usuario, rematar con
+    una sola línea suya. Sin hechos (o con `con_roast=False`, el interruptor
+    apagado) queda solo el reconocimiento.
+
+    No es pelea: no hay groserías, no se menciona a terceros y no se repite la
+    frase anterior de la misma persona (lo garantiza `sarcasmo`).
+    """
+    datos = hechos if isinstance(hechos, dict) else {}
+    nombre = _pila(datos.get("nombre") or (persona or {}).get("nombre"))
+    quien = f", {nombre}" if nombre else ""
+    reconocimiento = f"{RECONOCIMIENTO}{quien}."
+
+    if not con_roast:
+        return reconocimiento
+
+    frase = sarcasmo((persona or {}).get("id"), hechos=datos)
+    if not frase:
+        return f"{reconocimiento} {CIERRE_SECO}"
+    return f"{reconocimiento} {frase}"

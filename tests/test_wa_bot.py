@@ -7,6 +7,8 @@ Lo que se vigila:
   · que al registrado se le llame por su nombre, se le diga que puede hacer y
     se le agregue UN chiste;
   · que la urgencia y factura/cobranza apaguen el humor;
+  · que un insulto al bot reciba reconocimiento seco y un hecho real propio,
+    y que urgencia, factura, ausencias y desconocidos queden neutros;
   · que abierto/cerrado dependa de la hora inyectada (sin depender del reloj);
   · que direccion + mapa, telefonos del equipo y canalizacion salgan con el
     responsable correcto;
@@ -440,7 +442,7 @@ class SarcasmoEnBot(unittest.TestCase):
                                 ahora=ahora, conn=self.base)
 
     def test_mensaje_sin_intencion_usa_un_hecho_y_el_menu_corto(self):
-        r = self.responder("Esta bien eso bot menso, son cada lunes")
+        r = self.responder("Esta bien eso bot, son cada lunes")
         self.assertIn(self.FRASE, r)
         self.assertIn(wa_bot.MENU_CORTO, r)
         self.assertNotIn("1. Horario", r)      # ya no es el menú seco
@@ -466,14 +468,17 @@ class SarcasmoEnBot(unittest.TestCase):
         kb = kb_falso(sarcasmo="0")
         r = self.responder("Esta bien eso bot menso, son cada lunes", kb=kb)
         self.assertNotIn(self.FRASE, r)
-        self.assertIn(wa_bot.MENU_CORTO, r)
+        self.assertIn("Acepto la queja", r)
+        self.assertNotIn(wa_bot.MENU_CORTO, r)
         self.assertEqual(self.llamadas, [])
 
     def test_desconocido_nunca_recibe_sarcasmo(self):
         r = self.responder("Esta bien eso bot menso, son cada lunes",
                            telefono=DESCONOCIDO)
         self.assertNotIn(self.FRASE, r)
-        self.assertIn("1. Horario", r)
+        self.assertNotIn("Acepto la queja", r)
+        self.assertIn("Entiendo la molestia", r)
+        self.assertIn("Priscila", r)
         self.assertEqual(self.llamadas, [])
 
     def test_cotizacion_con_partidas_no_lleva_sarcasmo(self):
@@ -493,6 +498,89 @@ class SarcasmoEnBot(unittest.TestCase):
         r = self.responder("Esta bien eso bot menso, son cada lunes")
         self.assertLessEqual(len(r), wa_bot.MAX_RESPUESTA)
         self.assertNotIn("x" * 900, r)
+
+
+class InsultoEnBot(unittest.TestCase):
+    """Insulto al bot: reconocimiento seco y roast con un hecho propio."""
+
+    MENSAJE = "Esta bien eso bot menso, son cada lunes"
+
+    def setUp(self):
+        self.kb = kb_falso()
+        self.base = BaseKm()
+        self._hechos = wa_persona.hechos
+        self._azar = wa_bot.random.random
+        wa_bot.random.random = lambda: 0.0
+        wa_persona.olvidar()
+        wa_persona._ULTIMA.clear()
+        self.datos = {"usuario_id": HECTOR_ID, "nombre": "Héctor Salas",
+                      "ausencias_seguidas": False}
+        self.hechos_falsos()
+
+    def tearDown(self):
+        wa_persona.hechos = self._hechos
+        wa_bot.random.random = self._azar
+        wa_persona.olvidar()
+        wa_persona._ULTIMA.clear()
+
+    def hechos_falsos(self, **datos):
+        base = dict(self.datos)
+        base.update(datos)
+        wa_persona.hechos = lambda usuario_id, conn=None, ahora=None: base
+        return base
+
+    def responder(self, texto, telefono=HECTOR, kb=None):
+        return wa_bot.responder(CHAT, telefono, texto,
+                                kb=self.kb if kb is None else kb,
+                                conn=self.base)
+
+    def test_insulto_con_datos_responde_con_hecho_real(self):
+        self.hechos_falsos(vales={"total": 3,
+                                  "mas_viejo": datetime(2026, 11, 2)})
+        r = self.responder(self.MENSAJE)
+        self.assertTrue(r.startswith("Acepto la queja"), r)
+        self.assertIn("vale", r)
+        self.assertIn("comprobante", r)
+
+    def test_insulto_sin_datos_responde_seco(self):
+        r = self.responder(self.MENSAJE)
+        self.assertIn("Acepto la queja, Héctor", r)
+        self.assertIn(wa_persona.CIERRE_SECO, r)
+
+    def test_menso_dentro_de_otra_palabra_no_dispara(self):
+        r = self.responder("inmenso trabajo el de hoy")
+        self.assertNotIn("Acepto la queja", r)
+
+    def test_desconocido_recibe_trato_formal(self):
+        r = self.responder(self.MENSAJE, telefono=DESCONOCIDO)
+        self.assertIn("Entiendo la molestia", r)
+        self.assertNotIn("Acepto la queja", r)
+        self.assertIn("Priscila", r)
+
+    def test_urgencia_desactiva_el_roast(self):
+        r = self.responder("urgente, bot menso, no funciona el sistema")
+        self.assertNotIn("Acepto la queja", r)
+        self.assertIn("Héctor", r)
+
+    def test_factura_desactiva_el_roast_y_canaliza(self):
+        r = self.responder("necesito factura, bot menso")
+        self.assertNotIn("Acepto la queja", r)
+        self.assertIn("Rosy", r)
+
+    def test_interruptor_apagado_solo_reconoce(self):
+        self.hechos_falsos(vales={"total": 3,
+                                  "mas_viejo": datetime(2026, 11, 2)})
+        kb = kb_falso(sarcasmo="0")
+        r = self.responder(self.MENSAJE, kb=kb)
+        self.assertEqual(r, "Acepto la queja, Héctor.")
+        self.assertNotIn("vales", r)
+        self.assertNotIn(wa_persona.CIERRE_SECO, r)
+
+    def test_tres_ausencias_seguidas_canalizan_neutro(self):
+        self.hechos_falsos(ausencias_seguidas=True)
+        r = self.responder(self.MENSAJE)
+        self.assertNotIn("Acepto la queja", r)
+        self.assertIn("Priscila", r)
 
 
 if __name__ == "__main__":
