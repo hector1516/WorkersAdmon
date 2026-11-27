@@ -8577,7 +8577,7 @@ def get_pdf_storage_config():
         with get_connection() as conn:
             with conn.cursor(as_dict=True) as cur:
                 placeholders = ', '.join(['%s'] * len(_PDF_STORAGE_KEYS))
-                cur.execute(f"SELECT Clave, Valor FROM HUB_Config WHERE Clave IN ({placeholders})", _PDF_STORAGE_KEYS)
+                cur.execute(f"SELECT Clave, Valor FROM HUB_Config WHERE Clave IN ({placeholders})", tuple(_PDF_STORAGE_KEYS))
                 rows = cur.fetchall()
                 cfg = {row['Clave']: (row['Valor'] or '').strip() for row in rows}
                 return {k: cfg.get(k, '') for k in _PDF_STORAGE_KEYS}
