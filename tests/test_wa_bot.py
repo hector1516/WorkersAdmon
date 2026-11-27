@@ -371,7 +371,7 @@ class Kilometraje(unittest.TestCase):
         self.assertIn("El auto va a pedir aumento", r)
         self.assertEqual(len(self.base.registros), 1)
         self.assertEqual(self.base.registros[0][1:4], [7, 179679, HECTOR_ID])
-        self.assertEqual(self.base.commits, 1)
+        self.assertEqual(self.base.commits, 2)
 
     def test_numero_con_comas_tambien_cuenta(self):
         r = self.responder(" 179,679 ")

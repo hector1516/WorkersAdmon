@@ -684,10 +684,13 @@ def _sarcasmo_final(usuario_id, conn, kb):
     try:
         # La cache se tira: el hecho que se acaba de escribir tiene que salir.
         wa_persona.olvidar(usuario_id)
+        if not wa_persona.roast_disponible(usuario_id, conn=conn):
+            return ""
         datos = wa_persona.hechos(usuario_id, conn=conn)
         frase = wa_persona.sarcasmo(usuario_id, hechos=datos, conn=conn)
         if not frase:
             return ""
+        wa_persona.marcar_roast(usuario_id, conn=conn)
         razon = wa_persona.motivo(datos)
         return f"{frase}\n\nPor qué: {razon}." if razon else frase
     except Exception as exc:
@@ -906,8 +909,15 @@ def _respuesta_insulto(persona, norm, kb, conn=None, permitido=True):
     if isinstance(datos, dict) and datos.get("ausencias_seguidas"):
         return None
 
+    con_roast = _sarcasmo_activo(kb)
+    if con_roast and not wa_persona.roast_disponible(persona.get("id"), conn=conn):
+        # Ya se usó el roast del día: se acepta la queja sin repetir el chiste.
+        con_roast = False
+
     texto = wa_persona.respuesta_insulto(persona, datos, norm,
-                                         con_roast=_sarcasmo_activo(kb))
+                                         con_roast=con_roast)
+    if con_roast:
+        wa_persona.marcar_roast(persona.get("id"), conn=conn)
     if len(texto) > MAX_RESPUESTA:
         texto = wa_persona.respuesta_insulto(persona, datos, norm,
                                              con_roast=False)

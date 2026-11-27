@@ -549,6 +549,44 @@ def motivo(datos):
     return ""
 
 
+def roast_disponible(usuario_id, conn=None):
+    """Un roast al día por persona: si ya se usó, no se repite."""
+    try:
+        propio = int(usuario_id)
+        c = conn or _conexion()
+        fila = _una(
+            c,
+            "SELECT COUNT(*) FROM HUB_WaRecordatorios "
+            "WHERE Tipo = 'ROAST' AND IdUsuario = %s "
+            "AND FechaDia = CAST(GETDATE() AS date)",
+            (propio,))
+        return not (fila and int(fila[0] or 0))
+    except Exception:
+        return True
+
+
+def marcar_roast(usuario_id, conn=None):
+    """Anota el roast del día. Nunca lanza."""
+    try:
+        propio = int(usuario_id)
+        c = conn or _conexion()
+        cur = c.cursor()
+        try:
+            cur.execute(
+                "INSERT INTO HUB_WaRecordatorios "
+                "(Tipo, Clave, IdUsuario, FechaDia, Ok, Detalle) "
+                "VALUES ('ROAST', 'diario', %s, CAST(GETDATE() AS date), 1, 'roast')",
+                (propio,))
+            c.commit()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def sarcasmo(usuario_id, hechos=None, conn=None):
     """
     Una línea de sarcasmo con un hecho real del usuario, o `""` si no hay
