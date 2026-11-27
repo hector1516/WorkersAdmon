@@ -82,7 +82,7 @@ def _field_html(f, env_vals, cfg_vals, worker):
 
     help_html = (f'<div class="help">{esc(f["ayuda"])}</div>'
                  if f.get("ayuda") else "")
-    unit = (f' <span class="muted" style="font-weight:400">({esc(f["unidad"])})</span>'
+    unit = (f' <span class="muted peso-400">({esc(f["unidad"])})</span>'
             if f.get("unidad") else "")
 
     if tipo == "secret":

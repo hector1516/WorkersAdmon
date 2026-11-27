@@ -1,6 +1,6 @@
 """
-panel/templates.py — Plantillas HTML del panel (tema oscuro ECCSA)
-==================================================================
+panel/templates.py — Plantillas HTML del panel (lenguaje Apple / HIG)
+===================================================================
 HTML generado en Python puro (sin dependencias, sin JS obligatorio):
 todas las acciones son formularios POST con token CSRF y redirección
 Post/Redirect/Get, de modo que funcionan también en móvil.
@@ -111,8 +111,8 @@ NAV_ICONS = {
     "triaje": "ticket",
 }
 
-# Los cuatro destinos diarios de la barra inferior; el resto cabe en «Más».
-NAV_INFERIOR = ("estado", "logs", "whatsapp", "notificaciones")
+# Los cinco destinos diarios de la barra inferior; el resto cabe en «Más».
+NAV_INFERIOR = ("estado", "logs", "whatsapp", "notificaciones", "avisos")
 
 
 def _puede_ver(user, tab):
@@ -138,17 +138,24 @@ def _nav_item(tab, active, user):
     Las clases se escriben `rail__link nav-item` (no al revés) porque
     `rail__link` es la que manda en el CSS nuevo y `nav-item` se conserva como
     nombre del contrato de DESIGN.md.
+
+    `aria-label` + `title` van siempre: entre 768 y 1023 px la barra lateral
+    oculta el texto con `display:none`, y un `display:none` también le quita el
+    nombre accesible al enlace.
     """
     icono_html = icono(NAV_ICONS.get(tab["id"], "folder"))
-    label = f'<span class="nav-item__text">{esc(_etiqueta(tab))}</span>'
+    nombre = _etiqueta(tab)
+    label = f'<span class="nav-item__text">{esc(nombre)}</span>'
     activo = tab["id"] == active
     clases = "rail__link nav-item" + (" is-active" if activo else "")
     if not _puede_ver(user, tab):
         return (f'<span class="{clases} is-off" aria-disabled="true" '
-                f'title="Requiere el permiso {esc(tab.get("perm"))}">'
+                f'aria-label="{esc(nombre)}" title="Requiere el permiso '
+                f'{esc(tab.get("perm"))}">'
                 f'{icono_html}{label}</span>')
     aria = ' aria-current="page"' if activo else ""
-    return (f'<a class="{clases}" href="{esc(tab["href"])}"{aria}>'
+    return (f'<a class="{clases}" href="{esc(tab["href"])}"{aria} '
+            f'aria-label="{esc(nombre)}" title="{esc(nombre)}">'
             f'{icono_html}{label}</a>')
 
 
@@ -184,171 +191,6 @@ def _nav(active, user=None, inferior=False):
             f'</nav>')
 
 
-# ─── Banner común (ECCSA-Shell · ver docs/CONTRATO.md en el repo) ───────────
-# El markup y los textos son los del shell, iguales en las 3 apps. Lo que
-# cambia en el panel es que el banner es de solo lectura (no hay cola offline
-# que empujar) y por eso es un <div> y no un <button>.
-BANNER_TEXT = {
-    "idle": "Todo sincronizado",
-    "syncing": "Sincronizando...",
-    "error": "Error al sincronizar — reintentando",
-    "offline": "Sin conexión — modo offline",
-}
-
-# 'pending' no tiene texto fijo: se arma con el número de pendientes.
-BANNER_ESTADOS = ("idle", "syncing", "pending", "offline", "error")
-
-# Clase del <span class="dot"> según el estado. El CSS (.sync-header .dot.*)
-# lo pone el shell, así que el panel no define ningún color propio.
-BANNER_DOT = {
-    "offline": "offline",
-    "syncing": "syncing",
-    "error": "error",
-    "pending": "pending",
-    "idle": "ok",
-}
-
-# Fondo del banner por estado; lo usa la clase del <div>.
-BANNER_CLAVE = {
-    "offline": "offline",
-    "syncing": "syncing",
-    "error": "",
-    "pending": "has-items",
-    "idle": "",
-}
-
-LUGAR_TXT = {"oficina": ("🏢", "Oficina"),
-             "remoto": ("🏠", "Remoto"),
-             "desconocido": ("📍", "—")}
-
-
-def shell_banner(user=None, sync="idle", pendientes=0, lugar="desconocido", ip=""):
-    """Devuelve el HTML del banner, o '' si no hay nada que mostrar.
-
-    Réplica de banner/SyncHeader.svelte → el CSS es shell.css (.sync-header).
-    """
-    if user is None:
-        return ""
-    estado = sync if sync in BANNER_ESTADOS else "idle"
-    if estado == "pending":
-        texto = f"{pendientes or 0} pendiente{(pendientes or 0) != 1 and 's' or ''} — toca para sincronizar"
-    else:
-        texto = BANNER_TEXT[estado]
-    icono, lugar_texto = LUGAR_TXT.get(lugar, LUGAR_TXT["desconocido"])
-    clase = BANNER_CLAVE.get(estado, "")
-    return (
-        f'<div class="sync-header {clase}">'
-        f'<span class="dot {BANNER_DOT.get(estado, "ok")}"></span>'
-        f'<span class="txt">{esc(texto)}</span>'
-        f'<span class="who">👤 {esc(user.get("nombre") or user.get("email") or "")}'
-        f'<span class="lugar {lugar}" title="{esc(ip)}">'
-        f'{icono} {lugar_texto}</span></span>'
-        f'<span class="vers">v{esc(config.APP_VERSION)} · '
-        f'shell {esc(config._shell_version())}</span>'
-        f'</div>')
-
-
-def shell_actions(user=None, logout="/logout", changelog=True):
-    """Barra de acciones del shell (banner/ActionsBar.svelte).
-
-    El panel ya tiene Configuración y Notificaciones como pestañas de su tab
-    bar, así que aquí solo se expone 🚪 Salir: un botón se pinta únicamente si
-    su manejador existe, y esas dos no se pasan. En el panel las acciones son
-    navegaciones (<a>) o <button data-changelog-abrir>, porque es HTML plano
-    con formularios POST y Post/Redirect/Get, no manejadores JS como en las
-    apps Svelte.
-    """
-    if user is None:
-        return ""
-    partes = []
-    if logout:
-        partes.append(f'<a class="btn btn-sm btn-secondary" href="{esc(logout)}" '
-                      f'title="Cerrar sesión">🚪 Salir</a>')
-    if changelog:
-        # El 📋 no necesita manejador: el script del changelog lo enlaza al
-        # modal. Mismo comportamiento que el prop onchangelog por defecto del
-        # componente de Svelte.
-        partes.append('<button class="btn btn-sm btn-secondary" '
-                      'data-changelog-abrir title="Novedades">📋</button>')
-    if not partes:
-        return ""
-    return '<div class="shell-actions">' + "".join(partes) + "</div>"
-
-
-# ─── Novedades (changelog) ───────────────────────────────────────────────────
-def _changelog():
-    """(app, version, cambios) leyendo static/changelog.json.
-
-    El texto vive en un JSON, igual que en Field y Admon, para que se pueda
-    editar sin tocar Python. Si falta o está roto, el popup simplemente no
-    aparece: nunca debe tumbar el panel.
-    """
-    import json
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    try:
-        with open(os.path.join(base, "static", "changelog.json"),
-                  encoding="utf-8") as fh:
-            d = json.load(fh)
-    except (OSError, ValueError):
-        return config.APP_ID, config.APP_VERSION, []
-    return (d.get("app") or config.APP_ID,
-            d.get("version") or config.APP_VERSION,
-            [c for c in (d.get("cambios") or []) if c])
-
-
-def changelog_modal():
-    """Modal de novedades del shell (banner/changelog.py.html).
-
-    El panel no tiene build, así que el HTML se pinta siempre oculto y un
-    script pequeño decide si lo muestra. La lógica es la misma que en las apps
-    Svelte, con la misma clave: `eccsa:changelog:<appId>`.
-    """
-    app_id, version, cambios = _changelog()
-    if not version or not cambios:
-        return ""
-    items = "".join(f"<li>{esc(c)}</li>" for c in cambios)
-    return (
-        f'<div class="shell-modal" id="shellChangelog" hidden '
-        f'data-app="{esc(app_id)}" data-version="{esc(version)}">'
-        f'<div class="shell-modal-card">'
-        f'<div class="shell-modal-hd"><h2>📋 Novedades</h2>'
-        f'<span class="shell-modal-ver">v{esc(version)}</span></div>'
-        f'<p class="shell-modal-sub">Cambios de {esc(config.TITLE)}</p>'
-        f'<ul class="shell-modal-list">{items}</ul>'
-        f'<button class="btn btn-primary btn-block" data-changelog-cerrar>'
-        f'Entendido</button>'
-        f'</div></div>')
-
-
-# Script del popup de novedades: misma regla que Changelog.svelte — salta solo
-# la primera vez que se ve cada versión, y el botón 📋 lo abre a mano.
-CHANGELOG_JS = """
-<script>
-(function () {
-  var el = document.getElementById('shellChangelog');
-  if (!el) return;
-  var app = el.dataset.app || 'app';
-  var ver = el.dataset.version || '';
-  var clave = 'eccsa:changelog:' + app;
-  var vista = null;
-  try { vista = localStorage.getItem(clave); } catch (e) {}
-  function cerrar() { el.hidden = true; }
-  var cerrarBtn = el.querySelector('[data-changelog-cerrar]');
-  if (cerrarBtn) cerrarBtn.addEventListener('click', cerrar);
-  el.addEventListener('click', function (ev) { if (ev.target === el) cerrar(); });
-  document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape') cerrar();
-  });
-  var abrir = document.querySelector('[data-changelog-abrir]');
-  if (abrir) abrir.addEventListener('click', function () { el.hidden = false; });
-  if (!ver || vista === ver) return;
-  el.hidden = false;
-  try { localStorage.setItem(clave, ver); } catch (e) {}
-})();
-</script>
-"""
-
-
 def lugar_de(request_ip):
     """'oficina' si la IP es privada/red ECCSA, 'remoto' si es pública.
 
@@ -364,7 +206,6 @@ def lugar_de(request_ip):
 # Mismos meta/links que Field y Admon: el panel se puede instalar en el
 # escritorio/celular desde https://worker.ecc-sa.com.mx.
 PWA_HEAD = """
-<meta name="theme-color" content="#0F172A">
 <meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <meta name="color-scheme" content="light dark">
@@ -426,7 +267,7 @@ AUTO_REFRESH_JS = """
 """
 
 VIEWPORT = ('<meta name="viewport" content="width=device-width,initial-scale=1,'
-            'maximum-scale=1,user-scalable=no,viewport-fit=cover">')
+            'viewport-fit=cover">')
 
 # Tipografía: la del sistema (DESIGN.md). No se carga ninguna fuente externa:
 # el panel usa -apple-system / Segoe UI / Roboto, que ya están en el equipo y
@@ -454,9 +295,9 @@ def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refres
     un worker vuelve a Estado).
 
     `banner`, `sync`, `lugar` e `ip` se conservan en la firma porque las vistas
-    ya las pasan (las vistas se migran en paralelo), pero el banner del shell
-    se retiró: el lugar y la IP ahora son el `title` del usuario en la barra
-    superior, y `sync`/`banner` no se pintan.
+    ya las pasan, pero el banner del shell se retiró: el lugar y la IP ahora
+    son el `title` del usuario en la barra superior, y `sync`/`banner` no se
+    pintan.
     """
     refresh_js = (AUTO_REFRESH_JS.replace("__SECS__", str(int(refresh)))
                   if refresh else "")
@@ -646,14 +487,14 @@ def login_page(error="", csrf="", locked=False):
     nota.hidden = false;
     nota.textContent = seguro
       ? 'Este navegador no soporta passkeys: usa tu contraseña.'
-      : '🔒 El passkey solo funciona en https://worker.ecc-sa.com.mx';
+      : 'El passkey solo funciona en https://worker.ecc-sa.com.mx';
     return;
   }}
   el('pk').hidden = false;
 
   el('pk_btn').addEventListener('click', async function () {{
     el('pk_btn').disabled = true;
-    status('🔄 Preparando passkey…');
+    status('Preparando passkey…');
     try {{
       var begin = await fetch('/passkey/begin', {{
         method: 'POST', headers: {{ 'Content-Type': 'application/json' }},
@@ -674,14 +515,14 @@ def login_page(error="", csrf="", locked=False):
       }});
       var fj = await fin.json();
       if (!fj.ok) throw new Error(fj.msg || 'Passkey no válida');
-      status('✅ ¡Bienvenido' + (fj.nombre ? ', ' + fj.nombre : '') + '!');
+      status('¡Bienvenido' + (fj.nombre ? ', ' + fj.nombre : '') + '!');
       window.location.href = fj.redirect || '/';
     }} catch (e) {{
       var n = (e && e.name) || '';
       if (n === 'NotAllowedError' || n === 'AbortError') {{
-        status('⚠️ Passkey cancelada. Usa tu contraseña.');
+        status('Passkey cancelada. Usa tu contraseña.');
       }} else {{
-        status('❌ ' + ((e && e.message) || e));
+        status('No se pudo entrar: ' + ((e && e.message) || e));
       }}
       el('pk_btn').disabled = false;
     }}

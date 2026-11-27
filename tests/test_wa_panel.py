@@ -357,7 +357,7 @@ class WaPanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         for trozo in ("Doña Mari", "5218123211516",
                       "¿Ya salió mi pedido de ayer?", "Taller López",
-                      "badge badge-success", "badge badge-warning",
+                      "badge badge--ok", "badge badge--warn",
                       "Admin Panel"):
             self.assertIn(trozo, html)
 
@@ -366,7 +366,8 @@ class WaPanelTest(unittest.TestCase):
             "/whatsapp?wa=conversaciones&chat=5218123211516@c.us")
         self.assertEqual(code, 200)
         for trozo in ("Hola, buen día", "Buen día, ¿en qué le ayudo?",
-                      "Entrante", "Saliente", "Responder", "Tomar",
+                      'data-direccion="IN"', 'data-direccion="OUT"',
+                      "Responder", "Tomar",
                       "Devolver al bot", "Cerrar"):
             self.assertIn(trozo, html)
 

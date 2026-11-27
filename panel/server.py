@@ -41,7 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from . import auth, config, db, envconf, probes, spec, wa_webhook, webauthn, workers
 from tz_mx import now_mx
 from .templates import (esc, forbidden_page, lugar_de, login_page,
-                         offline_page, page, shell_banner, shell_actions)
+                        offline_page, page)
 from .lugar import lugar_de_handler
 from .views import apps as apps_view
 from .views import asistencia as asis_view

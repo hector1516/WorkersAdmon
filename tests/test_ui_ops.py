@@ -104,7 +104,7 @@ class AsistenciaUI(unittest.TestCase):
         for etiqueta in ("Presentes", "Entradas", "Salidas", "Sin registro"):
             self.assertIn(etiqueta, html)
         # Una fila por persona, con la ventana y las columnas esperada/real.
-        self.assertGreaterEqual(html.count('class="list__row"'), 2)
+        self.assertGreaterEqual(html.count('class="list__row'), 2)
         self.assertIn('class="list__main"', html)
         self.assertIn("Ana", html)
         self.assertIn("Beto", html)
@@ -167,8 +167,8 @@ class TriajeUI(unittest.TestCase):
 
     def test_lista_con_acciones(self):
         html = self.render()
-        self.assertIn('class="list"', html)
-        self.assertIn('class="list__row"', html)
+        self.assertIn('class="list ', html)
+        self.assertIn('class="list__row', html)
         self.assertIn("cliente@fuera.com", html)
         self.assertIn("Cotización pendiente", html)
         self.assertIn("2026-11-25 08:10", html)
@@ -182,7 +182,7 @@ class TriajeUI(unittest.TestCase):
 
     def test_filtros_segmentados_y_bloqueos(self):
         html = self.render()
-        self.assertIn('class="segmented"', html)
+        self.assertIn('class="segmented tr-sec"', html)
         self.assertIn('aria-current="page"', html)
         self.assertIn("Por revisar", html)
         self.assertIn("Bloqueos", html)
@@ -244,7 +244,7 @@ class CorreoUI(unittest.TestCase):
 
     def test_estado_de_cuenta(self):
         html = self.render()
-        self.assertIn('class="card"', html)
+        self.assertIn('class="card ', html)
         self.assertIn('class="badge badge--ok">Activa</span>', html)
         self.assertIn('class="badge badge--bad">Error</span>', html)
         self.assertIn("Último error", html)
@@ -254,8 +254,8 @@ class CorreoUI(unittest.TestCase):
 
     def test_buzones_en_lista(self):
         html = self.render()
-        self.assertIn('class="list"', html)
-        self.assertIn('class="list__row"', html)
+        self.assertIn('class="list ', html)
+        self.assertIn('class="list__row', html)
         self.assertIn("Ventas", html)
         self.assertIn("ventas@ecc-sa.com.mx", html)
         self.assertIn("IMAP imap.gmail.com:993", html)

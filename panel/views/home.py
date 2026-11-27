@@ -14,36 +14,24 @@ se ve que existe y que te falta algo, en vez de desaparecer.
 
 from .. import auth as _auth
 from .. import config
-from ..templates import esc, page
-
-# Ícono grande de cada módulo. El de la barra inferior (TABS["label"]) es el
-# mismo emoji; se separa acá para poder usar uno más grande en la tarjeta.
-ICONOS = {
-    "estado": "📊",
-    "logs": "📄",
-    "config": "⚙️",
-    "notificaciones": "🔔",
-    "whatsapp": "💬",
-    "apps": "📦",
-    "asistencia": "🕒",
-    "correo": "✉️",
-    "avisos": "📣",
-}
+from ..icons import icono
+from ..templates import NAV_ICONS, esc, page
 
 
 def _tarjeta(tab, user):
     """Una tarjeta del menú. `<a>` y no `<button>`: es navegación, y sin JS."""
-    icono = ICONOS.get(tab["id"], "📦")
+    icono_html = icono(NAV_ICONS.get(tab["id"], "folder"), 24)
+    modulo = tab.get("modulo") or tab["label"]
     perm = tab.get("perm")
     if perm and user is not None and not _auth.has_perm(user, perm):
         return (f'<span class="module-card off" title="Requiere el permiso {esc(perm)}">'
-                f'<span class="module-icon">{icono}</span>'
-                f'<span class="module-title">{esc(tab.get("modulo") or tab["label"])}</span>'
+                f'<span class="module-icon">{icono_html}</span>'
+                f'<span class="module-title">{esc(modulo)}</span>'
                 f'<span class="module-desc">{esc(tab.get("desc", ""))}</span>'
                 f'</span>')
     return (f'<a class="module-card" href="{esc(tab["href"])}">'
-            f'<span class="module-icon">{icono}</span>'
-            f'<span class="module-title">{esc(tab.get("modulo") or tab["label"])}</span>'
+            f'<span class="module-icon">{icono_html}</span>'
+            f'<span class="module-title">{esc(modulo)}</span>'
             f'<span class="module-desc">{esc(tab.get("desc", ""))}</span>'
             f'</a>')
 

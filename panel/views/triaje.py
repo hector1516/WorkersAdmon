@@ -19,10 +19,10 @@ from ..icons import icono
 from ..templates import esc, page
 
 EXPLICACION = """
-<div class="card" style="margin-bottom:16px">
-  <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px">
+<div class="card tr-sec">
+  <h2 class="tr-h">
     """ + icono("alert") + """ Triaje del correo</h2>
-  <p class="hint" style="margin:0">
+  <p class="hint tr-margen-0">
     Clasifica cada mensaje nuevo con reglas, sin IA y sin costo: publicidad,
     rebotes y correo interno se descartan por cabeceras y por el remitente.
     Solo los correos de una persona real a alguien que <b>ya no está</b> llegan
@@ -54,8 +54,8 @@ def _filtros():
     no un formulario.
     """
     return f"""
-  <nav class="segmented" aria-label="Secciones de Triaje"
-       style="margin-bottom:16px">
+  <nav class="segmented tr-sec" aria-label="Secciones de Triaje"
+       >
     <a class="is-active" href="#por-revisar"
        aria-current="page">{icono("mail", 18)} Por revisar</a>
     <a href="#bloqueos">{icono("alert", 18)} Bloqueos</a>
@@ -77,30 +77,30 @@ def _tarjeta(c, csrf):
 
     borrador = c.get("BorradorTexto") or ""
     return f"""
-    <div class="list__row" style="align-items:flex-start;flex-wrap:wrap">
-      <div class="list__main" style="flex:1 1 260px">
+    <div class="list__row tr-fila tr-fila--top">
+      <div class="list__main tr-campo">
         <strong>{esc(c.get('RemitenteEmail') or '')}</strong>
-        <div style="margin:4px 0">{esc(c.get('Asunto') or '(sin asunto)')}</div>
+        <div class="tr-nota">{esc(c.get('Asunto') or '(sin asunto)')}</div>
         <div class="hint">
           Llegó a <b>{esc(c.get('CuentaEmail') or '')}</b> ·
           destinatario huérfano: <b>{esc(c.get('Destinatario') or '—')}</b>
           → se sugiere <b>{esc(c.get('DestinoSugerido') or '—')}</b>
         </div>
-        <div class="hint" style="margin-top:4px">{esc(motivo_txt)}</div>
-        <details class="wdesc" style="margin-top:6px">
+        <div class="hint tr-nota--4">{esc(motivo_txt)}</div>
+        <details class="wdesc tr-nota--6">
           <summary>Ver el borrador de respuesta</summary>
-          <div><pre style="white-space:pre-wrap;margin:0;font-family:var(--mono);font-size:13px">{esc(borrador)}</pre></div>
+          <div><pre class="tr-pre">{esc(borrador)}</pre></div>
         </details>
       </div>
-      <div class="list__meta" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="list__meta tr-acciones tr-acciones--center">
         <span class="badge {BADGE_CAT.get(cat, '')}">{esc(cat)}</span>
         <span class="badge">conf. {esc(conf_txt)}</span>
         {badge_susp}
         <span class="hint">{esc(str(c.get('Creado') or ''))}</span>
       </div>
-      <div style="flex:1 1 100%">
+      <div class="tr-ancho">
         <form method="post" action="/triaje"
-              style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+              class="tr-acciones tr-acciones--sep">
           <input type="hidden" name="csrf" value="{esc(csrf)}">
           <input type="hidden" name="id" value="{esc(str(c.get('Id')))}">
           <button class="btn btn--sm btn-success" name="accion" value="aprobar">
@@ -140,11 +140,11 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido", ip="")
     else:
         filas = "".join(_tarjeta(c, csrf) for c in pend)
         cuerpo += f"""
-  <div class="card" id="por-revisar" style="margin-bottom:16px">
-    <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px">
+  <div class="card tr-sec" id="por-revisar" >
+    <h2 class="tr-h">
       {icono("mail")} Por revisar
       <span class="badge badge--warn">{len(pend)}</span></h2>
-    <div class="list" style="max-height:min(60vh,560px);overflow:auto;min-height:0">
+    <div class="list tr-lista">
       {filas}
     </div>
   </div>"""
@@ -159,8 +159,8 @@ def _bloqueos(csrf):
     """Lista negra global: alta manual, importación de listas y baja."""
     filas_b = _t.listar_bloqueos()
     cuerpo = f"""
-  <div class="card" id="bloqueos" style="margin-bottom:16px">
-    <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px">
+  <div class="card tr-sec" id="bloqueos" >
+    <h2 class="tr-h">
       {icono("alert")} Lista de bloqueo global</h2>
     <p class="hint">
       Un remitente bloqueado se mueve a Spam en <b>las 13 cuentas</b>, no solo en
@@ -168,15 +168,15 @@ def _bloqueos(csrf):
       cualquier clasificación.
     </p>
     <form method="post" action="/triaje"
-          style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
+          class="tr-acciones tr-acciones--bloque">
       <input type="hidden" name="csrf" value="{esc(csrf)}">
-      <div class="field" style="flex:1 1 260px;margin:0">
+      <div class="field tr-campo tr-campo--sinmargen">
         <label for="bl-valor">Correo o dominio</label>
         <input id="bl-valor" class="input" name="valor"
                placeholder="correo@dominio.com o dominio.com"
                autocomplete="off" required>
       </div>
-      <div class="field" style="margin:0">
+      <div class="field tr-margen-0">
         <label for="bl-tipo">Tipo</label>
         <select id="bl-tipo" class="input" name="tipo">
           <option value="">(deducir)</option>
@@ -184,18 +184,18 @@ def _bloqueos(csrf):
           <option value="dominio">dominio</option>
         </select>
       </div>
-      <div class="field" style="display:flex;align-items:flex-end;margin:0">
+      <div class="field tr-fila tr-fila--end">
         <button class="btn btn-warning" name="accion" value="bloquear">
           Bloquear</button>
       </div>
     </form>
 
-    <form method="post" action="/triaje" style="margin:12px 0">
+    <form method="post" action="/triaje" class="tr-bloque">
       <input type="hidden" name="csrf" value="{esc(csrf)}">
       <div class="field">
         <label for="bl-lista">Importar una lista (una entrada por línea; # comenta)</label>
-        <textarea id="bl-lista" class="input" name="lista" rows="4"
-                  style="font-family:var(--mono)"
+        <textarea id="bl-lista" class="input tr-mono" name="lista" rows="4"
+
                   placeholder="spam.com&#10;@otro-dominio.com&#10;ventas@molesto.com"></textarea>
       </div>
       <button class="btn btn--quiet" name="accion" value="importar">Importar</button>
@@ -208,7 +208,7 @@ def _bloqueos(csrf):
         filas = []
         for b in filas_b:
             filas.append(f"""
-      <div class="list__row" style="flex-wrap:wrap">
+      <div class="list__row tr-wrap">
         <div class="list__main">
           <b>{esc(b['Valor'])}</b>
           <div class="hint">{esc(b['Tipo'])} · {esc(b.get('Origen') or '—')}
@@ -221,6 +221,5 @@ def _bloqueos(csrf):
                   value="desbloquear">Quitar</button>
         </form>
       </div>""")
-        cuerpo += ('<div class="list" style="max-height:min(40vh,360px);'
-                   'overflow:auto;min-height:0">' + "".join(filas) + '</div>')
+        cuerpo += ('<div class="list tr-lista tr-lista--corta">' + "".join(filas) + '</div>')
     return cuerpo + "</div>"

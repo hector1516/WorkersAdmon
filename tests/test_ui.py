@@ -78,7 +78,7 @@ class LayoutTest(unittest.TestCase):
         # Estado es el activo y va marcado en las dos navegaciones.
         self.assertIn(
             '<a class="rail__link nav-item is-active" href="/estado" '
-            'aria-current="page">', html)
+            'aria-current="page"', html)
         # Un destino inactivo no lleva el atributo.
         self.assertNotIn('href="/logs" aria-current', html)
 
@@ -87,9 +87,10 @@ class LayoutTest(unittest.TestCase):
         self.assertIn('<nav class="rail rail--bottom"', html)
         self.assertIn('<details class="rail__more"', html)
         self.assertIn('class="sheet rail__sheet"', html)
-        for href in ("/estado", "/logs", "/whatsapp", "/notificaciones"):
+        for href in ("/estado", "/logs", "/whatsapp", "/notificaciones",
+                     "/avisos"):
             self.assertIn(f'href="{href}"', html)
-        # El quinto destino de la barra es «Más».
+        # El sexto objetivo de la barra es «Más».
         self.assertIn(">Más</span>", html)
 
     def test_marca_usuario_y_salir(self):
@@ -146,7 +147,8 @@ class IconosTest(unittest.TestCase):
     def test_nombres_del_contrato(self):
         esperados = {
             "dashboard", "logs", "settings", "apps", "bell", "clock", "whatsapp",
-            "chat", "users", "check", "alert", "refresh", "search", "chevron",
+            "chat", "users", "check", "alert", "info", "refresh", "search",
+            "chevron",
             "plus", "logout", "send", "trash", "play", "pause", "folder", "mail",
             "car", "ticket",
         }
@@ -166,6 +168,21 @@ class IconosTest(unittest.TestCase):
     def test_desconocido_no_lanza(self):
         self.assertEqual(icono("nope"), "")
         self.assertEqual(icono(None), "")
+
+
+class VistasSinEstilosTest(unittest.TestCase):
+    """El diseño vive en apple.css: las vistas solo traen markup."""
+
+    def test_sin_style_ni_style_en_linea(self):
+        import glob
+        import os
+        import re
+        base = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "panel", "views")
+        for ruta in glob.glob(os.path.join(base, "*.py")):
+            fuente = open(ruta, encoding="utf-8").read()
+            self.assertNotIn("<style>", fuente, ruta)
+            self.assertIsNone(re.search(r'\sstyle="', fuente), ruta)
 
 
 if __name__ == "__main__":

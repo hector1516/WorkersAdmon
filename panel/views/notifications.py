@@ -43,24 +43,6 @@ PERMISOS = {
 # el botón primario y un par de medidas del .segmented. Todo con los tokens de
 # DESIGN.md, nunca con hex sueltos. Se inyecta una vez por página (este módulo y
 # el de WhatsApp comparten los bloques de abajo).
-ESTILO = """<style>
-.ncard__head{display:flex;align-items:flex-start;gap:12px;margin:0 0 16px}
-.ncard__icon{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:44px;height:44px;border-radius:12px;background:var(--fill);color:var(--accent-strong)}
-.ncard__titles{flex:1;min-width:0}
-.ncard__titles h2{font-size:22px;line-height:1.2}
-.ncard__titles p{margin:4px 0 0;font-size:15px;color:var(--text-2)}
-.ncard__head .badge{flex:0 0 auto}
-.ncard__foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--separator)}
-.ncard__foot form{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0}
-.ncard__foot .input{width:auto;min-width:11rem;max-width:100%}
-.ncard__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0 16px}
-.segmented{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
-.segmented>a,.segmented>button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.ncard .chiprow{margin:0 0 12px}
-@media (max-width:430px){.ncard__titles h2{font-size:19px}}
-</style>"""
-
-
 def set_csrf(token):
     _CSRF["token"] = token or ""
 
@@ -79,14 +61,6 @@ def _allowed(user, bloque):
 
 def _badge(texto, clase="badge--info"):
     return f'<span class="badge {clase}">{esc(texto)}</span>'
-
-
-# Compatibilidad con las pruebas del panel viejo (`tests/test_panel.py`), que
-# buscaban el candado y el círculo rojo dentro del HTML. El diseño nuevo usa
-# iconos y badges; estos nodos van ocultos y no pintan nada.
-_COMPAT_CANDADO = ('<span hidden aria-hidden="true">'
-                   '\U0001f512 Requiere el permiso</span>')
-_COMPAT_ROJO = '<span hidden aria-hidden="true">\U0001f534</span>'
 
 
 # ─── fragmentos de formulario ────────────────────────────────────────────────
@@ -164,7 +138,6 @@ def _card(titulo, perm_label, permitido, cuerpo, accion, prueba="",
         <p>Requiere el permiso <code>{esc(perm_label)}</code> en el HUB.</p></div>
       {_badge("Sin permiso", "badge--warn")}
     </div>
-    {_COMPAT_CANDADO}
     <div class="empty">{icono("alert")}<p>Pídeselo al administrador para
       configurar este canal.</p></div>
   </section>"""
@@ -240,7 +213,7 @@ def _tabla(headers, filas, vacio):
     th = "".join(f"<th>{h}</th>" for h in headers)
     tr = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in fila) + "</tr>"
                  for fila in filas)
-    return ('<div class="card" style="padding:0"><div class="table-wrap">'
+    return ('<div class="card card--flush"><div class="table-wrap">'
             '<table class="table">'
             f"<thead><tr>{th}</tr></thead><tbody>{tr}</tbody>"
             "</table></div></div>")
@@ -382,7 +355,7 @@ def _tg_destinatarios():
         activo = bool(ev.get("Activo"))
         filas.append([_badge("Activo" if activo else "Inactivo",
                              "badge--ok" if activo else "badge--bad")
-                      + ("" if activo else _COMPAT_ROJO),
+                      + "",
                       esc(ev.get("Nombre") or ""),
                       f'<code>{esc(eid)}</code>', _chips(ids, mapa),
                       f'<b>{len(ids)}</b>'])
@@ -523,8 +496,7 @@ def _tg_historial():
         out.append('<section class="card ncard">'
                    '<form method="post" action="/notificaciones/telegram/limpiar">'
                    f'{_csrf_field()}'
-                   '<div class="ncard__foot" style="margin-top:0;padding-top:0;'
-                   'border-top:none">'
+                   '<div class="ncard__foot ncard__foot--pegar">'
                    '<button class="btn btn--quiet" type="submit">'
                    f'{icono("trash")}<span>Limpiar historial (&gt;30 días)</span>'
                    '</button></div></form></section>')
@@ -732,7 +704,7 @@ def _wa_eventos(base="/notificaciones"):
                 partes.append(f'{icono("users", 14)} {resueltos}')
             destino = _badge(" · ".join(partes), "badge--ok")
         if rechazados:
-            destino += (f'<div class="help" style="color:var(--danger-text)">'
+            destino += (f'<div class="help texto-peligro">'
                         f'No se usaron: {esc(", ".join(rechazados))} '
                         f'(no son números)</div>')
         contexto = _wa_contexto(eid, validos, ultimos, nombres or {})
@@ -848,7 +820,7 @@ def _wa_grupos(base="/notificaciones"):
             f'<div class="list__main"><b>{esc(g.get("nombre") or "(sin nombre)")}</b>'
             f'<div class="list__meta">Participantes: '
             f'{esc(g.get("participantes") or 0)}</div>{copiar}</div>'
-            f'<div class="list__meta" style="white-space:normal">{usar}</div></li>')
+            f'<div class="list__meta wrap-normal">{usar}</div></li>')
     out.append('<section class="card ncard"><ul class="list">'
                + "".join(filas) + "</ul></section>")
     return "".join(out)
@@ -971,7 +943,7 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
       <span class="kpi__value">{esc(m.get('pendientes', 0))}</span></div>
   </div>"""
 
-    cuerpo = (ESTILO + kpis
+    cuerpo = (kpis
               + _bloque_telegram(user, vista_tg)
               + _bloque_push(user)
               + _bloque_correo(user, correo_prueba)

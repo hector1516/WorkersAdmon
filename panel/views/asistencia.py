@@ -79,7 +79,7 @@ BADGE_ESTADO = {
 }
 
 EXPLICACION = """
-<div class="empty" style="text-align:left;padding-top:0">
+<div class="empty as-explicacion">
 La hora real es una <b>ventana</b>, no un minuto: el escáner ve la red cada
 3 minutos, así que lo que se sabe es entre qué dos instantes ocurrió. Si esa
 ventana <b>cruza</b> la tolerancia se marca <b>Indeterminado</b> en vez de
@@ -236,8 +236,8 @@ def _filtro(fecha, usuarios, usuario_sel):
         sel = " selected" if str(uid) == str(usuario_sel or "") else ""
         opts.append(f'<option value="{esc(uid)}"{sel}>{esc(nombre)}</option>')
     return f"""
-  <div class="card" style="margin-bottom:16px">
-    <h2 style="margin:0 0 12px;font-size:17px;display:flex;align-items:center;gap:8px">
+  <div class="card as-sec">
+    <h2 class="as-h as-h--tight">
       {icono("search")} Consultar</h2>
     <form method="get" action="/asistencia" class="grid2">
       <div class="field">
@@ -249,7 +249,7 @@ def _filtro(fecha, usuarios, usuario_sel):
         <label for="as-usuario">Usuario</label>
         <select id="as-usuario" class="input sel-tipo" name="usuario">{''.join(opts)}</select>
       </div>
-      <div class="field" style="display:flex;align-items:flex-end">
+      <div class="field as-field--end">
         <button class="btn btn--primary" type="submit">
           {icono("search")} Consultar</button>
       </div>
@@ -279,12 +279,12 @@ def _fila(a):
     if antes:
         detalle.append(esc(f"{antes} min antes"))
     return f"""
-    <div class="list__row" style="align-items:flex-start;flex-wrap:wrap">
+    <div class="list__row as-fila">
       <div class="list__main">
         <strong>{esc(a.get("UsuarioNombre") or "")}</strong>
-        <div class="hint" style="margin-top:2px">{' · '.join(detalle)}</div>
+        <div class="hint as-detalle">{' · '.join(detalle)}</div>
       </div>
-      <div class="list__meta" style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="list__meta as-meta">
         <span class="badge {badge}">{esc(etiqueta)}</span>
       </div>
     </div>"""
@@ -299,12 +299,12 @@ def _tabla(fecha, asistencias):
 
     filas = "".join(_fila(a) for a in asistencias)
     return f"""
-  <div class="card" style="margin-bottom:16px">
-    <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+  <div class="card as-sec">
+    <h2 class="as-h">
       {icono("clock")} {esc(_fecha_larga(fecha))}
       <span class="badge badge--info">{len(asistencias)} personas</span></h2>
     <div class="hint">{esc(fecha.isoformat())}</div>
-    <div class="list" style="margin-top:8px;max-height:min(56vh,520px);overflow:auto;min-height:0">
+    <div class="list as-lista">
       {filas}
     </div>
   </div>"""
@@ -329,14 +329,14 @@ def _detalle(fecha, asistencias):
     if not filas:
         return ""
     return f"""
-  <div class="card" style="margin-bottom:16px">
-    <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+  <div class="card as-sec">
+    <h2 class="as-h">
       {icono("search")} Evidencia
       <span class="badge badge--info">por qué cada veredicto</span></h2>
     <div class="hint">Cuántos escaneos hubo ese día (la señal de que el
     sistema estaba vivo), el hueco más largo entre ellos, y la nota del cálculo.
     Un hueco grande es una caída del escáner, no una ausencia.</div>
-    <div class="tscroll">
+    <div class="table-wrap tscroll">
       <table>
         <thead><tr><th>Usuario</th><th>Estado</th><th>Escaneos</th>
           <th>Hueco máx. (min)</th><th>Nota</th></tr></thead>
@@ -349,13 +349,13 @@ def _detalle(fecha, asistencias):
 def _calcular(fecha, csrf):
     """El botón de calcular. Es POST porque escribe en HUB_AsistenciaDiaria."""
     return f"""
-  <div class="card" style="margin-bottom:16px">
-    <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px">
+  <div class="card as-sec">
+    <h2 class="as-h">
       {icono("refresh")} Calcular</h2>
     <div class="hint">Recalcula el {esc(fecha.strftime("%d/%m/%Y"))} para
     todos los usuarios con turno, a partir de la evidencia de red que hay en la
     base. No borra nada: sobrescribe el registro de ese día.</div>
-    <form method="post" action="/asistencia" style="margin-top:12px">
+    <form method="post" action="/asistencia" class="as-form">
       {_csrf_field()}
       <input type="hidden" name="accion" value="calcular">
       <input type="hidden" name="fecha" value="{esc(fecha.isoformat())}">
@@ -411,13 +411,12 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
             f'<li>{esc(ESTADOS.get(e, ("", e))[1])}: '
             f'<b>{n}</b></li>' for e, n in sorted(por_estado.items(),
                                                   key=lambda kv: -kv[1]))
-        cuerpo += (f'<div class="card" style="margin-bottom:16px">'
-                   f'<h2 style="margin:0 0 8px;font-size:17px;display:flex;'
-                   f'align-items:center;gap:8px">{icono("check")} '
+        cuerpo += (f'<div class="card as-sec">'
+                   f'<h2 class="as-h">{icono("check")} '
                    f'Resultado del cálculo</h2>'
                    f'<div class="hint">Se guardaron '
                    f'<b>{esc(resumen.get("guardados"))}</b> registros.'
-                   f'</div><ul class="p desc" style="padding-left:1.4rem">'
+                   f'</div><ul class="p desc as-resumen-lista">'
                    f'{lineas}</ul></div>')
         if por_estado.get("SIN_DATOS"):
             cuerpo += ('<div class="callout bad">' + icono("alert", 18)

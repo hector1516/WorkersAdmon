@@ -91,7 +91,7 @@ def _campo_valor(tipo, valor, name):
 def _fila_catalogo(f):
     """Fila editable de una clave ya clasificada."""
     fid = f["Id"]
-    unidad = (f'<div class="muted" style="font-size:.72rem;font-weight:400">'
+    unidad = (f'<div class="muted nota--xs-72">'
               f'{esc(f["Unidad"])}</div>' if f.get("Unidad") else "")
     return f"""<tr>
   <td><input type="text" name="t{fid}" value="{esc(f["Titulo"])}" maxlength="120" class="input"></td>
@@ -137,7 +137,7 @@ def _panel_app(app, filas):
       <div class="actions">
         <button class="btn btn--primary" type="submit" name="save_all" value="1">
           {icono("check", 18)}<span>Guardar valores</span></button>
-        <span class="muted" style="font-size:.78rem">Varios de una vez · «Quitar» solo quita el catálogo</span>
+        <span class="muted nota--78">Varios de una vez · «Quitar» solo quita el catálogo</span>
       </div>
     </form>
     {nota}
@@ -225,7 +225,7 @@ def _panel_alta(apps):
       <div class="actions">
         <button class="btn btn--primary" type="submit" name="add" value="1">
           {icono("plus", 18)}<span>Agregar al catálogo</span></button>
-        <span class="muted" style="font-size:.78rem">Si la clave ya existe en
+        <span class="muted nota--78">Si la clave ya existe en
         HUB_Config solo se cataloga: su valor actual no se toca.</span>
       </div>
     </form>
@@ -246,7 +246,7 @@ def _sin_migracion(todos):
     <div class="empty">
       La tabla <code>HUB_ConfigCatalogo</code> no existe en esta base de datos.
       Aplica la migración desde el repo HUB y vuelve a cargar esta página:
-      <pre class="log" style="margin-top:10px">HUB_DB_DATABASE=ECCSA_Admon_Pruebas python apply_migrations.py
+      <pre class="log mt-10">HUB_DB_DATABASE=ECCSA_Admon_Pruebas python apply_migrations.py
 # producción (explícito):
 HUB_DB_DATABASE=ECCSA_Admon HUB_MIGRATE_PRODUCTION=1 python apply_migrations.py</pre>
       Mientras tanto, las {len(todos)} claves de <code>HUB_Config</code> se

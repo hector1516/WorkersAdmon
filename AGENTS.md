@@ -206,7 +206,8 @@ Reglas del panel:
 - Lee 4 fuentes de estado: `supervisorctl status`, `/data/workers_enabled.txt`,
   `docker/conf.d.available/` y `/data/heartbeats/*.json`.
 - `/api/status` debe seguir devolviendo el mismo JSON (contrato de monitoreo).
-- UI: tema oscuro ECCSA (`#0F172A`, `#1E293B`, acento `#FF6B00`/`#FFAE00`).
+- UI: **lenguaje Apple/HIG** en `panel/apple.css` (claro y oscuro por
+  `prefers-color-scheme`, acento `#0A84FF`). Contrato en `panel/DESIGN.md`.
 - Config por worker: agregar/editar campos en **`panel/spec.py`** (origen
   `env` / `hub_config` / `const` / `info`). **NO** editar el código del worker
   para hacerlo configurable: el worker debe seguir siendo idéntico al HUB.
@@ -267,12 +268,15 @@ Reglas del panel:
   - Los iconos se generan desde `workers/worker.png` con Pillow (fondo
     `#0F172A`); al cambiar el logo, regenerarlos y subir el `CACHE` de `sw.js`.
   - Instalable solo con HTTPS (`https://worker.ecc-sa.com.mx`).
-- UI responsive (móvil): reglas en `panel/templates.py → CSS` con cortes en
-  **820px** y **430px**. Al agregar vistas:
-  - **Toda tabla** va dentro de `<div class="tscroll">…</div>` (scroll
-    horizontal en celular); columnas prescindibles con `hide-sm`.
+- UI responsive (móvil): reglas en `panel/apple.css` con cortes en **768px**
+  (barra inferior), **899px** (bandeja WhatsApp), **1023px** (rail compacto) y
+  **430px** (teléfonos angostos). Al agregar vistas:
+  - **Toda tabla** va dentro de `<div class="table-wrap tscroll">…</div>`
+    (scroll horizontal en celular); columnas prescindibles con `hide-sm`.
   - No usar anchos fijos (`width:NNNpx`) ni `white-space:nowrap` fuera de
-    `.actions-cell`; los botones nuevos reusan `.btn` (ya tiene 40px táctiles).
+    `.actions-cell`; los botones nuevos reusan `.btn` (44 px táctiles).
+  - Nada de `<style>` ni `style=""` en las vistas: las clases viven en
+    `panel/apple.css`.
   - Si se agregan campos de formulario, respetar el bloque de `font-size:16px`
     (evita el zoom automático de iOS).
   - HTML vía `page()` (no suelto): hereda head PWA, viewport y el CSS móvil.
@@ -288,10 +292,10 @@ Reglas del panel:
 
 ## El shell (ECCSA-Shell)
 
-El panel es una de las **3 apps del ecosistema ECCSA-Shell** (Field, Admon y
-este panel). El diseño, el banner, la barra de acciones, el popup de novedades
-y la regla de ubicación viven en el repo `hector1516/ECCSA-Shell` y aquí hay
-**copias generadas**.
+El panel sigue siendo una de las **3 apps del ecosistema ECCSA-Shell** (Field,
+Admon y este panel), pero desde el rediseño Apple **no usa el look del shell**:
+su diseño vive en `panel/apple.css`. Del shell conserva la regla de ubicación,
+la versión y la copia vendorizada para el chequeo diario.
 
 | Archivo | Estado |
 |---|---|
@@ -300,7 +304,7 @@ y la regla de ubicación viven en el repo `hector1516/ECCSA-Shell` y aquí hay
 | `panel/banner.py.html`, `panel/actions.py.html`, `panel/changelog.py.html` | Referencias del markup del shell |
 | `ECCSA_SHELL_VERSION`, `ECCSA_SHELL_SHA` | Los estampa `sync_shell.py` |
 | `shell/` | Copia vendorizada del repo del shell, para el chequeo diario |
-| `panel/panel.css` | Esto **sí** es propio del panel (wcard, chklist, cfg-*, pk-*) |
+| `panel/apple.css` | **El diseño del panel**: tokens, layout y componentes (ver `panel/DESIGN.md`) |
 
 `check.yml` falla el build si se edita `panel/shell.css` a mano (compara
 `ECCSA_SHELL_SHA`). Para cambiar el diseño se edita `tokens.css` o
@@ -373,27 +377,16 @@ inferior), `href`, `modulo` (el título de la página) y `desc`.
 - `views/workers.py` implementa dos módulos: `logs_index()` (el índice de Logs)
   y `logs_page()` (el log crudo de un worker, en `/workers/<nombre>/logs`).
 
-### El panel usa los componentes del shell, no los suyos
+### El panel tiene su propio sistema visual (`panel/apple.css`)
 
-Todo lo que el shell ya define **no** se re-declara en `panel/panel.css`. Si
-aparece una clase duplicada ahí, es una regresión: como `panel.css` carga
-DESPUÉS de `shell.css`, la versión del panel gana y el panel deja de verse como
-Field y Admon.
+El panel **ya no carga** `shell.css` ni el viejo `panel.css`: todo el diseño
+vive en `panel/apple.css`, con el contrato en `panel/DESIGN.md`. Las clases
+del shell que todavía usan las vistas (`.card`, `.btn`, `.badge`, `.input`,
+`.wcard`, `.cfg-*`…) están **traducidas** en esa hoja; no se copian del shell.
+Si una clase del shell aparece duplicada en otro archivo, es una regresión.
 
-Del shell: `.header` `.brand` `.brand-col` `.card` `.btn` `.btn-primary`
-`.btn-secondary` `.btn-success` `.btn-warning` `.btn-sm` `.btn-block` `.input`
-`.field` `.badge` `.badge-success` `.badge-warning` `.badge-danger`
-`.badge-info` `.bottom-nav` `.nav-item` `.nav-icon` `.empty` `.sync-header`
-`.shell-actions` `.shell-modal` `.version-badge` y los tokens `--color-*`.
-
-Lo propio del panel (no existe en el shell, por eso vive acá): `.wcard*`
-(tarjeta de worker), `.chklist`/`.chk` (checklist), `.cfg-*` (configuración),
-`.tnav` (pestañas internas), `.wgroup` (separador con línea), `.ro` (solo
-lectura), `.pill`, `.box` (login), `.version-badge`, `.submit`, `.logs`.
-
-Los tokens cortos del panel (`--bg`, `--txt`, `--orange`…) son **alias** de los
-del shell, no hex propios: si se repite el valor a mano, el panel deja de
-seguir al shell.
+`panel/shell.css` se conserva solo como copia vendorizada que valida
+`check_daily.py`; el navegador no la recibe.
 
 
 ## Relación con HUB (migración gradual)

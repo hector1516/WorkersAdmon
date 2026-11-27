@@ -35,107 +35,6 @@ def _csrf_field():
     return '<input type="hidden" name="csrf" value="' + esc(_CSRF["token"]) + '">'
 
 
-# ── CSS de las dos vistas ────────────────────────────────────────────────────
-# Las clases base (.dash, .grid, .kpi, .card/.wcard, .list, .badge, .empty)
-# viven en panel/apple.css. Lo de acá es solo lo que estas vistas necesitan y
-# esa hoja no define. No se edita apple.css.
-_LIST_CSS = """
-<style>
-.dashx__sub { font-size: 13px; }
-.dashx__rowmeta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.dashx__list .list__row { align-items: center; flex-wrap: wrap; padding: 8px 0; }
-.dashx__grouph { margin: 0 0 8px; }
-</style>
-"""
-
-_ESTADO_CSS = """
-<style>
-/* La página de Estado no desplaza: el contenido es una columna que llena el
-   alto de .main y la única zona con scroll son las listas de las tarjetas. */
-.content:has(.dash) { display: flex; flex-direction: column; min-height: 0; }
-.content:has(.dash) .foot { display: none; }
-.dash { flex: 1 1 auto; }
-
-.dash .grid.dashx__kpis {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: clamp(8px, 1.4vw, 16px);
-  margin: 0;
-}
-.dashx__kpis .kpi { padding: clamp(8px, 1.2vw, 16px); gap: 2px; }
-.dashx__kpis .kpi__label { display: flex; align-items: center; gap: 6px; }
-.dashx__kpis .kpi__value {
-  font-size: clamp(22px, 3.6vw, 40px);
-  line-height: 1;
-  letter-spacing: -.02em;
-}
-.dashx__kpi--ok .kpi__value { color: var(--success-text); }
-.dashx__kpi--warn .kpi__value { color: var(--warning-text); }
-.dashx__kpi--bad .kpi__value { color: var(--danger-text); }
-
-.dash .wgrid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  grid-auto-rows: minmax(0, 1fr);
-  gap: clamp(8px, 1.4vw, 16px);
-  min-height: 0;
-  overflow: hidden;
-}
-.dash .wcard {
-  min-height: 0;
-  overflow: hidden;
-  gap: 6px;
-  padding: clamp(10px, 1.2vw, 16px);
-}
-.dash .wgroup { margin: 0; font-size: 13px; }
-.dash .wgroup::after { display: none; }
-.dash .wcard-facts { font-size: 13px; }
-.dash .wcard-facts b { font-size: 13px; }
-.dash .list__row { align-items: center; flex-wrap: wrap; padding: 8px 0; }
-.dash .empty { padding: 16px 8px; gap: 8px; }
-.dashx__scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-.dashx__ctrl .actions { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-
-/* Tableta: dos columnas de KPIs. */
-@media (max-width: 1023px) {
-  .dash .grid.dashx__kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-/* Teléfono: KPIs en 2 columnas y una sola columna de tarjetas, con la lista de
-   workers ocupando el doble de alto (su scroll es interno). */
-@media (max-width: 767px) {
-  .dash .wgrid {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
-  }
-  .dashx__kpis .kpi__hint { display: none; }
-}
-</style>
-"""
-
-# Página de log: la tarjeta llena el alto y solo el <pre> se desplaza.
-_LOG_CSS = """
-<style>
-.content:has(.dashx__log) { display: flex; flex-direction: column; min-height: 0; }
-.content:has(.dashx__log) .foot { display: none; }
-.dashx__log { flex: 1 1 auto; display: flex; flex-direction: column;
-              min-height: 0; overflow: hidden; gap: 10px; }
-.dashx__loghead { display: flex; align-items: center; flex-wrap: wrap;
-                  gap: 8px; }
-.dashx__loghead .btn { margin-left: auto; }
-.dashx__log pre.log { flex: 1 1 auto; min-height: 0; max-height: none; }
-</style>
-"""
-
-
 # ── estado de cada programa ──────────────────────────────────────────────────
 def _badge(e):
     """Badge del estado de un programa con las clases del contrato."""
@@ -244,13 +143,15 @@ def _fila_worker(e):
     nombre = esc(e["name"])
     app = f' · {esc(e["app"])}' if e.get("app") else ""
     log = (f'<a class="btn btn--sm btn--quiet" href="/workers/{nombre}/logs" '
-           f'aria-label="Ver log de {nombre}">📄 Logs</a>'
+           f'aria-label="Ver log de {nombre}">{icono("logs", 16)}'
+           f'<span>Logs</span></a>'
            if e.get("log_ok") else '<span class="muted">sin log</span>')
     # La descripción («qué hace») sigue disponible, plegada, para no perder
     # la documentación del worker al pasar de tarjeta a lista.
     desc = ""
     if e.get("descripcion"):
-        desc = (f'<details class="wdesc"><summary>ℹ️ Qué hace</summary>'
+        desc = (f'<details class="wdesc"><summary>{icono("info", 16)}'
+                f' Qué hace</summary>'
                 f'<div>{esc(e["descripcion"])}</div></details>')
     elif e.get("desc"):
         desc = f'<div class="muted dashx__sub">{esc(e["desc"])}</div>'
@@ -333,9 +234,9 @@ def render(status, user, flash_ok="", flash_err="", csrf="",
                     + "".join(_aviso_fila(n, txt) for n, txt in avisos)
                     + '</ul>')
 
-    body = f"""{_LIST_CSS}{_ESTADO_CSS}
-<div class="dash" style="height:100%;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);overflow:hidden;gap:clamp(8px,1.4vw,16px)">
-  <div class="grid dashx__kpis" style="min-height:0" role="group" aria-label="Indicadores de los workers">{kpis}</div>
+    body = f"""
+<div class="dash dash--estado">
+  <div class="grid dashx__kpis dash__kpis" role="group" aria-label="Indicadores de los workers">{kpis}</div>
   <div class="wgrid">
     <article class="wcard dashx__card">
       <h2 class="wgroup">{icono("users")} Workers · {t['running']} en ejecución</h2>
@@ -389,7 +290,7 @@ def logs_page(name, text, error, user, estado=""):
         content = f'<div class="empty">{icono("alert", 24)}<p>{esc(error)}</p></div>'
     else:
         content = f'<pre class="log">{html.escape(text) or "(log vacío)"}</pre>'
-    body = f"""{_LOG_CSS}
+    body = f"""
 <div class="card dashx__log">
   <div class="dashx__loghead">
     <h2>{icono("logs")} {esc(name)}</h2>
@@ -435,10 +336,10 @@ def _log_bd(limite=120):
 
     filas = db.get_workers_log(limite=limite)
     head = ('<div class="card"><div class="wcard-name">Eventos de los workers</div>'
-            '<div class="muted" style="font-size:.85rem">Guardados en la base: '
+            '<div class="muted nota-sm">Guardados en la base: '
             'sobreviven a recrear el contenedor.</div>')
     if not filas:
-        return (head + '<div class="muted" style="font-size:.85rem;padding-top:8px">'
+        return (head + '<div class="muted nota-sm nota--sep">'
                 'Todavía no hay eventos guardados, o la base no responde ahora '
                 'mismo.</div></div>')
 
@@ -453,11 +354,11 @@ def _log_bd(limite=120):
             f'<td>{esc(f.get("Worker") or "")}</td>'
             f'<td><span class="badge {clases.get(nivel, "badge--info")}">{esc(nivel)}</span></td>'
             f'<td>{esc(f.get("Mensaje") or "")}'
-            + (f'<div class="muted" style="font-size:.8rem">{esc(f.get("Detalle"))}</div>'
+            + (f'<div class="muted nota-xs">{esc(f.get("Detalle"))}</div>'
                if f.get("Detalle") else "")
             + '</td></tr>')
 
-    return (head + '<div class="table-wrap" style="margin-top:8px">'
+    return (head + '<div class="table-wrap tscroll dashx__tablawrap">'
             '<table class="table"><thead><tr>'
             '<th class="hide-sm">Hora</th><th>Worker</th><th>Nivel</th><th>Mensaje</th>'
             '</tr></thead><tbody>' + "".join(trs) + "</tbody></table></div></div>")
@@ -506,7 +407,7 @@ def logs_index(status, user, flash_ok="", flash_err="", csrf="",
         cuerpo = (f'<div class="card"><div class="empty">{icono("logs", 24)}'
                   f'<p>Todavía no hay workers en el contenedor.</p></div></div>')
 
-    body = f"{_LIST_CSS}{cuerpo}{_log_bd()}"
+    body = f"{cuerpo}{_log_bd()}"
     return page("logs", body, user=user, flash_ok=flash_ok,
                 flash_err=flash_err, lugar=lugar, ip=ip,
                 subtitle="últimas líneas de cada worker · abrí uno para el log completo")

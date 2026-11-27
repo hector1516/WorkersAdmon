@@ -1171,7 +1171,6 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn("Qué hace", html)
         self.assertIn("Descarga los wallpapers de Bing", html)
-        self.assertIn("ℹ️ Qué hace", html)
         # pestaña Configuración: el mismo texto en la tarjeta
         code, _, html = c.get("/configuracion")
         self.assertEqual(code, 200)
@@ -1590,7 +1589,8 @@ class PanelTest(unittest.TestCase):
         code, _, html = c.get("/notificaciones")
         self.assertEqual(code, 200)
         self.assertIn("Bot de Telegram", html)
-        self.assertIn("🔒 Requiere el permiso", html)
+        self.assertIn("Requiere el permiso", html)
+        self.assertIn('<span class="badge badge--warn">Sin permiso</span>', html)
         self.assertNotIn('name="smtp_server"', html, "sin permiso no hay formulario")
         # y el POST correspondiente se rechaza
         code, _, _ = c.post("/notificaciones/correo", csrf=c.csrf(),
@@ -1964,7 +1964,7 @@ class PanelTest(unittest.TestCase):
 
     def test_50_pwa_head_y_offline(self):
         head = ('<link rel="manifest" href="/manifest.webmanifest">',
-                '<meta name="theme-color" content="#0F172A">',
+                '<meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)">',
                 'rel="apple-touch-icon"',
                 "navigator.serviceWorker.register('/sw.js')",
                 'viewport-fit=cover')
@@ -1989,10 +1989,8 @@ class PanelTest(unittest.TestCase):
     def test_51_ui_para_movil(self):
         c = Client()
         _, _, html = c.get("/login")
-        # Estas reglas comparan sobre el HTML SERVIDO, que es shell.css +
-        # panel.css en un solo <style>. El shell escribe las suyas con espacio
-        # ("prop: valor") y panel.css las escribe minificadas ("prop:valor"),
-        # así que se normalizan los espacios antes de comparar: lo que
+        # Estas reglas comparan sobre el HTML SERVIDO, que es un solo <style>
+        # con apple.css. Se normalizan los espacios antes de comparar: lo que
         # importa es que la regla exista, no cómo esté espaciada.
         plano = html.replace(": ", ":")
         for trozo in (
@@ -2015,34 +2013,34 @@ class PanelTest(unittest.TestCase):
         self.assertIn("min-height:var(--tap)", plano,
                       "los objetivos táctiles deben usar var(--tap), no 44px a mano")
 
-    def test_52_shell_estilo_field_admon(self):
-        """El shell sigue el patrón de Field/Admon: sin barra inferior + textura.
+    def test_52_navegacion_apple_lateral_y_barra_inferior(self):
+        """La navegación es una barra lateral y, en el teléfono, una barra de 5.
 
-        Antes este test exigía una tab bar fija, pero el estándar se changed:
-        Field y Admon NO tienen barra inferior — se navega con la grilla de
-        módulos de la home y con el logo del header. El panelKeeping una era
-        lo que más lo diferenciaba, así que se quitó junto con su CSS y el
-        espacio que reservaba abajo.
+        El diseño viejo (grilla sin nav + textura `engrane.png` + `brand-logo`)
+        se retiró con el rediseño Apple: ahora hay un rail con iconos y texto,
+        una barra inferior con cinco destinos diarios y una hoja «Más».
         """
         c = self._logged()
         code, _, html = c.get("/")
         self.assertEqual(code, 200)
-        # La grilla de módulos ES el menú, en todas las páginas y todos los módulos.
         for ruta in ("/", "/configuracion", "/apps", "/notificaciones", "/estado"):
             code_r, _, html_r = c.get(ruta)
             self.assertEqual(code_r, 200, f"{ruta} → {code_r}")
-            self.assertNotIn('<nav class="bottom-nav"', html_r,
-                             f"la barra inferior no debe existir en {ruta}")
-            self.assertNotIn('class="nav-item', html_r,
-                             f"no debe quedar ningun item de barra en {ruta}")
+            self.assertIn('class="rail__nav"', html_r, ruta)
+            self.assertIn('class="rail rail--bottom"', html_r, ruta)
+            self.assertNotIn('<nav class="bottom-nav"', html_r, ruta)
+            self.assertNotIn("engrane.png", html_r, ruta)
         self.assertIn('<div class="module-grid"', html)   # el menú es la grilla
+        self.assertIn('class="module-card"', html)
         self.assertNotIn('<div class="nav">', html)      # ya no hay pills arriba
-        self.assertIn("url('/engrane.png')", html)       # misma textura de fondo
-        self.assertIn("position:sticky", html)           # header fijo al hacer scroll
+        self.assertIn("position: sticky", html)          # barra superior fija
         self.assertIn("badge-live", html)                # piloto de conexión
-        # El header conserva la marca y la barra de acciones del shell.
-        self.assertIn('class="brand-logo"', html)
-        self.assertIn('class="shell-actions"', html)
+        self.assertIn('class="topbar"', html)
+        self.assertIn("shell-actions", html)
+        # El destino actual se anuncia con aria-current.
+        self.assertIn('aria-current="page"', html)
+        # Cinco destinos diarios + «Más» (seis objetivos en la barra inferior).
+        self.assertEqual(html.count('aria-label="Más destinos"'), 1)
 
     def test_53_workers_en_tarjetas_por_app(self):
         """La lista de programas son tarjetas agrupadas por app (no una tabla)."""
@@ -2056,7 +2054,8 @@ class PanelTest(unittest.TestCase):
         # cada tarjeta trae estado, chips y acciones táctiles
         self.assertIn('class="wcard-name"', html)
         self.assertIn('class="wcard-facts"', html)
-        self.assertIn("📄 Logs", html)
+        self.assertIn('aria-label="Ver log de demo_on"', html)
+        self.assertIn("<span>Logs</span>", html)
 
     def test_54_tablas_scrolleables(self):
         """Las pestañas de datos (Apps) conservan tablas con scroll propio."""
@@ -2137,26 +2136,29 @@ class PanelTest(unittest.TestCase):
             self.assertIn('<span class="chip">Admin', html)
         finally:
             _TG["dest"]["KILOMETROS"] = [1]
-        # evento apagado aparece 🔴 en el resumen
+        # evento apagado sale como badge «Inactivo», no con un círculo de color
         _TG["eventos"][0]["Activo"] = 0
         try:
             _, _, html = c.get("/notificaciones?tg=destinatarios")
-            self.assertIn("\U0001f534", html)
+            self.assertIn('<span class="badge badge--bad">Inactivo</span>', html)
         finally:
             _TG["eventos"][0]["Activo"] = 1
 
-    # ── ECCSA-Shell: banner común y contrato /api/shell/state ────────────────
-    def test_55_banner_comun(self):
+    # ── ECCSA-Shell: contrato /api/shell/state (el banner ya no se pinta) ────
+    def test_55_identidad_en_la_barra_superior(self):
+        """El banner del shell se retiró; usuario, lugar y versión viven en la
+        barra superior. El contrato `/api/shell/state` sigue igual."""
         c = self._logged()
         code, _, html = c.get("/")
         self.assertEqual(code, 200)
-        self.assertIn('class="sync-header', html)       # banner fijo arriba
-        self.assertIn("👤 Admin", html)                 # usuario
-        self.assertIn(f"shell {shell_version()}", html)   # versión del shell
+        self.assertNotIn('class="sync-header', html)
+        self.assertNotIn("Todo sincronizado", html)
+        self.assertIn('class="topbar__user"', html)     # usuario
+        self.assertIn("Admin Panel", html)
         # La versión de la app sale de config.APP_VERSION: escribirla a mano
         # hacía fallar la prueba en cada subida de versión (pasó con 1.2.0).
-        self.assertIn(f"v{config.APP_VERSION}", html)     # versión de la app
-        self.assertIn("Todo sincronizado", html)        # estado idle
+        self.assertIn(f"v{config.APP_VERSION}", html)   # versión de la app
+        self.assertIn("Workers", html)                  # marca del rail
 
     def test_56_lugar_oficina_o_remoto(self):
         c = self._logged()
@@ -2176,17 +2178,19 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(lugar_de("189.203.10.4")[0], "remoto")
         self.assertEqual(lugar_de("")[0], "desconocido")
 
-    def test_57_shell_css_desde_disco(self):
-        """El CSS se arma con panel/shell.css (copia canónica) + panel.css."""
+    def test_57_apple_css_desde_disco(self):
+        """El CSS se arma con panel/apple.css, no con el shell."""
         import os
         base = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "panel")
-        self.assertTrue(os.path.isfile(os.path.join(base, "shell.css")))
-        self.assertTrue(os.path.isfile(os.path.join(base, "panel.css")))
+        self.assertTrue(os.path.isfile(os.path.join(base, "apple.css")))
+        self.assertFalse(os.path.isfile(os.path.join(base, "panel.css")),
+                         "panel.css era el diseño viejo y ya no se carga")
         c = Client()
         _, _, html = c.get("/login")
-        self.assertIn(".sync-header", html)       # del shell canónico
-        self.assertIn(".wcard", html)             # del CSS propio del panel
+        self.assertIn(".rail", html)       # navegación del diseño nuevo
+        self.assertIn(".wcard", html)      # tarjeta de worker (vista Estado)
+        self.assertNotIn("url('/engrane.png')", html)
 
 
     def test_58_todo_worker_tiene_ficha_de_config(self):
@@ -2264,14 +2268,19 @@ class PanelTest(unittest.TestCase):
 
     # ── Revisión visual 1.2.1 ──────────────────────────────────────────────────
     # La suite anterior cubría el comportamiento; estas pruebas cubren las
-    # reglas de panel.css (que nadie edita a mano) y los HTML que antes salían
-    # rotos a simple vista: baldosas gigantes, subtítulos escapados, selectos
-    # cortados, badge estirado y botones que no pintaban nada.
+    # reglas de apple.css y los HTML que antes salían rotos a simple vista:
+    # baldosas gigantes, subtítulos escapados, selectos cortados, badge
+    # estirado y botones que no pintaban nada.
 
     def _panel_css(self):
-        """panel.css leído de disco: el CSS propio del panel, no el del shell."""
-        with open(os.path.join(REPO, "panel", "panel.css"), encoding="utf-8") as fh:
+        """apple.css leído de disco: todo el diseño del panel."""
+        with open(os.path.join(REPO, "panel", "apple.css"), encoding="utf-8") as fh:
             return fh.read()
+
+    @staticmethod
+    def _plano(css):
+        """CSS sin espacios ni saltos: el orden de las reglas no importa aquí."""
+        return re.sub(r"\s+", "", css)
 
     def test_61_acciones_de_tarjeta_por_filas(self):
         """Las baldosas de acción van dos por fila y chicas en la tabla.
@@ -2282,25 +2291,26 @@ class PanelTest(unittest.TestCase):
         celda era estrecha, los botones se apilaban y cada fila crecía ~100px.
         """
         propio = self._panel_css()
-        # `aspect-ratio` no puede aparecer en las reglas de las acciones: el
-        # cuadrado venía de ahi (aspect-ratio + height:100%). El chequeo es por
-        # reglas y no sobre el archivo entero porque la TARJETA DEL MENÚ sí lo
-        # usa, y a propósito, para dejar de ser un cuadrado de 230px
-        # (ver test_71).
+        plano = self._plano(propio)
         reglas_accion = re.findall(r"[^{}]*\.actions[^{}]*\{[^}]*\}", propio)
         self.assertTrue(reglas_accion, "no se encontró ninguna regla de .actions")
         for r in reglas_accion:
             self.assertNotIn("aspect-ratio", r, r)
-        self.assertNotIn("auto-fit,minmax(88px,1fr)", propio)
+        self.assertNotIn("auto-fit,minmax(88px,1fr)", plano)
         # Tarjeta: 2 columnas fijas; si queda uno solo, ocupa la fila entera.
-        self.assertIn(".wcard .actions{display:grid", propio)
-        self.assertIn("grid-template-columns:repeat(2,minmax(0,1fr))", propio)
-        self.assertIn(".wcard .actions > :only-child{grid-column:1 / -1}", propio)
+        regla_wcard = re.search(r"\.wcard \.actions\s*\{[^}]*\}", propio)
+        self.assertIsNotNone(regla_wcard, "falta la regla .wcard .actions")
+        wcard = self._plano(regla_wcard.group(0))
+        self.assertIn("display:grid", wcard)
+        self.assertIn("grid-template-columns:repeat(2,minmax(0,1fr))", wcard)
+        self.assertIn(".wcard.actions>:only-child{grid-column:1/-1;", plano)
         # Tabla: los mismos botones en fila, con ancho mínimo de la celda.
-        self.assertIn(".actions-cell .actions{flex-wrap:nowrap}", propio)
-        self.assertIn(".actions-cell{white-space:nowrap;min-width:9rem}", propio)
-        # El objetivo táctil del shell no se pierde al achicarlos.
-        self.assertIn("min-height:var(--tap)", propio)
+        regla_cell = re.search(r"\.actions-cell \.actions\s*\{[^}]*\}", propio)
+        self.assertIsNotNone(regla_cell, "falta la regla .actions-cell .actions")
+        self.assertIn("flex-wrap:nowrap", self._plano(regla_cell.group(0)))
+        self.assertIn(".actions-cell{white-space:nowrap;min-width:9rem", plano)
+        # El objetivo táctil no se pierde al achicarlos.
+        self.assertIn("min-height:var(--tap)", plano)
         # Y el HTML de Estado sí trae el contenedor de acciones.
         c = self._logged()
         code, _, estado = c.get("/estado")
@@ -2364,8 +2374,10 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn('<td class="actions-cell"><div class="actions">', html)
         propio = self._panel_css()
-        self.assertIn(".actions-cell .actions{flex-wrap:nowrap}", propio)
-        self.assertIn(".actions-cell .actions .btn{width:auto", propio)
+        regla = re.search(r"\.actions-cell \.actions\s*\{[^}]*\}", propio)
+        self.assertIsNotNone(regla)
+        self.assertIn("flex-wrap:nowrap", self._plano(regla.group(0)))
+        self.assertIn(".actions-cell.actions.btn{width:auto", self._plano(propio))
 
     def test_66_badge_de_tarjeta_sin_estirar(self):
         """El badge «Este es el panel» no se estira a todo el ancho.
@@ -2374,24 +2386,23 @@ class PanelTest(unittest.TestCase):
         píldora salía como una barra azul que parecía un botón. Con
         `align-self:flex-start` queda a su tamaño.
         """
-        propio = self._panel_css()
-        self.assertIn(".wcard > .badge{align-self:flex-start}", propio)
+        self.assertIn(".wcard > .badge { align-self: flex-start; }",
+                      self._panel_css())
         c = self._logged()
         _, _, estado = c.get("/estado")
-        self.assertIn('<span class="badge badge-info">🖥️ Este es el panel</span>',
-                      estado)
-        # Y el badge no está dentro del contenedor de acciones.
+        # Si el panel se pinta a sí mismo como worker protegido, su badge no
+        # está dentro del contenedor de acciones (ahí se estiraría).
         self.assertNotIn('<div class="actions"><span class="badge', estado)
 
     def test_68_select_de_tipo_y_campos_legibles(self):
         """El select de Tipo no se corta y el input de valor usa el estilo."""
-        propio = self._panel_css()
+        propio = self._plano(self._panel_css())
         # 11rem es lo que pide «SOLO LECTURA», la etiqueta más larga.
-        self.assertIn(".sel-tipo{min-width:11rem}", propio)
+        self.assertIn(".sel-tipo{min-width:11rem", propio)
         # El título de la fila no queda cortado a la mitad. Con
         # `*{box-sizing:border-box}` del shell, 15rem deja ~196px de
         # contenido después del padding de la celda.
-        self.assertIn(".apps-tabla td:first-child{min-width:15rem}", propio)
+        self.assertIn(".apps-tablatd:first-child{min-width:15rem;", propio)
         c = self._logged()
         code, _, html = c.get("/apps")
         self.assertEqual(code, 200)
@@ -2435,37 +2446,30 @@ class PanelTest(unittest.TestCase):
         self.assertRegex(
             html,
             r'<div class="card"><div class="wcard-name">[^<]+</div>'
-            r'<div class="muted" style="font-size:\.85rem">')
+            r'<div class="muted nota-sm">')
         self.assertNotIn('<div class="empty">⚠️ no hay log', html)
 
     def test_71_tarjeta_del_menu_se_ajusta_al_contenido(self):
-        """La tarjeta del menú no es un cuadrado de 230px con aire muerto.
+        """La tarjeta del menú no es un cuadrado con aire muerto.
 
-        El shell trae `.module-card` con `aspect-ratio:1` y `max-height:230px`
-        (el look cuadrado de Field). En el panel el contenido real —icono, título
-        y una línea de descripción— mide 97px, así que la tarjeta salía de
-        230x230 con 133px de aire y el menú se veía ralo y descompuesto.
-
-        Igual que en Admon (que lo corrigió en su `Dashboard.svelte` sin tocar
-        `styles/app.css`, porque ese CSS del shell está validado por hash), acá
-        el override va en `panel/panel.css`, que sí es propio. Y tiene que
-        quedar DESPUÉS del `shell.css` en el CSS que sirve el panel, que es lo
-        único que hace que gane a igual especificidad.
+        El shell traía `.module-card` con `aspect-ratio:1` y `max-height:230px`
+        (el look cuadrado de Field). En el panel el contenido real —icono,
+        título y una línea de descripción— mide ~97px, así que la tarjeta
+        salía de 230x230. En apple.css la tarjeta mide lo que mide su
+        contenido: sin `aspect-ratio` y sin `max-height`.
         """
         propio = self._panel_css()
         regla = re.search(r"\.module-card\s*\{[^}]*\}", propio)
-        self.assertIsNotNone(regla, "panel.css debe ajustar .module-card")
-        self.assertIn("aspect-ratio:auto", regla.group(0).replace(" ", ""))
-        self.assertIn("max-height:none", regla.group(0).replace(" ", ""))
-
-        # Y el orden de la cascada en lo que de verdad llega al navegador.
+        self.assertIsNotNone(regla, "apple.css debe definir .module-card")
+        self.assertIn("min-height:96px", regla.group(0).replace(" ", ""))
+        self.assertNotIn("aspect-ratio", propio)
+        self.assertNotIn("max-height:230px", propio)
+        # Lo que de verdad llega al navegador es una sola hoja, sin el shell.
         c = self._logged()
         _, _, html = c.get("/")
         css = re.search(r"<style>(.*?)</style>", html, re.S).group(1)
-        shell = css.index("aspect-ratio:1")
-        panel = css.index("aspect-ratio:auto")
-        self.assertLess(shell, panel,
-                        "el override del panel tiene que ir después del shell")
+        self.assertNotIn("aspect-ratio", css)
+        self.assertIn(".module-card", css)
 
 
     # ── Asistencia ──────────────────────────────────────────────────────────
@@ -2878,10 +2882,11 @@ class AvisosTest(unittest.TestCase):
         self.assertIn("Avisos", html)
 
     def test_el_icono_esta_declarado(self):
-        # Sin la entrada en ICONOS sale el 📦 genérico: no rompe, pero se ve mal.
-        from panel.views import home as home_view
-        self.assertIn("avisos", home_view.ICONOS)
-        self.assertEqual(home_view.ICONOS["avisos"], "📣")
+        # Sin la entrada en NAV_ICONS sale el icono genérico: no rompe, pero
+        # una tarjeta sin icono propio se ve incompleta.
+        from panel.templates import NAV_ICONS
+        self.assertIn("avisos", NAV_ICONS)
+        self.assertEqual(NAV_ICONS["avisos"], "send")
 
     def test_la_pestana_declara_su_permiso(self):
         from panel import config
@@ -3025,8 +3030,8 @@ class WaPanelTest(unittest.TestCase):
         self.assertEqual(tab["href"], "/whatsapp")
         self.assertEqual(tab["modulo"], "WhatsApp")
         self.assertEqual(tab["perm"], "AccesoWhatsapp")
-        from panel.views import home as home_view
-        self.assertEqual(home_view.ICONOS["whatsapp"], "\U0001f4ac")
+        from panel.templates import NAV_ICONS
+        self.assertEqual(NAV_ICONS["whatsapp"], "whatsapp")
 
     def test_aparece_en_la_barra_y_notificaciones_ya_no_la_tiene(self):
         c = self._logged()
@@ -3065,8 +3070,8 @@ class WaPanelTest(unittest.TestCase):
         self.assertIn("¿Ya salió mi pedido de ayer?", html)
         self.assertIn("Taller López", html)
         # Los estados son badges, no texto suelto.
-        self.assertIn("badge badge-success", html)   # BOT
-        self.assertIn("badge badge-warning", html)   # HUMANO
+        self.assertIn("badge badge--ok", html)       # BOT
+        self.assertIn("badge badge--warn", html)     # HUMANO
         self.assertIn("Admin Panel", html)           # asignado
         self.assertIn("tscroll", html)
 
@@ -3077,8 +3082,12 @@ class WaPanelTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertIn("Hola, buen día", html)
         self.assertIn("Buen día, ¿en qué le ayudo?", html)
-        self.assertIn("Entrante", html)
-        self.assertIn("Saliente", html)
+        # La dirección va en la clase y en data-direccion/aria-label, no en un
+        # texto «Entrante/Saliente» suelto.
+        self.assertIn('data-direccion="IN"', html)
+        self.assertIn('data-direccion="OUT"', html)
+        self.assertIn('aria-label="Entrante', html)
+        self.assertIn('aria-label="Saliente', html)
         self.assertIn("Responder", html)
         self.assertIn("Tomar", html)
         self.assertIn("Devolver al bot", html)

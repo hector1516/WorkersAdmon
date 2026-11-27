@@ -52,64 +52,10 @@ ESTADOS = {
     "CERRADA": ("Cerrada", "badge--info"),
 }
 
-# Clase del panel viejo que aún busca `tests/test_panel.py` junto a la nueva.
-# apple.css define las dos (`.badge--ok, .badge-success`), así que es la misma
-# píldora con dos nombres y no se duplica el estilo.
-LEGADO = {"badge--ok": "badge-success", "badge--warn": "badge-warning",
-          "badge--info": "badge-info", "badge--bad": "badge-danger"}
 
 # Lo que apple.css no define: la bandeja de dos columnas, las burbujas y la caja
 # de respuesta. Todo con los tokens de DESIGN.md. Es CSS de esta pantalla, no
 # una hoja nueva: se inyecta una vez y no toca ninguna otra vista.
-ESTILO = """<style>
-.main{overflow:hidden}
-.content{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;padding-bottom:0}
-.wa-inbox{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:320px minmax(0,1fr);gap:16px}
-.wa-pane{display:flex;flex-direction:column;min-height:0;background:var(--surface);border:1px solid var(--separator);border-radius:var(--radius);overflow:hidden}
-.wa-pane__head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--separator)}
-.wa-pane__title{font-size:17px;font-weight:590;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.wa-pane__sub{margin:0;font-size:13px;color:var(--text-2)}
-.wa-list{overflow-y:auto;min-height:0;margin:0;padding:0;list-style:none}
-.wa-list .list__row{padding:0;border-bottom:1px solid var(--separator)}
-.wa-list .list__row:last-child{border-bottom:none}
-.wa-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;min-height:var(--tap);padding:12px 16px;color:var(--text);text-decoration:none}
-.wa-row:hover{background:var(--fill);text-decoration:none}
-.wa-row.is-active{background:var(--fill-strong)}
-.wa-row__main{min-width:0;display:flex;flex-direction:column;gap:2px}
-.wa-row__name{font-weight:590;font-size:15px}
-.wa-row__tel{font-size:13px;color:var(--text-2);font-variant-numeric:tabular-nums}
-.wa-row__asignado{font-size:11px;color:var(--text-2);max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wa-row__msg{font-size:13px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:26ch}
-.wa-row__meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}
-.wa-row__hora{font-size:11px;color:var(--text-2);font-variant-numeric:tabular-nums}
-.wa-msgs{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:8px;padding:16px;background:var(--surface-2)}
-.wa-msg{max-width:78%;padding:9px 13px;border-radius:18px;font-size:15px;line-height:1.35;white-space:pre-wrap;word-break:break-word}
-.wa-msg--in{align-self:flex-start;background:var(--surface);border:1px solid var(--separator);color:var(--text);border-bottom-left-radius:6px}
-.wa-msg--out{align-self:flex-end;background:var(--accent);color:var(--on-accent);border-bottom-right-radius:6px}
-.wa-msg__hora{display:block;margin-top:4px;font-size:11px;opacity:.78;font-variant-numeric:tabular-nums}
-.wa-fecha{display:block;align-self:center;margin:4px 0;font-size:11px;color:var(--text-2)}
-.wa-compose{display:flex;align-items:flex-end;gap:8px;padding:12px;border-top:1px solid var(--separator);background:var(--surface);flex:0 0 auto}
-.wa-compose .input{flex:1 1 auto;min-height:var(--tap);resize:none}
-.wa-compose .btn{flex:0 0 auto;width:var(--tap);min-height:var(--tap);padding:0}
-.wa-acciones{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
-.wa-back{display:none}
-@media (max-width:899px){
-  .wa-inbox{grid-template-columns:minmax(0,1fr)}
-  .wa-inbox .wa-pane--detail{display:none}
-  .wa-inbox--detalle .wa-pane--list{display:none}
-  .wa-inbox--detalle .wa-pane--detail{display:flex}
-  .wa-inbox:not(.wa-inbox--detalle) .wa-pane--detail{display:none}
-  .wa-back{display:inline-flex}
-  .wa-msgs{padding:12px}
-  .wa-msg{max-width:88%}
-}
-@media (max-width:767px){
-  .content{padding-bottom:calc(var(--bottom-h) + env(safe-area-inset-bottom))}
-  .foot{display:none}
-}
-</style>"""
-
-
 def set_csrf(token):
     _CSRF["token"] = token or ""
 
@@ -162,11 +108,7 @@ def _recorte(texto, largo=RECORTE):
 def _badge(estado):
     etiqueta, cls = ESTADOS.get(str(estado or "").upper(),
                                (str(estado or "—"), "badge--info"))
-    legado = LEGADO.get(cls, "")
-    # El nombre legado va primero para que la píldora se lea igual en el HTML
-    # que en la hoja (`badge badge-success badge--ok`).
-    clases = f"badge {legado} {cls}".replace("  ", " ").strip()
-    return f'<span class="{clases}">{esc(etiqueta)}</span>'
+    return f'<span class="badge {cls}">{esc(etiqueta)}</span>'
 
 
 def _url_chat(chat_id, accion=None):
@@ -243,13 +185,16 @@ def _burbujas(chat_id):
     for m in mensajes:
         saliente = str(m.get("Direccion") or "").upper() == "OUT"
         clase = "wa-msg--out" if saliente else "wa-msg--in"
-        etiqueta = "Saliente" if saliente else "Entrante"
+        direccion = "Saliente" if saliente else "Entrante"
+        hora = _hora(m.get("Fecha"))
+        # La dirección no se comunica solo con el color: va en data-direccion,
+        # en la alineación y en el aria-label. Visible solo la hora.
         trozos.append(
             f'<div class="wa-msg {clase}" data-direccion="'
-            f'{"OUT" if saliente else "IN"}">'
+            f'{"OUT" if saliente else "IN"}" '
+            f'aria-label="{esc(direccion)} · {esc(hora)}">'
             f'{esc(m.get("Texto") or "")}'
-            f'<span class="wa-msg__hora">{esc(etiqueta)} · '
-            f'{esc(_hora(m.get("Fecha")))}</span></div>')
+            f'<span class="wa-msg__hora">{esc(hora)}</span></div>')
     return "".join(trozos)
 
 
@@ -308,7 +253,7 @@ def render(chat=""):
                  '<a class="btn btn--quiet" href="/whatsapp?wa=conversaciones">'
                  'Volver a la lista</a></div></section>')
         clase = " wa-inbox--detalle"
-        return (ESTILO + f'<div class="wa-inbox{clase}">'
+        return (f'<div class="wa-inbox{clase}">'
                 + lista() + aviso + "</div>")
 
     clase = " wa-inbox--detalle" if chat else ""
@@ -320,4 +265,4 @@ def render(chat=""):
                   'aria-label="Conversación"><div class="empty">'
                   f'{icono("chat")}<p>Elige una conversación de la lista.</p>'
                   '</div></section>')
-    return ESTILO + f'<div class="wa-inbox{clase}">' + panes + "</div>"
+    return f'<div class="wa-inbox{clase}">' + panes + "</div>"

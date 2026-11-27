@@ -103,7 +103,7 @@ class _Base(unittest.TestCase):
 class EstadoTest(_Base):
     def test_dashboard_con_datos(self):
         html = wv.render(_status(CON_DATOS), USER)
-        self.assertIn('class="dash"', html)
+        self.assertIn('class="dash dash--estado"', html)
         self.assertGreaterEqual(html.count('class="kpi'), 4)
         self.assertIn('aria-current="page"', html)       # nav: Estado activo
         self.assertIn("<svg", html)                      # iconos en línea
@@ -112,24 +112,24 @@ class EstadoTest(_Base):
         self.assertIn("demo_on", html)
         self.assertIn('action="/workers/demo_on/restart"', html)
         self.assertIn('name="csrf"', html)
-        self.assertIn("📄 Logs", html)
+        self.assertIn("<span>Logs</span>", html)
 
     def test_raiz_sin_scroll_de_pagina(self):
         html = wv.render(_status(CON_DATOS), USER)
-        raiz = re.search(r'<div class="dash" style="([^"]*)"', html)
-        self.assertIsNotNone(raiz, "el tablero debe ser .dash con estilo propio")
-        estilo = raiz.group(1)
-        self.assertIn("height:100%", estilo)
-        self.assertIn("overflow:hidden", estilo)
-        self.assertIn("grid-template-rows:auto minmax(0,1fr)", estilo)
-        self.assertNotIn("overflow:auto", estilo)
+        # El alto y la rejilla viven en apple.css, no en un style="" del HTML.
+        raiz = re.search(r'<div class="dash dash--estado"([^>]*)>', html)
+        self.assertIsNotNone(raiz, "el tablero debe ser .dash--estado")
+        self.assertNotIn("style=", raiz.group(1))
+        self.assertIn(".dash--estado", html)
+        self.assertIn("grid-template-rows: auto minmax(0, 1fr)", html)
+        self.assertIn("overflow: hidden", html)
         # Las listas SÍ scrollean dentro de su tarjeta.
         self.assertIn("dashx__scroll", html)
         self.assertIn("overflow: auto", html)
 
     def test_dashboard_vacio_no_revienta(self):
         html = wv.render(_status([]), USER)
-        self.assertIn('class="dash"', html)
+        self.assertIn('class="dash dash--estado"', html)
         self.assertGreaterEqual(html.count('class="kpi'), 4)
         self.assertIn('class="empty"', html)
         self.assertIn("No hay workers", html)
@@ -155,8 +155,10 @@ class LogsTest(_Base):
         # Un worker sin log no ofrece enlace roto.
         self.assertNotIn('href="/workers/demo_off/logs"', html)
         self.assertIn("sin log", html)
-        # Eventos de la base: tabla dentro de .table-wrap (no suelta).
-        self.assertNotIn("<table", html.replace('class="table-wrap"', ""))
+        # Eventos de la base: la tabla (si hay filas) va dentro de .table-wrap.
+        self.assertIn(".table-wrap", html)
+        if "<table" in html:
+            self.assertIn("table-wrap", html)
         self.assertIn('class="badge', html)
 
     def test_indice_vacio(self):

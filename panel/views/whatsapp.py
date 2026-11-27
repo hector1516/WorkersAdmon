@@ -83,12 +83,12 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
         cuerpo = ('<div class="card"><div class="empty">Requiere el permiso '
                   '<code>AccesoWhatsapp</code> (o <code>AccesoTelegram</code> '
                   'mientras exista el anterior) en el HUB.</div></div>')
-        return page("whatsapp", _notif.ESTILO + cuerpo, user=user,
+        return page("whatsapp", cuerpo, user=user,
                     flash_ok=flash_ok, flash_err=flash_err, lugar=lugar, ip=ip,
                     subtitle="Conexión de OpenWA y bandeja de conversaciones")
 
     cuerpo = _nav(vista) + _cuerpo(vista, chat)
-    return page("whatsapp", _notif.ESTILO + cuerpo, user=user,
+    return page("whatsapp", cuerpo, user=user,
                 flash_ok=flash_ok, flash_err=flash_err, lugar=lugar, ip=ip,
                 subtitle="OpenWA: conexión, avisos, grupos, historial y la "
                          "bandeja de conversaciones")

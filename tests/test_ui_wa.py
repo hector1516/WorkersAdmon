@@ -18,6 +18,7 @@ Ejecución:  python -m unittest tests.test_ui_wa -v
 """
 import datetime
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -242,8 +243,13 @@ class ConversacionesTest(unittest.TestCase):
         self.assertIn('class="wa-pane wa-pane--list"', html)
         self.assertIn('class="wa-pane wa-pane--detail"', html)
         self.assertIn("wa-back", html)
-        # Alto propio y scroll interno, sin scroll de página.
-        self.assertIn("min-height:0", html)
+        # Alto propio y scroll interno, sin scroll de página: las reglas viven
+        # en apple.css, no en un <style> dentro de la vista.
+        from panel import templates
+        plano = re.sub(r"\s+", "", templates.CSS)
+        self.assertIn(".wa-inbox{", plano)
+        self.assertIn("min-height:0", plano)
+        self.assertIn("overflow-y:auto", plano)
         self.assertFalse(_formularios_anidados(html))
 
     def test_chat_inexistente_avisa(self):

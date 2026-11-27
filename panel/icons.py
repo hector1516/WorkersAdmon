@@ -70,6 +70,10 @@ _TRAZOS = {
         'a2 2 0 0 0 1.73-3"/>'
         '<path d="M12 9v4"/><path d="M12 17h.01"/>'
     ),
+    "info": (
+        '<circle cx="12" cy="12" r="10"/>'
+        '<path d="M12 16v-4"/><path d="M12 8h.01"/>'
+    ),
     "refresh": '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
     "search": '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     "chevron": '<path d="m9 18 6-6-6-6"/>',

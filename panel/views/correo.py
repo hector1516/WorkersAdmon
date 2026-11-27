@@ -40,6 +40,17 @@ from ..templates import esc, page
 # en el panel se parezca a la que el usuario ve en Mailbox.
 COLORES = ("#FF6B00", "#0EA5E9", "#22C55E", "#A855F7", "#EF4444", "#F59E0B")
 
+# El borde de color de la tarjeta va por clase: un `style=""` con el color de la
+# base sería el único estilo inline que quedaba en las vistas.
+COLOR_CLASES = {
+    "#FF6B00": "co-cuenta--naranja",
+    "#0EA5E9": "co-cuenta--azul",
+    "#22C55E": "co-cuenta--verde",
+    "#A855F7": "co-cuenta--morado",
+    "#EF4444": "co-cuenta--rojo",
+    "#F59E0B": "co-cuenta--ambar",
+}
+
 # estado → (clase de badge, etiqueta). El color lo pone `.badge--*`, no un emoji.
 ESTADOS_UI = {
     "ACTIVA":    ("badge--ok", "Activa"),
@@ -80,8 +91,8 @@ def _formulario(csrf, cuenta=None):
         return '<option value="%s"%s>%s</option>' % (esc(txt), chosen, esc(txt))
 
     return f"""
-<div class="card" style="margin-bottom:16px">
-  <h2 style="margin:0 0 12px;font-size:17px;display:flex;align-items:center;gap:8px">
+<div class="card co-sec">
+  <h2 class="co-h">
     {icono("plus")} {'Editar cuenta' if editando else 'Nueva cuenta de correo'}</h2>
   <form method="post" action="/correo" class="grid2" autocomplete="off">
     <input type="hidden" name="csrf" value="{esc(csrf)}">
@@ -183,7 +194,7 @@ def _formulario(csrf, cuenta=None):
              value="{v('MaxMensajes', '5000')}">
     </div>
 
-    <div class="field" style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap">
+    <div class="field co-acciones">
       <button class="btn btn--primary" type="submit">
         {icono("check", 18)}
         {'Guardar cambios' if editando else 'Crear cuenta'}
@@ -201,6 +212,7 @@ def _tarjeta(cuenta, usuarios_asignados, todos):
     estado = cuenta.get("Estado") or "PENDIENTE"
     badge, etiqueta = ESTADOS_UI.get(estado, ("", estado))
     color = cuenta.get("Color") or COLORES[0]
+    color_clase = COLOR_CLASES.get(str(color).upper(), "co-cuenta")
 
     error = cuenta.get("UltimoError")
     # El error se muestra entero y en su propia caja porque es lo único que dice
@@ -222,20 +234,20 @@ def _tarjeta(cuenta, usuarios_asignados, todos):
                 else f'<span class="hint">{esc(cuenta["UltimoSync"].strftime("%d/%m %H:%M"))}</span>')
 
     return f"""
-<div class="card" style="margin-bottom:12px;border-left:4px solid {esc(color)}">
+<div class="card co-sec--tight co-cuenta {color_clase}">
   <div class="list">
-    <div class="list__row" style="flex-wrap:wrap">
+    <div class="list__row co-fila">
       <div class="list__main">
         <strong>{esc(cuenta.get("Alias") or cuenta.get("Email"))}</strong>
         <div class="hint">{esc(cuenta.get("Email"))}</div>
       </div>
-      <div class="list__meta" style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="list__meta co-meta">
         <span class="badge {badge}">{esc(etiqueta)}</span>
         <span class="badge">{esc(cuenta.get("CuantosUsan") or 0)} usuario(s)</span>
         <span class="badge">{esc(cuenta.get("NoLeidos") or 0)} sin leer</span>
       </div>
     </div>
-    <div class="list__row" style="flex-wrap:wrap">
+    <div class="list__row co-fila">
       <div class="list__main hint">
         IMAP {esc(cuenta.get("ServidorIMAP"))}:{esc(cuenta.get("PuertoIMAP"))} ·
         SMTP {esc(cuenta.get("ServidorSMTP"))}:{esc(cuenta.get("PuertoSMTP"))} ·
@@ -248,9 +260,9 @@ def _tarjeta(cuenta, usuarios_asignados, todos):
 
   {banda_error}
 
-  <details class="wdesc" style="margin-top:12px">
+  <details class="wdesc co-detalle">
     <summary>{icono("users", 18)} Quién tiene esta cuenta ({esc(len(usuarios_asignados))})</summary>
-    <form method="post" action="/correo" class="chklist" style="margin-top:8px">
+    <form method="post" action="/correo" class="chklist co-chklist">
       <input type="hidden" name="csrf" value="{esc(_CSRF['token'])}">
       <input type="hidden" name="accion" value="asignar">
       <input type="hidden" name="id_cuenta" value="{esc(cuenta["Id"])}">
@@ -262,7 +274,7 @@ def _tarjeta(cuenta, usuarios_asignados, todos):
     </form>
   </details>
 
-  <div class="actions" style="margin-top:12px">
+  <div class="actions co-sep">
     <a class="btn btn--sm btn--quiet" href="/correo?editar={esc(cuenta["Id"])}">
       {icono("settings", 18)} Editar</a>
     <form method="post" action="/correo" class="inline">
@@ -290,17 +302,17 @@ def _tarjeta(cuenta, usuarios_asignados, todos):
 _CSRF = {"token": ""}
 
 EXPLICACION = """
-<div class="card" style="margin-bottom:16px">
-  <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px">
+<div class="card co-sec">
+  <h2 class="co-h co-h--chico">
     """ + icono("mail") + """ Cuentas de correo de Mailbox</h2>
-  <p class="hint" style="margin:0 0 8px">
+  <p class="hint co-h--chico">
     Lo que se da de alta acá es lo que la app de Mailbox muestra. El usuario ve
     únicamente las cuentas que le asignes; no puede crear cuentas ni ver
     credenciales. La contraseña se cifra antes de guardarse y ni esta vista ni el
     panel vuelven a leerla: solo el worker la descifra, porque es el único que abre
     una conexión IMAP.
   </p>
-  <p class="hint" style="margin:0">
+  <p class="hint co-vacio">
     Al crear una cuenta queda <b>PENDIENTE</b>, no activa. En su siguiente ciclo el
     worker prueba la conexión: si el servidor acepta, la pasa a
     <b>ACTIVA</b>; si no, la deja en <b>ERROR</b> con el motivo, que aparece en la
@@ -334,11 +346,11 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
         cuerpo += ('<div class="empty"><p>No hay ninguna cuenta de correo dada de '
                    'alta. Abajo está el formulario.</p></div>')
     else:
-        cuerpo += (f'<h2 style="font-size:22px;margin:0 0 12px">'
+        cuerpo += (f'<h2 class="co-h co-h--grande">'
                    f'Cuentas ({len(cuentas)})</h2>')
         filas = "".join(_tarjeta(c, _db.usuarios_con_cuenta(c["Id"]), todos)
                         for c in cuentas)
-        cuerpo += f'<div class="list" style="margin-bottom:16px">{filas}</div>'
+        cuerpo += f'<div class="list co-sec">{filas}</div>'
 
     # El formulario de alta va UNA vez, al final. Ponerlo arriba de la lista
     # obligaría a pasar por un formulario largo antes de ver si hay cuentas.
