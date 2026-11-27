@@ -197,6 +197,25 @@ CATALOGO = {
             "bloquear la bandeja del panel. Se apaga con wa_purga_activa=0 y "
             "fuera de 03:00-03:30 hora México no hace nada."),
     },
+    # ── Recordatorios proactivos del bot de WhatsApp (fase C) ─────────────────
+    "wa_recordatorios": {
+        "desc": "Recordatorios de WhatsApp (km, vales y resumen del lunes)",
+        "cadencia": "cada 15 min · ventana L-V 09:00-18:30",
+        "app": "HUB",
+        "descripcion": (
+            "El otro sentido del bot: avisa lo que FALTA sin que se lo "
+            "pregunten. (1) Un auto asignado lleva wa_rec_km_dias días sin "
+            "lectura de odómetro: se le pide al conductor, máximo una vez cada "
+            "3 días por auto. (2) Un vale GENERADO lleva más de "
+            "wa_rec_vale_horas horas sin comprobante en HUB_OxxoGasTickets: se "
+            "le recuerda al solicitante cada 48 h, máximo wa_rec_vale_max veces "
+            "por vale. (3) El lunes 09:00-09:30 manda un resumen con vales "
+            "pendientes, kilómetros del mes y reportes de la semana pasada; sin "
+            "datos no manda nada. Solo a quien tiene WhatsApp en "
+            "HUB_UsuariosWhatsapp, fuera de la ventana L-V 09:00-18:30 no sale "
+            "nada y nunca más de wa_rec_max_dia mensajes por usuario al día. El "
+            "dedupe vive en HUB_WaRecordatorios (también los fallos, Ok=0)."),
+    },
     # ── Workers de Field (migrados de `field` el 2026-09-26, código en api/) ──
     "avisos": {
         "desc": "Avisos Field (push PWA) — APAGADO, muerto",

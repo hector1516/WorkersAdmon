@@ -128,6 +128,36 @@ WORKERS_SPEC = {
            ayuda="Es de madrugada a propósito: no compite con la bandeja "
                  "del panel. Borra en lotes de 500 para no bloquear la tabla."),
     ],
+    "wa_recordatorios": [
+        _f("WA_REC_CICLO_SEG", "Intervalo de revisión", "number", "env",
+           default=900, min=60, max=86400, unidad="seg",
+           ayuda="Cada cuántos segundos busca qué recordar. La ventana es de "
+                 "horas, así que 15 min basta."),
+        _f("wa_rec_activo", "Recordatorios activos", "bool", "hub_config",
+           clave="wa_rec_activo", default="1",
+           ayuda="Con No el worker late pero no manda ningún mensaje."),
+        _f("wa_rec_km_dias", "Días sin lectura de km", "number", "hub_config",
+           clave="wa_rec_km_dias", default=3, min=1, max=365, unidad="días",
+           ayuda="Un auto asignado con más de estos días sin lectura de "
+                 "odómetro dispara el aviso a su conductor."),
+        _f("wa_rec_vale_horas", "Horas de gracia del vale", "number",
+           "hub_config", clave="wa_rec_vale_horas", default=48, min=1,
+           max=8760, unidad="horas",
+           ayuda="Un vale GENERADO sin comprobante avisa pasado este tiempo."),
+        _f("wa_rec_vale_max", "Avisos máximos por vale", "number",
+           "hub_config", clave="wa_rec_vale_max", default=3, min=1, max=20,
+           ayuda="Tope de recordatorios por vale, para no insistir para siempre."),
+        _f("wa_rec_resumen", "Resumen del lunes", "bool", "hub_config",
+           clave="wa_rec_resumen", default="1",
+           ayuda="Con No se omite el resumen del lunes 09:00-09:30."),
+        _f("wa_rec_max_dia", "Mensajes por usuario al día", "number",
+           "hub_config", clave="wa_rec_max_dia", default=3, min=1, max=20,
+           ayuda="Tope diario por usuario (cuenta sólo lo enviado)."),
+        _f("ventana", "Ventana de envío", "const", "const",
+           valor="lunes a viernes, 09:00-18:30 (hora México)",
+           ayuda="Fuera de la ventana no sale nada; el ciclo siguiente lo "
+                 "recoge. El resumen del lunes sale sólo entre 09:00 y 09:30."),
+    ],
     "oxxogas_worker": [
         _f("intervalo", "Cadencia de sincronización", "const", "const",
            valor="cada 1 h",
