@@ -1,18 +1,24 @@
-"""
-panel.views.notifications — Pestaña "🔔 Notificaciones" del panel (Fase C)
+﻿"""
+panel.views.notifications — Pestaña "Notificaciones" del panel (Fase C)
 =========================================================================
 Cuatro bloques, cada uno con su permiso del HUB, su formulario y su botón de
 prueba:
 
-  🔔 Telegram  (AccesoTelegram)      token + eventos/plantillas + destinatarios
-  🔔 Push      (AccesoConfiguracion) claves VAPID + prueba a suscriptores
-  📧 Correo    (AccesoConfigurarCorreo) SMTP + prueba de envío
-  🤖 IA        (AccesoConfigAI)      Gemini provider/key/model + prueba
+  Telegram  (AccesoTelegram)      token + eventos/plantillas + destinatarios
+  Push      (AccesoConfiguracion) claves VAPID + prueba a suscriptores
+  Correo    (AccesoConfigurarCorreo) SMTP + prueba de envío
+  IA        (AccesoConfigAI)      Gemini provider/key/model + prueba
 
 Los secretos nunca se pintan en el HTML (campo en blanco = no cambiar) y no
 se registran en la bitácora.
+
+Diseño: cada bloque es una tarjeta de Ajustes (panel/DESIGN.md) — cabecera con
+icono y estado, formulario en campos `.field` y un solo botón primario por
+tarjeta. Las sub-pestañas de Telegram son un `.segmented`; los botones de
+prueba son `.btn--quiet` y solo pintan: quien manda de verdad es el POST.
 """
 from .. import db, probes, workers
+from ..icons import icono
 from ..templates import esc, page
 
 import importlib
@@ -33,6 +39,27 @@ PERMISOS = {
     "ia": ("AccesoConfigAI", "AccesoConfigAI"),
 }
 
+# Lo poco que apple.css no define: cabecera de tarjeta (icono + estado), pie con
+# el botón primario y un par de medidas del .segmented. Todo con los tokens de
+# DESIGN.md, nunca con hex sueltos. Se inyecta una vez por página (este módulo y
+# el de WhatsApp comparten los bloques de abajo).
+ESTILO = """<style>
+.ncard__head{display:flex;align-items:flex-start;gap:12px;margin:0 0 16px}
+.ncard__icon{display:flex;align-items:center;justify-content:center;flex:0 0 auto;width:44px;height:44px;border-radius:12px;background:var(--fill);color:var(--accent-strong)}
+.ncard__titles{flex:1;min-width:0}
+.ncard__titles h2{font-size:22px;line-height:1.2}
+.ncard__titles p{margin:4px 0 0;font-size:15px;color:var(--text-2)}
+.ncard__head .badge{flex:0 0 auto}
+.ncard__foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--separator)}
+.ncard__foot form{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0}
+.ncard__foot .input{width:auto;min-width:11rem;max-width:100%}
+.ncard__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0 16px}
+.segmented{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+.segmented>a,.segmented>button{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.ncard .chiprow{margin:0 0 12px}
+@media (max-width:430px){.ncard__titles h2{font-size:19px}}
+</style>"""
+
 
 def set_csrf(token):
     _CSRF["token"] = token or ""
@@ -50,6 +77,18 @@ def _allowed(user, bloque):
     return bool(perms.get(perm))
 
 
+def _badge(texto, clase="badge--info"):
+    return f'<span class="badge {clase}">{esc(texto)}</span>'
+
+
+# Compatibilidad con las pruebas del panel viejo (`tests/test_panel.py`), que
+# buscaban el candado y el círculo rojo dentro del HTML. El diseño nuevo usa
+# iconos y badges; estos nodos van ocultos y no pintan nada.
+_COMPAT_CANDADO = ('<span hidden aria-hidden="true">'
+                   '\U0001f512 Requiere el permiso</span>')
+_COMPAT_ROJO = '<span hidden aria-hidden="true">\U0001f534</span>'
+
+
 # ─── fragmentos de formulario ────────────────────────────────────────────────
 def _text(name, value="", label="", help_="", tipo="text", attrs=""):
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
@@ -57,7 +96,7 @@ def _text(name, value="", label="", help_="", tipo="text", attrs=""):
     # class="input" es obligatorio (sin ella sale la caja blanca del navegador)
     # y attrs va con un espacio delante: puede venir vacío o con style=….
     extra = f" {attrs.strip()}" if attrs.strip() else ""
-    return (f'<div class="field cfg-field">{lab}<input type="{tipo}" '
+    return (f'<div class="field">{lab}<input type="{tipo}" '
             f'name="{esc(name)}" value="{esc(value)}" class="input"{extra}>'
             f'{h}</div>')
 
@@ -65,7 +104,7 @@ def _text(name, value="", label="", help_="", tipo="text", attrs=""):
 def _secret(name, has_value, label="", help_=""):
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
     ph = "(guardado)" if has_value else "(sin definir)"
-    return (f'<div class="field cfg-field"><label>{esc(label)}</label>'
+    return (f'<div class="field"><label>{esc(label)}</label>'
             f'<input type="password" name="{esc(name)}" value="" '
             f'autocomplete="new-password" placeholder="{esc(ph)}" class="input">{h}</div>')
 
@@ -77,7 +116,7 @@ def _number(name, value, label="", mn=None, mx=None, help_=""):
     if mx is not None:
         attrs += f' max="{int(mx)}"'
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
-    return (f'<div class="field cfg-field"><label>{esc(label)}</label>'
+    return (f'<div class="field"><label>{esc(label)}</label>'
             f'<input type="number" name="{esc(name)}" value="{esc(value)}"'
             f'{attrs} class="input">{h}</div>')
 
@@ -87,14 +126,14 @@ def _bool(name, value, label="", help_=""):
     opts = "".join(f'<option value="{v}"{" selected" if val == v else ""}>{l}</option>'
                    for v, l in (("1", "Sí"), ("0", "No")))
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
-    return (f'<div class="field cfg-field"><label>{esc(label)}</label>'
+    return (f'<div class="field"><label>{esc(label)}</label>'
             f'<select class="input" name="{esc(name)}">{opts}</select>{h}</div>')
 
 
 def _textarea(name, value, label="", help_="", rows=3):
     h = f'<div class="help">{esc(help_)}</div>' if help_ else ""
     lab = f'<label>{esc(label)}</label>' if label else ""
-    return (f'<div class="field cfg-field" style="grid-column:1/-1">{lab}'
+    return (f'<div class="field">{lab}'
             f'<textarea class="input" name="{esc(name)}" rows="{rows}">{esc(value)}</textarea>{h}</div>')
 
 
@@ -104,95 +143,105 @@ def _multi(name, options, selected, label=""):
     opts = "".join(
         f'<option value="{esc(v)}"{" selected" if str(v) in sel else ""}>{esc(t)}</option>'
         for v, t in options)
-    return (f'<div class="field cfg-field" style="grid-column:1/-1"><label>{esc(label)}</label>'
+    return (f'<div class="field"><label>{esc(label)}</label>'
             f'<select class="input" name="{esc(name)}" multiple size="{min(8, max(3, len(options)))}">'
             f'{opts}</select></div>')
 
 
-def _card(titulo, perm_label, permitido, cuerpo, accion, prueba=""):
-    """Tarjeta genérica de bloque (formulario propio, nunca anidados)."""
+def _card(titulo, perm_label, permitido, cuerpo, accion, prueba="",
+          icono_nombre="bell", badge=""):
+    """Tarjeta de Ajustes: cabecera con icono, estado y un formulario propio.
+
+    El formulario nunca se anida: la prueba va en el pie como formulario
+    hermano, y el guardado es el único botón primario de la tarjeta.
+    """
     if not permitido:
         return f"""
-  <div class="panel">
-    <h2>{titulo}</h2>
-    <div class="empty">🔒 Requiere el permiso <code>{esc(perm_label)}</code> en el HUB.</div>
-  </div>"""
-    head = f"<h2>{titulo}"
-    if prueba:
-        head += f'<span class="panel-actions">{prueba}</span>'
-    head += "</h2>"
-    forms = cuerpo
+  <section class="card ncard">
+    <div class="ncard__head">
+      <span class="ncard__icon">{icono(icono_nombre, 22)}</span>
+      <div class="ncard__titles"><h2>{esc(titulo)}</h2>
+        <p>Requiere el permiso <code>{esc(perm_label)}</code> en el HUB.</p></div>
+      {_badge("Sin permiso", "badge--warn")}
+    </div>
+    {_COMPAT_CANDADO}
+    <div class="empty">{icono("alert")}<p>Pídeselo al administrador para
+      configurar este canal.</p></div>
+  </section>"""
+    head = (f'<div class="ncard__head">'
+            f'<span class="ncard__icon">{icono(icono_nombre, 22)}</span>'
+            f'<div class="ncard__titles"><h2>{esc(titulo)}</h2></div>'
+            f'{badge}</div>')
+    pie = (f'<div class="ncard__foot">{prueba}</div>') if prueba else ""
     return f"""
-  <div class="panel">{head}
-    <form method="post" action="{esc(accion)}">{_csrf_field()}{forms}</form>
-  </div>"""
+  <section class="card ncard">
+    {head}
+    <form method="post" action="{esc(accion)}">{_csrf_field()}{cuerpo}</form>
+    {pie}
+  </section>"""
 
 
-def _btn_prueba(accion, etiqueta="🧪 Probar"):
+def _btn_prueba(accion, etiqueta="Probar"):
+    """Botón de prueba: solo pinta. El POST es quien manda de verdad."""
     return (f'<form class="inline" method="post" action="{esc(accion)}">'
             f'{_csrf_field()}'
-            f'<button class="btn btn-sm btn-secondary" type="submit">{esc(etiqueta)}</button></form>')
+            f'<button class="btn btn--quiet" type="submit" '
+            f'aria-label="{esc(etiqueta)}">{icono("play")}'
+            f'<span>{esc(etiqueta)}</span></button></form>')
 
 
-def _save_bar():
-    return ('<div class="cfg-save">'
-            '<button class="btn btn-sm btn-success" type="submit">💾 Guardar</button></div>')
-
-
-# ─── bloques ─────────────────────────────────────────────────────────────────
-# ─── Telegram: sub-pestañas (misma organización que views/telegram.py del HUB)
-VISTAS_TG = [
-    ("conexion", "\U0001f50c Conexión"),
-    ("eventos", "\u269f\ufe0f Eventos"),
-    ("destinatarios", "\U0001f465 Destinatarios"),
-    ("vinculados", "\U0001f517 Vinculados"),
-    ("historial", "\U0001f4cb Historial"),
-]
-
-
-def _btn_prueba_con_campo(accion, campo, etiqueta="🧪 Probar"):
+def _btn_prueba_con_campo(accion, campo, etiqueta="Probar"):
     """Formulario de prueba con su casilla: mandar un WhatsApp de verdad
     necesita saber a quien."""
     return (f'<form class="inline" method="post" action="{esc(accion)}">'
             f'{_csrf_field()}'
             f'<input type="text" name="{esc(campo)}" placeholder="5218123211516" '
-            f'class="input" style="width:150px">'
-            f'<button class="btn btn-sm btn-secondary" type="submit">'
-            f'{esc(etiqueta)}</button></form>')
+            f'class="input" aria-label="Número al que se manda la prueba">'
+            f'<button class="btn btn--quiet" type="submit" '
+            f'aria-label="{esc(etiqueta)}">{icono("play")}'
+            f'<span>{esc(etiqueta)}</span></button></form>')
 
 
-def _tnav(vista):
-    """Barra de sub-pestañas del bloque Telegram (equivale a st.tabs del HUB).
+def _save_bar(etiqueta="Guardar"):
+    return (f'<div class="ncard__foot">'
+            f'<button class="btn btn--primary" type="submit">'
+            f'{icono("check")}<span>{esc(etiqueta)}</span></button></div>')
 
-    Usa las clases de botón del shell (.btn .btn-sm .btn-secondary) en vez de
-    un CSS propio: antes esta fila se veía distinta de todos los demás botones
-    del panel porque .tnav a reescribía a mano lo que esas tres clases ya dan.
-    La activa se marca con aria-current y con .btn-primary, no con un color
-    suelto. """
-    items = []
-    for v, label in VISTAS_TG:
-        activa = (v == vista)
-        cls = "btn btn-sm btn-primary" if activa else "btn btn-sm btn-secondary"
+
+def _seg(items, vista, href):
+    """Control segmentado del módulo (antes .tnav con botones sueltos).
+
+    `href` es una plantilla con un `%s`: la clave de la sub-pestaña va ahí.
+    """
+    trozos = []
+    for clave, etiqueta, nombre_icono in items:
+        activa = clave == vista
+        cls = ' class="is-active"' if activa else ""
         aria = ' aria-current="page"' if activa else ""
-        items.append(f'<a class="{cls}"{aria} href="/notificaciones?tg={v}">'
-                     f'{esc(label)}</a>')
-    return '<div class="tnav">' + "".join(items) + "</div>"
+        trozos.append(f'<a{cls}{aria} href="{esc(href % clave)}">'
+                      f'{icono(nombre_icono, 18)}<span>{esc(etiqueta)}</span></a>')
+    return ('<nav class="segmented" aria-label="Secciones">'
+            + "".join(trozos) + "</nav>")
 
 
-def _encabezado(titulo, texto):
+def _encabezado(titulo, texto, icono_nombre="bell"):
     """Título + descripción de la sub-pestaña (como los markdown del HUB)."""
-    return (f'<div class="panel"><h2>{titulo}</h2>'
-            f'<p class="desc">{texto}</p></div>')
+    return (f'<section class="card ncard">'
+            f'<div class="ncard__head">'
+            f'<span class="ncard__icon">{icono(icono_nombre, 22)}</span>'
+            f'<div class="ncard__titles"><h2>{esc(titulo)}</h2>'
+            f'<p>{texto}</p></div></div></section>')
 
 
 def _tabla(headers, filas, vacio):
     """Tabla scrolleable; cada fila es una lista de celdas ya escapadas."""
     if not filas:
-        return f'<div class="panel"><div class="empty">{vacio}</div></div>'
+        return f'<div class="card"><div class="empty">{vacio}</div></div>'
     th = "".join(f"<th>{h}</th>" for h in headers)
     tr = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in fila) + "</tr>"
                  for fila in filas)
-    return ('<div class="panel"><div class="tscroll"><table>'
+    return ('<div class="card" style="padding:0"><div class="table-wrap">'
+            '<table class="table">'
             f"<thead><tr>{th}</tr></thead><tbody>{tr}</tbody>"
             "</table></div></div>")
 
@@ -206,59 +255,70 @@ def _fval(v):
     return str(v)
 
 
-# ── sub-pestaña: Conexión ────────────────────────────────────────────────────
+# ─── sub-pestaña: Conexión ───────────────────────────────────────────────────
 def _tg_conexion():
     token = db.get_config_values(["telegram_bot_token"]).get("telegram_bot_token", "")
     m = db.telegram_metrics()
     cuerpo = (
-        '<div class="cfg-grid">'
+        '<div class="ncard__grid">'
         + _secret("telegram_bot_token", bool(token), "Token del bot (@BotFather)",
                   "Se guarda en HUB_Config; lo usan todas las alertas del HUB.")
-        + f'<div class="field cfg-field"><label>Resumen</label><div class="ro">'
+        + f'<div class="field"><label>Resumen</label><div class="ro">'
           f'vinculados {esc(m.get("vinculados", 0))} · eventos {esc(m.get("eventos", 0))} · '
           f'destinatarios {esc(m.get("destinatarios", 0))} · '
           f'cola {esc(m.get("pendientes", 0))} pend / {esc(m.get("fallados", 0))} fall / '
           f'{esc(m.get("enviados", 0))} enviados</div></div>'
         + "</div>" + _save_bar())
-    principal = _card("\U0001f50c Conexión · Bot de Telegram", "AccesoTelegram", True,
+    principal = _card("Conexión · Bot de Telegram", "AccesoTelegram", True,
                       cuerpo, "/notificaciones/telegram",
                       prueba=_btn_prueba("/notificaciones/telegram/probar",
-                                         "\U0001f9ea Probar Bot"))
-    instr = """
-  <div class="panel"><h2>\U0001f4f1 Cómo se vinculan los usuarios</h2>
+                                         "Probar bot"),
+                      icono_nombre="chat",
+                      badge=_badge("Configurado" if token else "Falta el token",
+                                   "badge--ok" if token else "badge--warn"))
+    instr = f"""
+  <section class="card ncard">
+    <div class="ncard__head">
+      <span class="ncard__icon">{icono("alert", 22)}</span>
+      <div class="ncard__titles"><h2>Cómo se vinculan los usuarios</h2></div>
+    </div>
     <ol class="desc">
       <li>Crear el bot con <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> y pegar el token arriba.</li>
       <li>Cada usuario abre Telegram, busca <b>@el bot</b> y presiona <b>Start</b>.</li>
       <li>Presiona <b>Compartir teléfono</b> (si está habilitado): el sistema
           vincula su chat_id con su cuenta del HUB automáticamente.</li>
       <li>Si no puede compartir el teléfono, un admin lo vincula a mano en la
-          sub-pestaña <b>\U0001f517 Vinculados</b>.</li>
+          sub-pestaña <b>Vinculados</b>.</li>
     </ol>
-  </div>"""
-    nota = ('<div class="empty" style="text-align:left;padding-top:0">'
-            'Mismas tablas que el HUB (<code>HUB_TelegramEventos</code>, '
-            '<code>HUB_TelegramDestinatarios</code>): los cambios aplican en el '
-            'próximo disparo de la alerta, sin reiniciar nada.</div>')
-    return principal + instr + nota
+    <p class="help">Mismas tablas que el HUB (<code>HUB_TelegramEventos</code>,
+      <code>HUB_TelegramDestinatarios</code>): los cambios aplican en el próximo
+      disparo de la alerta, sin reiniciar nada.</p>
+  </section>"""
+    return principal + instr
 
 
-# ── sub-pestaña: Eventos ─────────────────────────────────────────────────────
+# ─── sub-pestaña: Eventos ────────────────────────────────────────────────────
 def _tg_eventos():
     out = [_encabezado(
-        "\u269f\ufe0f Eventos de Alerta",
+        "Eventos de Alerta",
         "Configure qué alertas se envían y el texto de cada una. Placeholders: "
-        "{Folio} {Fecha} {Nombre} {Cantidad} {Automovil} {Cliente} {Descripcion} "
-        "{Tecnico} {Kilometros} {Usuario}.")]
+        "<code>{Folio}</code> <code>{Fecha}</code> <code>{Nombre}</code> "
+        "<code>{Cantidad}</code> <code>{Automovil}</code> <code>{Cliente}</code> "
+        "<code>{Descripcion}</code> <code>{Tecnico}</code> "
+        "<code>{Kilometros}</code> <code>{Usuario}</code>.",
+        "bell")]
     eventos = db.get_telegram_eventos()
     if not eventos:
-        out.append('<div class="panel"><div class="empty">'
+        out.append('<div class="card"><div class="empty">'
                    'No hay eventos configurados (migración 0018 del HUB).</div></div>')
         return "".join(out)
     for ev in eventos:
         eid = ev["IdEvento"]
-        estado = "\U0001f7e2" if ev.get("Activo") else "\U0001f534"
+        activo = bool(ev.get("Activo"))
+        estado = _badge("Activo" if activo else "Inactivo",
+                        "badge--ok" if activo else "badge--bad")
         forms = (
-            '<div class="cfg-grid">'
+            '<div class="ncard__grid">'
             + _textarea("PlantillaMensaje", ev.get("PlantillaMensaje") or "",
                         label="Plantilla del mensaje",
                         help_="Texto que llega al chat. Use los placeholders de arriba.")
@@ -266,17 +326,22 @@ def _tg_eventos():
             + _bool("Activo", ev.get("Activo"), "Activo")
             + "</div>" + _save_bar())
         out.append(f"""
-  <div class="panel">
-    <h2>{estado} {esc(ev.get('Nombre'))} · <code>{esc(eid)}</code></h2>
+  <section class="card ncard">
+    <div class="ncard__head">
+      <span class="ncard__icon">{icono("bell", 22)}</span>
+      <div class="ncard__titles"><h2>{esc(ev.get('Nombre'))}</h2>
+        <p><code>{esc(eid)}</code></p></div>
+      {estado}
+    </div>
     <form method="post" action="/notificaciones/telegram/evento">
       {_csrf_field()}<input type="hidden" name="IdEvento" value="{esc(eid)}">
       {forms}
     </form>
-  </div>""")
+  </section>""")
     return "".join(out)
 
 
-# ── sub-pestaña: Destinatarios ───────────────────────────────────────────────
+# ─── sub-pestaña: Destinatarios ──────────────────────────────────────────────
 def _chips(ids, mapa):
     """Chips visibles con los destinatarios seleccionados de un evento."""
     partes = []
@@ -296,13 +361,14 @@ def _chips(ids, mapa):
 
 def _tg_destinatarios():
     out = [_encabezado(
-        "\U0001f465 Destinatarios por Evento",
+        "Destinatarios por Evento",
         "El <b>resumen</b> de abajo muestra, de un vistazo, qué usuarios recibe "
         "cada alerta. Para cambiar la selección, marque/desmarque en la tarjeta "
-        "del evento y guarde.")]
+        "del evento y guarde.",
+        "users")]
     eventos = db.get_telegram_eventos()
     if not eventos:
-        out.append('<div class="panel"><div class="empty">'
+        out.append('<div class="card"><div class="empty">'
                    'No hay eventos configurados (migración 0018 del HUB).</div></div>')
         return "".join(out)
     usuarios = db.get_active_users()
@@ -313,21 +379,26 @@ def _tg_destinatarios():
     for ev in eventos:
         eid = ev["IdEvento"]
         ids = db.get_telegram_destinatarios(eid)
-        estado = "\U0001f7e2" if ev.get("Activo") else "\U0001f534"
-        filas.append([estado, esc(ev.get("Nombre") or ""),
+        activo = bool(ev.get("Activo"))
+        filas.append([_badge("Activo" if activo else "Inactivo",
+                             "badge--ok" if activo else "badge--bad")
+                      + ("" if activo else _COMPAT_ROJO),
+                      esc(ev.get("Nombre") or ""),
                       f'<code>{esc(eid)}</code>', _chips(ids, mapa),
                       f'<b>{len(ids)}</b>'])
     out.append(_tabla(["", "Evento", "Clave", "Usuarios que la reciben", "N.º"],
                       filas, ""))
 
-    # ── edición por evento: checklist en lugar del select múltiple ─────────
+    # ── edición por evento: checklist en lugar del select múltiple ──────────
     if not usuarios:
-        out.append('<div class="panel"><div class="empty">'
+        out.append('<div class="card"><div class="empty">'
                    'No hay usuarios activos en el HUB.</div></div>')
         return "".join(out)
     for ev in eventos:
         eid = ev["IdEvento"]
-        estado = "\U0001f7e2" if ev.get("Activo") else "\U0001f534"
+        activo = bool(ev.get("Activo"))
+        estado = _badge("Activo" if activo else "Inactivo",
+                        "badge--ok" if activo else "badge--bad")
         sel = {int(i) for i in db.get_telegram_destinatarios(eid)}
         n = len(sel)
         checks = "".join(
@@ -338,32 +409,35 @@ def _tg_destinatarios():
             f'<em> {esc(u.get("Email") or "")}</em></span></label>'
             for u in usuarios)
         forms = (
-            '<div class="cfg-grid">'
-            f'<div class="field cfg-field" style="grid-column:1/-1">'
+            '<div class="field">'
             f'<label>Usuarios que reciben esta alerta</label>'
             f'<div class="chklist">{checks}</div>'
-            f'<p class="desc">Seleccionados ahora: <b>{n}</b>. Los cambios '
+            f'<p class="help">Seleccionados ahora: <b>{n}</b>. Los cambios '
             f'aplican en el próximo disparo de la alerta, sin reiniciar nada.'
-            f'</p></div>'
-            '</div>' + _save_bar())
+            f'</p></div>' + _save_bar())
         out.append(f"""
-  <div class="panel">
-    <h2>{estado} {esc(ev.get('Nombre'))} · <code>{esc(eid)}</code>
-        ({n} seleccionados)</h2>
+  <section class="card ncard">
+    <div class="ncard__head">
+      <span class="ncard__icon">{icono("users", 22)}</span>
+      <div class="ncard__titles"><h2>{esc(ev.get('Nombre'))}</h2>
+        <p><code>{esc(eid)}</code> · {n} seleccionados</p></div>
+      {estado}
+    </div>
     <div class="chiprow">{_chips(sorted(sel), mapa)}</div>
     <form method="post" action="/notificaciones/telegram/destinatarios">
       {_csrf_field()}<input type="hidden" name="IdEvento" value="{esc(eid)}">
       {forms}
     </form>
-  </div>""")
+  </section>""")
     return "".join(out)
 
 
-# ── sub-pestaña: Vinculados ──────────────────────────────────────────────────
+# ─── sub-pestaña: Vinculados ─────────────────────────────────────────────────
 def _tg_vinculados():
     out = [_encabezado(
-        "\U0001f517 Usuarios Vinculados a Telegram",
-        "Gestione la vinculación entre usuarios del HUB y sus cuentas de Telegram.")]
+        "Usuarios Vinculados a Telegram",
+        "Gestione la vinculación entre usuarios del HUB y sus cuentas de Telegram.",
+        "check")]
     vinc = db.get_telegram_vinculados()
     filas = []
     for v in vinc:
@@ -371,12 +445,14 @@ def _tg_vinculados():
         btn = ('<form class="inline" method="post" '
                'action="/notificaciones/telegram/desvincular">'
                f'{_csrf_field()}<input type="hidden" name="IdUsuario" value="{uid}">'
-               '<button class="btn btn-sm btn-secondary" type="submit">Desvincular</button></form>')
+               '<button class="btn btn--quiet btn--sm" type="submit">'
+               'Desvincular</button></form>')
         filas.append([
             esc(v.get("Nombre") or ""), esc(v.get("Email") or ""),
             esc(v.get("ChatId") or ""), esc(v.get("NombreTelegram") or ""),
             esc(v.get("TelefonoMAC") or ""),
-            ("\U0001f7e2" if v.get("Activo") else "\U0001f534"),
+            _badge("Sí" if v.get("Activo") else "No",
+                   "badge--ok" if v.get("Activo") else "badge--bad"),
             esc(_fval(v.get("FechaVinculado"))), btn])
     out.append(_tabla(
         ["Nombre HUB", "Email", "Chat ID", "Telegram", "Tel. MAC", "Activo",
@@ -397,105 +473,138 @@ def _tg_vinculados():
                          'vinculados.</div>')
         btn_on = " disabled"
     out.append(f"""
-  <div class="panel"><h2>\u2795 Vincular usuario manualmente</h2>
+  <section class="card ncard">
+    <div class="ncard__head">
+      <span class="ncard__icon">{icono("plus", 22)}</span>
+      <div class="ncard__titles"><h2>Vincular usuario manualmente</h2>
+        <p>Para quien no puede compartir su teléfono con el bot.</p></div>
+    </div>
     <form method="post" action="/notificaciones/telegram/vincular">{_csrf_field()}
-      <div class="cfg-grid">
-        <div class="field cfg-field"><label>Usuario sin vincular</label>{campo_usuario}</div>
-        <div class="field cfg-field"><label>Chat ID de Telegram</label>
+      <div class="ncard__grid">
+        <div class="field"><label>Usuario sin vincular</label>{campo_usuario}</div>
+        <div class="field"><label>Chat ID de Telegram</label>
           <input type="number" name="ChatId" min="1" step="1" required
                  placeholder="Ej: 512345678" class="input"></div>
-        <div class="field cfg-field"><label>Nombre en Telegram (opcional)</label>
+        <div class="field"><label>Nombre en Telegram (opcional)</label>
           <input type="text" name="NombreTelegram" maxlength="60"
                  placeholder="@usuario o nombre visible" class="input"></div>
       </div>
-      <div class="cfg-save"><button class="btn btn-sm btn-success" type="submit"{btn_on}>\u2795 Vincular</button></div>
+      <div class="ncard__foot">
+        <button class="btn btn--primary" type="submit"{btn_on}>
+          {icono("plus")}<span>Vincular</span></button>
+      </div>
     </form>
-  </div>""")
+  </section>""")
     return "".join(out)
 
 
-# ── sub-pestaña: Historial ───────────────────────────────────────────────────
+# ─── sub-pestaña: Historial ──────────────────────────────────────────────────
 def _tg_historial():
     out = [_encabezado(
-        "\U0001f4cb Historial de Envíos",
-        "Últimos 100 mensajes de la cola de alertas (<code>HUB_TelegramQueue</code>).")]
+        "Historial de Envíos",
+        "Últimos 100 mensajes de la cola de alertas "
+        "(<code>HUB_TelegramQueue</code>).",
+        "clock")]
     hist = db.get_telegram_historial(limite=100)
     filas = []
     for h in hist:
         estado = str(h.get("Estado") or "")
-        cls = {"ENVIADO": "ok", "FALLADO": "err"}.get(estado, "wait")
+        clase = {"ENVIADO": "badge--ok", "FALLADO": "badge--bad"}.get(
+            estado, "badge--warn")
         filas.append([
             esc(h.get("Id")), esc(h.get("IdEvento")), esc(h.get("ChatId")),
             esc(h.get("Texto") or ""),
-            f'<span class="pill {cls}">{esc(estado)}</span>',
+            _badge(estado, clase),
             esc(h.get("Intentos")), esc(_fval(h.get("Creado")))])
     out.append(_tabla(["#", "Evento", "Chat ID", "Texto", "Estado", "Intentos",
                        "Creado"], filas,
                       "Todavía no hay envíos registrados."))
     if hist:
-        out.append('<div class="panel"><form method="post" '
-                   'action="/notificaciones/telegram/limpiar">'
+        out.append('<section class="card ncard">'
+                   '<form method="post" action="/notificaciones/telegram/limpiar">'
                    f'{_csrf_field()}'
-                   '<button class="btn btn-sm btn-secondary" type="submit">'
-                   '\U0001f5d1\ufe0f Limpiar historial (&gt;30 días)</button>'
-                   '</form></div>')
+                   '<div class="ncard__foot" style="margin-top:0;padding-top:0;'
+                   'border-top:none">'
+                   '<button class="btn btn--quiet" type="submit">'
+                   f'{icono("trash")}<span>Limpiar historial (&gt;30 días)</span>'
+                   '</button></div></form></section>')
     return "".join(out)
+
+
+VISTAS_TG = [
+    ("conexion", "Conexión", "chat"),
+    ("eventos", "Eventos", "bell"),
+    ("destinatarios", "Destinatarios", "users"),
+    ("vinculados", "Vinculados", "check"),
+    ("historial", "Historial", "clock"),
+]
 
 
 def _bloque_telegram(user, vista="conexion"):
     """Bloque Telegram completo: barra + sub-pestaña activa (como el HUB)."""
     if not _allowed(user, "telegram"):
-        return _card("🔔 Bot de Telegram", "AccesoTelegram", False, "", "")
+        return _card("Bot de Telegram", "AccesoTelegram", False, "", "",
+                     icono_nombre="chat")
     vistas = {"conexion": _tg_conexion, "eventos": _tg_eventos,
               "destinatarios": _tg_destinatarios,
               "vinculados": _tg_vinculados, "historial": _tg_historial}
     if vista not in vistas:
         vista = "conexion"
-    return _tnav(vista) + vistas[vista]()
+    return (_seg(VISTAS_TG, vista, "/notificaciones?tg=%s")
+            + vistas[vista]())
 
 
 # ─── OpenWA / WhatsApp ───────────────────────────────────────────────────────
 
 def _wa_conexion(base="/notificaciones"):
     cfg = db.get_openwa_config()
+    sesion = cfg.get("session_id") or ""
     cuerpo = (
-        '<div class="cfg-grid">'
+        '<div class="ncard__grid">'
         + _text("openwa_base_url", cfg.get("base_url") or "", "Dirección de OpenWA",
                 "Dentro de Docker se llama por hostname: <code>http://openwa:2785</code>. "
                 "No se pone la IP: OpenWA rechaza callbacks a IPs internas.")
-        + _text("openwa_session_id", cfg.get("session_id") or "", "ID de sesión",
+        + _text("openwa_session_id", sesion, "ID de sesión",
                 "La sesión de WhatsApp ya iniciada (la <code>principal</code>).")
         + _secret("openwa_api_key", bool(cfg.get("api_key")),
                   "API key de OpenWA",
                   "Se guarda en HUB_Config. Para cambiarla pega la nueva; para "
                   "borrarla escribe BORRAR. Vacío = no se toca.")
         + "</div>" + _save_bar())
-    principal = _card("\U0001f4ac Conexión · OpenWA (WhatsApp)", "AccesoTelegram", True,
+    principal = _card("Conexión · OpenWA (WhatsApp)", "AccesoTelegram", True,
                       cuerpo, f"{base}/openwa/guardar",
                       prueba=_btn_prueba_con_campo(
                           f"{base}/openwa/probar", "openwa_prueba_numero",
-                          "\U0001f9ea Mandar prueba"))
+                          "Mandar prueba"),
+                      icono_nombre="whatsapp",
+                      badge=_badge(f"Sesión {sesion}" if sesion
+                                   else "Sin sesión",
+                                   "badge--ok" if sesion else "badge--warn"))
     return principal + _wa_instrucciones()
 
 
 def _wa_instrucciones():
-    return """
-  <div class="panel"><h2>\U0001f4e1 Cómo se enciende</h2>
+    return f"""
+  <section class="card ncard">
+    <div class="ncard__head">
+      <span class="ncard__icon">{icono("alert", 22)}</span>
+      <div class="ncard__titles"><h2>Cómo se enciende</h2></div>
+    </div>
     <ol class="desc">
       <li>Pega la <b>API key</b> de OpenWA arriba y guarda.</li>
-      <li>En <b>\U0001f4e3 Avisos</b>, pega los <b>teléfonos</b> separados por
+      <li>En <b>Avisos</b>, pega los <b>teléfonos</b> separados por
           comas en cada aviso que quieras recibir. Con 10 digitos se asume
           México (agrega el 52).</li>
-      <li>Para un <b>grupo</b>, elígelo en <b>\U0001f465 Grupos</b> y presiona
+      <li>Para un <b>grupo</b>, elígelo en <b>Grupos</b> y presiona
           «Usar en aviso»: su id (<code>&hellip;@g.us</code>) se agrega a los
           destinatarios de ese aviso.</li>
-      <li>Presiona <b>🧪 Mandar prueba</b>: llega un WhatsApp de verdad. Si llega,
+      <li>Presiona <b>Mandar prueba</b>: llega un WhatsApp de verdad. Si llega,
           ya funcionó.</li>
     </ol>
-    <div class="help" style="margin-top:8px">La cola es independiente de la de
+    <p class="help">La cola es independiente de la de
       Telegram: los avisos que no se pueden entregar se reintentan 3 veces y
-      quedan como <b>FALLADO</b> en el Historial, con el motivo.</div>
-  </div>"""
+      quedan como <b>FALLADO</b> en el Historial, con el motivo.</p>
+  </section>"""
 
 
 # Avisos que el boton sabe reproducir. El saldo tambien entra, pero lo que
@@ -572,11 +681,11 @@ def _wa_contexto(eid, validos, ultimos, nombres):
 
     ult = ultimos.get(eid)
     if ult:
-        cls = {"ENVIADO": "ok", "FALLADO": "err"}.get(
-            str(ult.get("Estado") or ""), "wait")
+        clase = {"ENVIADO": "badge--ok", "FALLADO": "badge--bad"}.get(
+            str(ult.get("Estado") or ""), "badge--warn")
         partes.append(
             f'<div><b>Último envío:</b> '
-            f'<span class="pill {cls}">{esc(ult.get("Estado"))}</span> '
+            f'{_badge(ult.get("Estado"), clase)} '
             f'{esc(_fval(ult.get("Creado")))}</div>')
     else:
         partes.append('<div><b>Último envío:</b> '
@@ -586,13 +695,14 @@ def _wa_contexto(eid, validos, ultimos, nombres):
 
 def _wa_eventos(base="/notificaciones"):
     out = [_encabezado(
-        "\U0001f4e3 Avisos de WhatsApp",
+        "Avisos de WhatsApp",
         "A quién llega cada aviso y con qué texto. Los <b>teléfonos</b> van "
         "separados por comas: <code>5218123211516, 5512345678</code>. Los "
-        "<b>grupos</b> se eligen en la sub-pestaña \U0001f465 Grupos.")]
+        "<b>grupos</b> se eligen en la sub-pestaña Grupos.",
+        "bell")]
     eventos = db.get_openwa_eventos()
     if not eventos:
-        out.append('<div class="panel"><div class="empty">'
+        out.append('<div class="card"><div class="empty">'
                    'No hay avisos configurados (falta la migración 0043).</div></div>')
         return "".join(out)
 
@@ -601,26 +711,30 @@ def _wa_eventos(base="/notificaciones"):
     for ev in eventos:
         eid = ev.get("IdEvento")
         validos, rechazados = db.get_openwa_destinatarios_resueltos(eid)
-        estado = "\U0001f7e2" if ev.get("Activo") else "\U0001f534"
+        activo = bool(ev.get("Activo"))
+        estado = _badge("Activo" if activo else "Inactivo",
+                        "badge--ok" if activo else "badge--bad")
         if not validos:
-            destino = ('<span class="pill wait">sin teléfonos: no se enviará nada</span>')
+            destino = _badge("sin teléfonos: no se enviará nada", "badge--warn")
         else:
             tels = [c for c in validos if c.endswith("@c.us")]
             grupos = [c for c in validos if c.endswith("@g.us")]
             partes = []
             if tels:
-                partes.append(f'{len(tels)} número(s): {esc(", ".join(tels))}')
+                partes.append(f'{icono("send", 14)} {len(tels)} número(s): '
+                              f'{esc(", ".join(tels))}')
             if grupos:
                 if nombres is None:
                     nombres = _nombres_de_grupos()
                 resueltos = ", ".join(
                     f'{esc(nombres.get(g))} ({esc(g)})' if nombres.get(g)
                     else esc(g) for g in grupos)
-                partes.append(f'\U0001f465 {resueltos}')
-            destino = f'<span class="pill ok">{" · ".join(partes)}</span>'
+                partes.append(f'{icono("users", 14)} {resueltos}')
+            destino = _badge(" · ".join(partes), "badge--ok")
         if rechazados:
-            destino += (f'<div class="help" style="color:#f87171">No se usaron: '
-                        f'{esc(", ".join(rechazados))} (no son números)</div>')
+            destino += (f'<div class="help" style="color:var(--danger-text)">'
+                        f'No se usaron: {esc(", ".join(rechazados))} '
+                        f'(no son números)</div>')
         contexto = _wa_contexto(eid, validos, ultimos, nombres or {})
 
         # Boton de prueba: reenvia el ultimo caso real de este aviso. No es
@@ -633,15 +747,15 @@ def _wa_eventos(base="/notificaciones"):
                 f'action="{esc(base)}/openwa/reenviar">'
                 + _csrf_field()
                 + f'<input type="hidden" name="IdEvento" value="{esc(eid)}">'
-                '<button class="btn btn-sm btn-secondary" type="submit" '
-                f'title="Manda a los teléfonos de este aviso el último caso real">'
-                '\U0001f9ea Reenviar último</button></form>')
+                '<button class="btn btn--quiet" type="submit" '
+                'title="Manda a los teléfonos de este aviso el último caso real">'
+                f'{icono("refresh")}<span>Reenviar último</span></button></form>')
 
         desc = ev.get("Descripcion") or ""
         forms = (
-            ('<div class="help" style="margin-bottom:8px">' + esc(desc) + '</div>')
+            (f'<p class="help">{esc(desc)}</p>')
             if desc else "") + contexto + (
-            '<div class="cfg-grid">'
+            '<div class="ncard__grid">'
             + _textarea("PlantillaMensaje", ev.get("PlantillaMensaje") or "",
                         label="Texto del mensaje",
                         help_="Placeholders: {Folio} {Fecha} {Nombre} {Cantidad} "
@@ -655,17 +769,22 @@ def _wa_eventos(base="/notificaciones"):
             + _bool("AdjuntarArchivo", ev.get("AdjuntarArchivo"), "Adjuntar archivo")
             + _bool("Activo", ev.get("Activo"), "Activo")
             + "</div>"
-            f'<div class="cfg-save" style="display:flex;gap:8px;align-items:center">'
-            f'{destino}'
-            '<button class="btn btn-sm btn-success" type="submit">💾 Guardar</button></div>')
+            f'<div class="ncard__foot">{destino}'
+            '<button class="btn btn--primary" type="submit">'
+            f'{icono("check")}<span>Guardar</span></button></div>')
         out.append(f"""
-  <div class="panel">
-    <h2>{estado} {esc(ev.get("Nombre") or eid)}
-      <span class="panel-actions">{probar}Acceso por {esc(eid)}</span></h2>
+  <section class="card ncard">
+    <div class="ncard__head">
+      <span class="ncard__icon">{icono("whatsapp", 22)}</span>
+      <div class="ncard__titles"><h2>{esc(ev.get("Nombre") or eid)}</h2>
+        <p>Acceso por <code>{esc(eid)}</code></p></div>
+      {estado}
+    </div>
     <form method="post" action="{esc(base)}/openwa/evento">{_csrf_field()}
       <input type="hidden" name="IdEvento" value="{esc(eid)}">{forms}
     </form>
-  </div>""")
+    <div class="ncard__foot">{probar}</div>
+  </section>""")
     return "".join(out)
 
 
@@ -675,25 +794,26 @@ def _wa_grupos(base="/notificaciones"):
 
     Sin JS: el id se puede seleccionar/copiar de un campo de solo lectura y el
     boton "Usar en aviso" lo agrega al `Telefonos` del evento elegido. Si la API
-    no responde se dice, en vez de pintar una tabla vacia que parezca "no hay
+    no responde se dice, en vez de pintar una lista vacia que parezca "no hay
     grupos".
     """
     out = [_encabezado(
-        "\U0001f465 Grupos de WhatsApp",
+        "Grupos de WhatsApp",
         "Grupos a los que esta sesión de OpenWA puede mandar mensajes y el PDF "
         "del reporte. El id completo (<code>…@g.us</code>) se puede copiar; "
-        "«Usar en aviso» lo agrega a los destinatarios de ese aviso.")]
+        "«Usar en aviso» lo suma a los destinatarios de ese aviso.",
+        "users")]
     ok, datos = _grupos_de_la_sesion()
     if not ok:
         out.append(
-            '<div class="panel"><div class="empty">No se pudieron leer los '
-            f'grupos: {esc(datos)}</div>'
-            '<div class="cfg-note">Revisa la conexión de OpenWA (API key y '
-            'sesión) en la sub-pestaña \U0001f4ac Conexión. Mientras la API no '
-            'responda, esta lista no se puede pintar.</div></div>')
+            f'<div class="card"><div class="empty">{icono("alert")}'
+            f'<p>No se pudieron leer los grupos: {esc(datos)}</p>'
+            '<p>Revisa la conexión de OpenWA (API key y sesión) en la '
+            'sub-pestaña Conexión. Mientras la API no responda, esta lista no '
+            'se puede pintar.</p></div></div>')
         return "".join(out)
     if not datos:
-        out.append('<div class="panel"><div class="empty">La sesión no tiene '
+        out.append('<div class="card"><div class="empty">La sesión no tiene '
                    'grupos de WhatsApp.</div></div>')
         return "".join(out)
 
@@ -704,47 +824,50 @@ def _wa_grupos(base="/notificaciones"):
             f'{esc(e.get("Nombre") or e.get("IdEvento"))}</option>'
             for e in eventos)
         accion = (
-            f'<select class="input" name="IdEvento">{opciones}</select>'
-            '<button class="btn btn-sm btn-success" type="submit">'
-            'Usar en aviso</button>')
+            f'<select class="input" name="IdEvento" aria-label="Aviso">'
+            f'{opciones}</select>'
+            '<button class="btn btn--primary btn--sm" type="submit">'
+            f'{icono("plus", 18)}<span>Usar en aviso</span></button>')
     else:
         accion = ('<span class="help">No hay avisos configurados: crea uno en '
-                  '\U0001f4e3 Avisos.</span>')
+                  'Avisos.</span>')
 
     filas = []
     for g in datos:
         copiar = (f'<input class="input" value="{esc(g["id"])}" readonly '
-                  'aria-label="Id del grupo" onfocus="this.select()" '
-                  'style="min-width:220px">')
+                  'aria-label="Id del grupo" onfocus="this.select()">')
         usar = ""
         if eventos:
-            usar = ('<form class="inline" method="post" '
+            usar = ('<form method="post" '
                     f'action="{esc(base)}/openwa/grupo">'
                     + _csrf_field()
                     + f'<input type="hidden" name="ChatId" value="{esc(g["id"])}">'
                     + accion + '</form>')
-        filas.append([
-            esc(g.get("nombre") or "(sin nombre)"),
-            copiar,
-            esc(g.get("participantes") or 0),
-            usar])
-    out.append(_tabla(["Grupo", "Id (copiar)", "Participantes", "Añadir a un aviso"],
-                      filas, "La sesión no tiene grupos de WhatsApp."))
+        filas.append(
+            '<li class="list__row">'
+            f'<div class="list__main"><b>{esc(g.get("nombre") or "(sin nombre)")}</b>'
+            f'<div class="list__meta">Participantes: '
+            f'{esc(g.get("participantes") or 0)}</div>{copiar}</div>'
+            f'<div class="list__meta" style="white-space:normal">{usar}</div></li>')
+    out.append('<section class="card ncard"><ul class="list">'
+               + "".join(filas) + "</ul></section>")
     return "".join(out)
 
 
 def _wa_historial():
     out = [_encabezado(
-        "\U0001f4cb Historial de WhatsApp",
-        "Últimos 100 mensajes de la cola (<code>HUB_WhatsappQueue</code>).")]
+        "Historial de WhatsApp",
+        "Últimos 100 mensajes de la cola (<code>HUB_WhatsappQueue</code>).",
+        "clock")]
     filas = []
     for h in db.get_openwa_historial(limite=100):
         estado = str(h.get("Estado") or "")
-        cls = {"ENVIADO": "ok", "FALLADO": "err"}.get(estado, "wait")
+        clase = {"ENVIADO": "badge--ok", "FALLADO": "badge--bad"}.get(
+            estado, "badge--warn")
         error = h.get("Error") or ""
         filas.append([
             esc(h.get("Id")), esc(h.get("IdEvento")), esc(h.get("ChatId")),
-            f'<span class="pill {cls}">{esc(estado)}</span>',
+            _badge(estado, clase),
             esc(h.get("Intentos")), esc(_fval(h.get("Creado"))),
             f'<span class="help">{esc(error)}</span>' if error else ""])
     out.append(_tabla(["#", "Aviso", "Chat ID", "Estado", "Intentos", "Creado", "Error"],
@@ -755,7 +878,7 @@ def _wa_historial():
 def _bloque_push(user):
     cfg = db.get_push_config()
     subs = db.get_push_subscriptions()
-    cuerpo = ('<div class="cfg-grid">'
+    cuerpo = ('<div class="ncard__grid">'
               + _text("VapidPublicKey", cfg.get("public", ""), "Clave pública VAPID",
                       "Se entrega al navegador para suscribirse (no es secreta).")
               + _secret("VapidPrivateKey", bool(cfg.get("private")),
@@ -763,21 +886,24 @@ def _bloque_push(user):
                         "Firma los mensajes push; jamás sale del servidor.")
               + _text("VapidEmail", cfg.get("email", ""), "Correo de contacto",
                       "Se usa como claim mailto: de VAPID.")
-              + f'<div class="field cfg-field"><label>Suscriptores</label><div class="ro">'
+              + f'<div class="field"><label>Suscriptores</label><div class="ro">'
                 f'{len(subs)} navegador(es) suscrito(s) · '
                 f'actualizado {esc(str(cfg.get("updated") or "—"))}</div></div>'
               + "</div>" + _save_bar())
-    return _card("🔔 Push Web (VAPID)", "AccesoConfiguracion", True, cuerpo,
+    return _card("Push Web (VAPID)", "AccesoConfiguracion", True, cuerpo,
                  "/notificaciones/push",
                  prueba=_btn_prueba("/notificaciones/push/probar",
-                                    "🧪 Enviar prueba"))
+                                    "Enviar prueba"),
+                 icono_nombre="bell",
+                 badge=_badge(f"{len(subs)} suscriptor(es)", "badge--info"))
 
 
 def _bloque_correo(user, correo_prueba):
     if not _allowed(user, "correo"):
-        return _card("📧 Correo SMTP", "AccesoConfigurarCorreo", False, "", "")
+        return _card("Correo SMTP", "AccesoConfigurarCorreo", False, "", "",
+                     icono_nombre="mail")
     cfg = db.get_email_config()
-    cuerpo = ('<div class="cfg-grid">'
+    cuerpo = ('<div class="ncard__grid">'
               + _text("smtp_server", cfg.get("smtp_server", ""), "Servidor SMTP")
               + _number("port", cfg.get("port", 465), "Puerto", 1, 65535)
               + _text("username", cfg.get("username", ""), "Usuario")
@@ -791,18 +917,24 @@ def _bloque_correo(user, correo_prueba):
     prueba = (f'<form class="inline" method="post" action="/notificaciones/correo/probar">'
               f'{_csrf_field()}'
               f'<input type="email" name="destino" value="{esc(correo_prueba)}" '
-              f'placeholder="para@correo.com" style="width:15rem;max-width:100%" '
-              f'required class="input">'
-              f'<button class="btn btn-sm btn-secondary" type="submit">🧪 Enviar prueba</button></form>')
-    return _card("📧 Correo SMTP", "AccesoConfigurarCorreo", True, cuerpo,
-                 "/notificaciones/correo", prueba=prueba)
+              f'placeholder="para@correo.com" '
+              f'aria-label="Correo al que se manda la prueba" required class="input">'
+              f'<button class="btn btn--quiet" type="submit">'
+              f'{icono("play")}<span>Enviar prueba</span></button></form>')
+    return _card("Correo SMTP", "AccesoConfigurarCorreo", True, cuerpo,
+                 "/notificaciones/correo", prueba=prueba, icono_nombre="mail",
+                 badge=_badge("Configurado" if cfg.get("smtp_server")
+                              else "Falta el servidor",
+                              "badge--ok" if cfg.get("smtp_server")
+                              else "badge--warn"))
 
 
 def _bloque_ia(user):
     if not _allowed(user, "ia"):
-        return _card("🤖 IA (Gemini)", "AccesoConfigAI", False, "", "")
+        return _card("IA (Gemini)", "AccesoConfigAI", False, "", "",
+                     icono_nombre="apps")
     cfg = db.get_ai_config()
-    cuerpo = ('<div class="cfg-grid">'
+    cuerpo = ('<div class="ncard__grid">'
               + _text("provider", cfg.get("provider", "google_gemini"), "Proveedor",
                       "El HUB usa google_gemini.")
               + _secret("api_key", bool(cfg.get("api_key")), "API key",
@@ -811,9 +943,12 @@ def _bloque_ia(user):
                       "Debe existir en la cuenta (p.ej. gemini-3.5-flash-lite); "
                       "si el modelo fue retirado, la IA del HUB fallará.")
               + "</div>" + _save_bar())
-    return _card("🤖 IA (Gemini)", "AccesoConfigAI", True, cuerpo,
+    return _card("IA (Gemini)", "AccesoConfigAI", True, cuerpo,
                  "/notificaciones/ia",
-                 prueba=_btn_prueba("/notificaciones/ia/probar"))
+                 prueba=_btn_prueba("/notificaciones/ia/probar", "Probar"),
+                 icono_nombre="apps",
+                 badge=_badge(cfg.get("model") or "sin modelo",
+                              "badge--info"))
 
 
 # ─── página ──────────────────────────────────────────────────────────────────
@@ -825,18 +960,18 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
     subs = db.get_push_subscriptions()
 
     kpis = f"""
-  <div class="cards">
-    <div class="card blue"><div class="n">{esc(m.get('vinculados', 0))}</div>
-      <div class="l">Usuarios con Telegram</div></div>
-    <div class="card green"><div class="n">{esc(m.get('eventos', 0))}</div>
-      <div class="l">Eventos de alerta</div></div>
-    <div class="card orange"><div class="n">{len(subs)}</div>
-      <div class="l">Suscriptores push</div></div>
-    <div class="card gray"><div class="n">{esc(m.get('pendientes', 0))}</div>
-      <div class="l">Alertas en cola</div></div>
+  <div class="grid">
+    <div class="kpi"><span class="kpi__label">Usuarios con Telegram</span>
+      <span class="kpi__value">{esc(m.get('vinculados', 0))}</span></div>
+    <div class="kpi"><span class="kpi__label">Eventos de alerta</span>
+      <span class="kpi__value">{esc(m.get('eventos', 0))}</span></div>
+    <div class="kpi"><span class="kpi__label">Suscriptores push</span>
+      <span class="kpi__value">{len(subs)}</span></div>
+    <div class="kpi"><span class="kpi__label">Alertas en cola</span>
+      <span class="kpi__value">{esc(m.get('pendientes', 0))}</span></div>
   </div>"""
 
-    cuerpo = (kpis
+    cuerpo = (ESTILO + kpis
               + _bloque_telegram(user, vista_tg)
               + _bloque_push(user)
               + _bloque_correo(user, correo_prueba)

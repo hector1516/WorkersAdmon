@@ -1,14 +1,14 @@
 """
-panel/views/whatsapp.py — Módulo "💬 WhatsApp" del panel
-========================================================
+panel/views/whatsapp.py — Módulo "WhatsApp" del panel
+=======================================================
 Todo lo de WhatsApp en un solo módulo: la conexión con OpenWA, los avisos, los
 grupos, el historial de la cola y la bandeja de conversaciones.
 
-Antes estas pantallas eran sub-pestañas dentro de "🔔 Notificaciones". Se
-sacaron porque el objeto es otro: Notificaciones configura CANALES de salida
-(Telegram, push, correo, IA) y aquí hay un buzón que se atiende, con mensajes que
-entran y personas que toman el chat. Mezclarlos obligaba a buscar la bandeja
-entre formularios de SMTP.
+Antes estas pantallas eran sub-pestañas dentro de "Notificaciones". Se sacaron
+porque el objeto es otro: Notificaciones configura CANALES de salida (Telegram,
+push, correo, IA) y aquí hay un buzón que se atiende, con mensajes que entran y
+personas que toman el chat. Mezclarlos obligaba a buscar la bandeja entre
+formularios de SMTP.
 
 Las cuatro primeras sub-pestañas NO se reescribieron: son los bloques de
 `views/notifications.py` (mismo guardado, mismas pruebas), con la ruta base
@@ -21,6 +21,10 @@ Reglas:
     no exista en HUB_Users, `AccesoTelegram` sigue abriendo el módulo);
   * todo POST con CSRF y Post/Redirect/Get, sin JS obligatorio;
   * los secretos (API key de OpenWA) nunca se pintan.
+
+Diseño: las cinco sub-pestañas son un `.segmented` (panel/DESIGN.md), no la
+barra `.tnav` de botones sueltos. La bandeja de conversaciones ocupa el alto
+disponible con scroll propio (ver `wa_conversaciones.py`).
 """
 from .. import auth
 from ..templates import esc, page
@@ -29,13 +33,14 @@ from . import wa_conversaciones as _conv
 
 _CSRF = {"token": ""}
 
-# (id, etiqueta). El id es lo que viaja en ?wa= y lo que el servidor valida.
+# (id, etiqueta, icono). El id es lo que viaja en ?wa= y lo que el servidor
+# valida; la etiqueta ya no lleva emoji: el icono va en el SVG del segmento.
 VISTAS = [
-    ("conexion", "\U0001f4ac Conexión"),
-    ("avisos", "\U0001f4e3 Avisos"),
-    ("grupos", "\U0001f465 Grupos"),
-    ("historial", "\U0001f4cb Historial"),
-    ("conversaciones", "\U0001f9fe Conversaciones"),
+    ("conexion", "Conexión", "whatsapp"),
+    ("avisos", "Avisos", "bell"),
+    ("grupos", "Grupos", "users"),
+    ("historial", "Historial", "clock"),
+    ("conversaciones", "Conversaciones", "chat"),
 ]
 
 # Nombres de la etapa en que estas pantallas vivían en Notificaciones: un enlace
@@ -50,15 +55,8 @@ def set_csrf(token):
 
 
 def _nav(vista):
-    """Barra `.tnav`; la activa va como .btn-primary y con aria-current."""
-    items = []
-    for v, label in VISTAS:
-        activa = (v == vista)
-        cls = "btn btn-sm btn-primary" if activa else "btn btn-sm btn-secondary"
-        aria = ' aria-current="page"' if activa else ""
-        items.append(f'<a class="{cls}"{aria} href="/whatsapp?wa={v}">'
-                     f'{esc(label)}</a>')
-    return '<div class="tnav">' + "".join(items) + "</div>"
+    """Control segmentado de las cinco sub-pestañas."""
+    return _notif._seg(VISTAS, vista, "/whatsapp?wa=%s")
 
 
 def _cuerpo(vista, chat=""):
@@ -78,19 +76,19 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
     """La pantalla del módulo (una sub-pestaña a la vez)."""
     set_csrf(csrf)
     vista = ALIAS.get(vista, vista)
-    if vista not in dict(VISTAS):
+    if vista not in dict((v, l) for v, l, _ in VISTAS):
         vista = "conexion"
 
     if not auth.has_perm_whatsapp(user):
-        cuerpo = ('<div class="panel"><div class="empty">🔒 Requiere el permiso '
+        cuerpo = ('<div class="card"><div class="empty">Requiere el permiso '
                   '<code>AccesoWhatsapp</code> (o <code>AccesoTelegram</code> '
                   'mientras exista el anterior) en el HUB.</div></div>')
-        return page("whatsapp", cuerpo, user=user, flash_ok=flash_ok,
-                    flash_err=flash_err, lugar=lugar, ip=ip,
+        return page("whatsapp", _notif.ESTILO + cuerpo, user=user,
+                    flash_ok=flash_ok, flash_err=flash_err, lugar=lugar, ip=ip,
                     subtitle="Conexión de OpenWA y bandeja de conversaciones")
 
     cuerpo = _nav(vista) + _cuerpo(vista, chat)
-    return page("whatsapp", cuerpo, user=user, flash_ok=flash_ok,
-                flash_err=flash_err, lugar=lugar, ip=ip,
+    return page("whatsapp", _notif.ESTILO + cuerpo, user=user,
+                flash_ok=flash_ok, flash_err=flash_err, lugar=lugar, ip=ip,
                 subtitle="OpenWA: conexión, avisos, grupos, historial y la "
                          "bandeja de conversaciones")
