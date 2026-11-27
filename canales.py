@@ -60,15 +60,26 @@ def _normalizar(valor):
 
 
 def _leer(canal):
-    """Lee el interruptor de HUB_Config. Lanza si la BD falla."""
+    """Lee el interruptor de HUB_Config. Lanza si la BD falla.
+
+    Ojo: NO se usa `with _conexion()`. `eccsa_db.get_connection()` devuelve una
+    conexión cacheada por hilo y el `with` la cierra; el worker que preguntó por
+    el canal se quedaba con una conexión muerta y fallaba en la siguiente
+    consulta ("Connection is closed").
+    """
     if not _db_configurada():
         return True
     clave = CANALES[canal]
-    with _conexion() as conn:
-        with conn.cursor(as_dict=True) as cur:
-            cur.execute("SELECT Valor FROM HUB_Config WHERE Clave = %s",
-                        (clave,))
-            fila = cur.fetchone()
+    conn = _conexion()
+    cur = conn.cursor(as_dict=True)
+    try:
+        cur.execute("SELECT Valor FROM HUB_Config WHERE Clave = %s", (clave,))
+        fila = cur.fetchone()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
     if not fila:
         return True
     return _normalizar(fila.get("Valor"))
