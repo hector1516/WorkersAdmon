@@ -1089,3 +1089,209 @@ body.auth {
     --separator-strong: #F5F5F7;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Notificaciones y WhatsApp (módulos del SPA)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Segmentado que baja de renglón en el teléfono (5 destinos no caben). */
+.segmented--wrap { flex-wrap: wrap; }
+.segmented > button > svg { vertical-align: -3px; margin-right: 4px; }
+
+/* Casilla con etiqueta: área táctil completa, sin el zoom de iOS. */
+.chk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap);
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.chk input { flex: 0 0 auto; }
+
+/* Pie de formulario: el estado a la izquierda y Guardar a la derecha. */
+.form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+.form-foot .form-foot__estado { margin-right: auto; }
+.form-foot .btn { margin-left: auto; }
+.form-foot--top { margin: 0 0 8px; }
+
+.stack { display: flex; flex-direction: column; gap: 16px; }
+
+/* Rejilla de resumen (mismas medidas que las KPIs del tablero). */
+.kpis-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+/* Sólo para lectores de pantalla. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ─── Bandeja de conversaciones ───────────────────────────────────────────
+   En escritorio, dos columnas (lista + hilo). En el teléfono, una sola: la
+   lista, y al abrir un chat el hilo con su botón «Volver». La página NO
+   scrollea; cada columna scrollea por su cuenta (min-height: 0). */
+.content:has(.wa-inbox) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.content:has(.wa-inbox) > .stack { flex: 1 1 auto; min-height: 0; }
+.stack > .wa-inbox { flex: 1 1 auto; min-height: 0; }
+.wa-inbox {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 12px;
+}
+.wa-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.wa-pane__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--separator);
+}
+.wa-pane__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 590;
+}
+.wa-pane__sub { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--text-2); }
+.wa-pane__head .btn { margin-left: auto; }
+.wa-pane__head .wa-pane__title + .badge { margin-left: auto; }
+
+.wa-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.wa-list .wa-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--separator);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wa-list .wa-row:hover { background: var(--fill); }
+.wa-list .wa-row.is-active { background: var(--fill-strong); }
+.wa-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.wa-row__name { font-weight: 590; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-row__tel { font-size: 13px; color: var(--text-2); }
+.wa-row__msg {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wa-row__meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: 0 0 auto; }
+.wa-row__hora { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.wa-msgs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  background: var(--surface-2);
+}
+.wa-msg {
+  max-width: min(78%, 520px);
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.wa-msg--in {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-bottom-left-radius: 4px;
+}
+.wa-msg--out {
+  align-self: flex-end;
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  border-bottom-right-radius: 4px;
+}
+.wa-msg__hora {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: .75;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.wa-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--separator);
+  background: var(--surface);
+}
+.wa-compose .textarea { min-height: var(--tap); max-height: 132px; resize: none; margin: 0; }
+.wa-compose .btn { flex: 0 0 auto; }
+.wa-acciones { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+.wa-back { display: none; }
+.wa-cargando { padding: 12px; }
+.help--bad { color: var(--danger-text); }
+
+@media (max-width: 899px) {
+  .wa-inbox { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .wa-inbox .wa-pane--detail { display: none; }
+  .wa-inbox--detalle .wa-pane--list { display: none; }
+  .wa-inbox--detalle .wa-pane--detail { display: flex; }
+  .wa-back { display: inline-flex; }
+}
+
