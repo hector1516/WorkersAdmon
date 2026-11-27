@@ -431,7 +431,8 @@ def notificar_saldo_diario():
         # arriba y el otro no.
         try:
             from openwa_alerts import alertar_saldo_govale
-            wa = alertar_saldo_govale(saldo, saldo_fecha, umbral)
+            wa = alertar_saldo_govale(saldo, saldo_fecha, umbral,
+                                      incluir_bajo=False)
             print(f"[govale_sync] WhatsApp encolado: {wa}")
         except Exception as e:
             print(f"[govale_sync] Error WhatsApp: {e}")
@@ -444,6 +445,151 @@ def notificar_saldo_diario():
     except Exception as e:
         print(f"[govale_sync] Error notificación diaria: {e}")
         return False
+
+
+UMBRAL_SALDO_DEFECTO = 2000.0
+MINUTOS_TOPE_AVISO_SALDO = 30   # red de seguridad: un aviso, no uno por ciclo
+
+
+def _cfg_num(clave, defecto):
+    """Un número de HUB_Config; si falta o no se puede leer, el defecto."""
+    try:
+        valor = db.get_govale_config(clave)
+        return float(valor) if valor not in (None, '') else float(defecto)
+    except (TypeError, ValueError):
+        return float(defecto)
+
+
+def _marca_transacciones():
+    """Marca de las transacciones que mueven el saldo: 'V<id>|T<id>'.
+
+    Un vale cuenta desde que se emitió en Go Vale (`IdValeGoVale` puesto): en
+    ese momento se descuenta del saldo. El ticket es la otra mitad: la foto que
+    registra Field. Se guardan por separado porque el último ticket no siempre
+    es la transacción que importa: si un vale se emite después de un ticket
+    viejo, con una sola marca quedaría escondido.
+
+    La cadena vacía significa que todavía no hay ninguna transacción.
+    """
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor(as_dict=True) as cur:
+                cur.execute("""
+                    SELECT
+                        (SELECT MAX(Id) FROM HUB_SolicitudVales
+                          WHERE IdValeGoVale IS NOT NULL
+                            AND LTRIM(RTRIM(IdValeGoVale)) <> '') AS ValeId,
+                        (SELECT MAX(Id) FROM HUB_OxxoGasTickets) AS TicketId
+                """)
+                fila = cur.fetchone() or {}
+    except Exception as e:
+        print(f"[govale_sync] no se pudo leer la última transacción: {e}")
+        return ''
+
+    if hasattr(fila, 'get'):
+        vale, ticket = fila.get('ValeId'), fila.get('TicketId')
+    else:
+        vale, ticket = (fila[0], fila[1]) if len(fila) >= 2 else (None, None)
+    if not vale and not ticket:
+        return ''
+    return f"V{vale or 0}|T{ticket or 0}"
+
+
+def _enviar_aviso_saldo_bajo(saldo, umbral, saldo_fecha):
+    """Encola el aviso por los canales prendidos. Devuelve cuántos salieron."""
+    encolados = 0
+    try:
+        from canales import activo
+        if activo('whatsapp'):
+            from openwa_alerts import alertar_saldo_govale
+            encolados += alertar_saldo_govale(saldo, saldo_fecha, umbral,
+                                              solo_si_bajo=True)
+        if activo('telegram'):
+            from telegram_alerts import alertar_govale_saldo_bajo
+            encolados += alertar_govale_saldo_bajo(saldo, saldo_fecha, umbral)
+    except Exception as e:
+        print(f"[govale_sync] error encolando el aviso de saldo bajo: {e}")
+    return encolados
+
+
+def avisar_saldo_bajo(saldo=None, ahora=None):
+    """Aviso de saldo bajo atado a la transacción, no al ciclo de 5 minutos.
+
+    Reglas (las tres primeras son el pedido, la cuarta evita el ruido):
+
+    - Umbral `govale_umbral` (default 2000). Solo avisa si el saldo quedó
+      **por debajo**, no en el umbral.
+    - Dispara cuando el saldo cruza el umbral de arriba a abajo, o cuando hay
+      una transacción nueva (un vale consumido o un ticket nuevo) desde el
+      último aviso. Así se avisa una vez por transacción, no una por ciclo.
+    - Dedupe en `govale_aviso_saldo_ticket` (marca de la última transacción
+      avisada) y `govale_aviso_saldo_fecha` (cuándo se avisó). El estado
+      `govale_aviso_saldo_estado` recuerda si ya estábamos bajo el umbral.
+    - Máximo un aviso cada 30 minutos, como red de seguridad.
+
+    Devuelve cuántos mensajes se encolaron (0 = no tocaba avisar).
+    """
+    from datetime import datetime
+
+    from tz_mx import now_mx
+
+    ahora = ahora or now_mx()
+    if saldo is None:
+        try:
+            saldo = float(db.get_govale_config('govale_saldo') or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    umbral = _cfg_num('govale_umbral', UMBRAL_SALDO_DEFECTO)
+    if saldo >= umbral:
+        # Volvió a estar sano: la próxima caída sí es un cruce.
+        try:
+            db.set_govale_config('govale_aviso_saldo_estado', 'OK')
+        except Exception:
+            pass
+        return 0
+
+    ya_bajo = (db.get_govale_config('govale_aviso_saldo_estado') or '') == 'BAJO'
+    cruce = not ya_bajo
+    marca = _marca_transacciones()
+    avisada = (db.get_govale_config('govale_aviso_saldo_ticket') or '').strip()
+    nueva_transaccion = bool(marca) and marca != avisada
+
+    if not cruce and not nueva_transaccion:
+        return 0
+
+    # Tope de 30 minutos: si se acaba de avisar, este ciclo no repite. No se
+    # marca el estado para que el cruce siga pendiente y salga al vencer.
+    fecha_aviso = (db.get_govale_config('govale_aviso_saldo_fecha') or '').strip()
+    if fecha_aviso:
+        try:
+            transcurrido = ahora - datetime.strptime(fecha_aviso, '%Y-%m-%d %H:%M:%S')
+            if transcurrido.total_seconds() < MINUTOS_TOPE_AVISO_SALDO * 60:
+                return 0
+        except ValueError:
+            pass  # marca ilegible: se trata como si no hubiera aviso previo
+
+    saldo_fecha = db.get_govale_config('govale_saldo_fecha') or 'sin revisar'
+    encolados = _enviar_aviso_saldo_bajo(saldo, umbral, saldo_fecha)
+    if not encolados:
+        # Ningún canal activo (o sin teléfonos/chats). No se marca como
+        # avisado: cuando el canal vuelva, el aviso sigue pendiente.
+        return 0
+
+    try:
+        db.set_govale_config('govale_aviso_saldo_ticket', marca or avisada)
+        db.set_govale_config('govale_aviso_saldo_fecha',
+                             ahora.strftime('%Y-%m-%d %H:%M:%S'))
+        db.set_govale_config('govale_aviso_saldo_estado', 'BAJO')
+    except Exception as e:
+        print(f"[govale_sync] no se pudo guardar el dedupe del aviso: {e}")
+
+    wlog("govale_vouchers_worker",
+         f"Aviso de saldo bajo encolado (${saldo:,.2f} < ${umbral:,.2f})",
+         detalle=f"transacción {marca or 'sin marca'} · {encolados} mensaje(s)")
+    print(f"[govale_sync] Aviso saldo bajo: ${saldo:,.2f} < ${umbral:,.2f} "
+          f"-> {encolados} mensaje(s)")
+    return encolados
 
 
 def _anotar_lectura(cuantos):
@@ -477,6 +623,12 @@ def main():
             notificar_saldo_diario()
         except Exception as e:
             print(f"[govale_sync] Error notif diaria: {e}")
+
+        # Aviso de saldo bajo: una vez por transacción, no una por ciclo.
+        try:
+            avisar_saldo_bajo()
+        except Exception as e:
+            print(f"[govale_sync] Error aviso saldo bajo: {e}")
 
         print(f"[govale_sync] Durmiendo {INTERVAL}s...")
         time.sleep(INTERVAL)

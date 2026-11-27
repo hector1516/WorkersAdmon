@@ -555,6 +555,20 @@ def alertar_govale_saldo(saldo, saldo_fecha, umbral=2000.0):
         print(f'alertar_govale_saldo error: {e}')
         return 0
 
+
+def alertar_govale_saldo_bajo(saldo, saldo_fecha, umbral=2000.0):
+    """Encola el aviso de umbral, con los datos para recargar.
+
+    Es un evento aparte del diario: este es el que tiene que hacer que alguien
+    vaya a transferir. Solo sale si el saldo está de verdad por debajo.
+    """
+    try:
+        from notif_messages import datos_saldo
+        return _queue_alert('GOVALE_SALDO_BAJO', datos_saldo(saldo, saldo_fecha, umbral))
+    except Exception as e:
+        print(f'alertar_govale_saldo_bajo error: {e}')
+        return 0
+
 def alertar_dispositivo_nuevo(mac, ip, hostname):
     """Encola alerta de dispositivo desconocido detectado en la red."""
     try:

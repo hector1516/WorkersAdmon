@@ -6,6 +6,10 @@ lo tiene vinculado y, si no, queda en el log para que el vigilante lo cuente.
 
 Recordatorios a los 1, 3 y 7 días. Después deja de insistir: ya lo reporta el
 vigilante al admin como pendiente viejo.
+
+Tope de edad: un vale con más de `govale_recordatorio_dias_max` días desde
+`FechaSolicitud` ya no recibe recordatorios (default 15). Son tickets que no se
+van a subir y el aviso solo molesta; el pendiente sigue contado por el vigilante.
 """
 import json
 import os
@@ -18,6 +22,8 @@ NOMBRE = "vales_recordatorios"
 CICLO_SEG = int(os.getenv("RECORDATORIOS_CICLO_SEG", "3600"))  # 1 h
 # Días desde la emisión en que se avisa. El primero es el más importante.
 HITOS = [1, 3, 7]
+# Edad máxima para seguir recordando (configurable en HUB_Config).
+DIAS_MAX_DEFECTO = 15
 
 try:
     from worker_log import log as wlog
@@ -38,6 +44,14 @@ def _cfg_set(clave, valor):
         db.set_govale_config(clave, str(valor))
     except Exception:
         pass
+
+
+def _dias_max():
+    """Edad máxima para recordar. Ilegible = default (nunca deja el worker mudo)."""
+    try:
+        return int(float(_cfg("govale_recordatorio_dias_max", DIAS_MAX_DEFECTO)))
+    except (TypeError, ValueError):
+        return DIAS_MAX_DEFECTO
 
 
 def _texto(vale):
@@ -92,8 +106,12 @@ def _chat_del_usuario(id_usuario):
 
 def ciclo():
     enviados = 0
+    dias_max = _dias_max()
     for vale in _pendientes():
         dias = int(vale["dias"] or 0)
+        # Un vale demasiado viejo ya no se va a comprobar: insistir solo molesta.
+        if dias > dias_max:
+            continue
         # El hito que corresponde a su edad (el mayor que ya cumplió).
         hito = max([h for h in HITOS if dias >= h], default=None)
         if hito is None:

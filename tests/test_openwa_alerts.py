@@ -231,7 +231,7 @@ class Saldo(unittest.TestCase):
         self.assertEqual([e['evento'] for e in db.encolados],
                          ['GOVALE_SALDO', 'GOVALE_SALDO_BAJO'])
         self.assertEqual(n, 2)
-        self.assertIn('BAJO', db.encolados[1]['texto'])
+        self.assertIn('Saldo bajo', db.encolados[1]['texto'])
 
     def test_en_modo_horario_solo_avisa_cuando_esta_bajo(self):
         # El worker revisa cada hora: si mandara el aviso diario cada vez, el

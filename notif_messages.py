@@ -32,6 +32,12 @@ import eccsa_db as db
 # en el reporte; aqui es solo para que se sepa de que se trata.
 MAX_DESCRIPCION = 100
 
+# Datos para recargar el monedero Go Vale. Viven aqui (y no en cada aviso)
+# porque son de la cuenta de ECCSA: cambia la CLABE o la referencia y se
+# corrige en un solo lugar.
+CLABE_RECARGA = '012580001208095515'
+REFERENCIA_RECARGA = 'VD003526'
+
 # Alias: nombre de la plantilla -> nombres internos equivalentes, en cascada.
 # Sin esto un productor que manda "Usuario" deja un {Nombre} literal en el
 # mensaje, y como el texto se guarda YA renderizado en la cola, despues no hay
@@ -61,7 +67,7 @@ CAMPOS_CONOCIDOS = {
     'FolioTicket', 'Estacion', 'Litros', 'Producto', 'Monto', 'FacturaFolio',
     'ProyectoServicio', 'NombreRegistro', 'Empresa',
     # saldo go vale
-    'Saldo', 'Estado', 'Umbral', 'UltimaRevision',
+    'Saldo', 'Estado', 'Umbral', 'UltimaRevision', 'Clabe', 'Referencia',
     # avisos de red
     'MAC', 'IP', 'Hostname',
 }
@@ -99,15 +105,27 @@ PLANTILLAS = {
         "Umbral alerta: ${Umbral}\n"
         "Última revisión: {UltimaRevision}"
     ),
-    # El aviso de saldo bajo lleva lo mismo que el diario pero dicho como
-    # alerta: el diario se lee de arriba, este es el que hace que alguien
-    # vaya a refactoriar.
+    # El aviso de saldo bajo no solo dice cuánto queda: trae los datos para
+    # recargar, porque quien lo recibe tiene que resolverlo, no investigarlo.
+    # La CLABE y la referencia van en negritas; WhatsApp interpreta *así*.
     'GOVALE_SALDO_BAJO': (
-        "⚠️ *Saldo bajo en Go Vale* — ${Saldo}\n"
-        "Estado: {Estado}\n"
-        "Umbral de alerta: ${Umbral}\n"
-        "Última revisión: {UltimaRevision}\n"
-        "Conviene refactorizar antes de que se acaben los vales."
+        "Saldo bajo de vales de gasolina: quedan ${Saldo}.\n"
+        "\n"
+        "Para recargar, haz tu transferencia:\n"
+        "\n"
+        "Banco: BBVA Bancomer\n"
+        "Cuenta: 0120809551\n"
+        "CLABE: *{Clabe}*\n"
+        "Razón social: SERVICIOS GASOLINEROS DE MEXICO\n"
+        "RFC: SGM950714DC2\n"
+        "Dirección: EDISON NORTE 1301 SN TALLERES MONTERREY NUEVO LEÓN\n"
+        "CP: 64480\n"
+        "\n"
+        "En el campo Motivo/Concepto/Descripción escribe tu referencia única "
+        "de cliente: *{Referencia}*\n"
+        "\n"
+        "Cuando hagas la transferencia, manda el comprobante para aplicar la "
+        "recarga."
     ),
     'DISPOSITIVO_RED_NUEVO': (
         "📡 *Dispositivo nuevo en la red*\n"
@@ -135,9 +153,18 @@ def aplicar_plantilla(plantilla, datos):
     Sustituye los {placeholders} y limpia las lineas que quedaron solo con
     negritas o espacios: si un campo opcional no venia, "* *" o una linea en
     blanco se verian rotos en el telefono de quien lo recibe.
+
+    OJO: las lineas en blanco que la plantilla trae a proposito SI se
+    conservan (separan secciones, como los datos bancarios del aviso de
+    saldo). Solo se van las que quedaron vacias por un dato que no vino.
     """
     texto = plantilla or ''
     datos = dict(datos or {})
+
+    # Marcar los huecos intencionales antes de sustituir, para poder
+    # distinguirlos de las lineas que se vacian por un placeholder sin valor.
+    HUECO = '\x00hueco\x00'
+    texto = '\n'.join(l if l.strip() else HUECO for l in texto.split('\n'))
 
     for destino, origenes in ALIAS.items():
         if destino in datos:
@@ -166,7 +193,7 @@ def aplicar_plantilla(plantilla, datos):
         return bool(re.match(r'^[^:\n]{1,30}:\s*[\*\s]*$', s))
 
     lineas = [l for l in texto.split('\n') if not _linea_vacia(l)]
-    return '\n'.join(lineas)
+    return '\n'.join(lineas).replace(HUECO, '')
 
 
 def quitar_bloque(plantilla, marcador):
@@ -215,7 +242,11 @@ def formato_saldo(saldo):
 
 
 def datos_saldo(saldo, saldo_fecha, umbral=2000.0):
-    """Saldo Go Vale. El mismo dato sirve para el aviso diario y el de bajo."""
+    """Saldo Go Vale. El mismo dato sirve para el aviso diario y el de bajo.
+
+    Los datos de recarga van fijos aquí porque son de la cuenta de ECCSA, no
+    de cada aviso: si cambian (CLABE, referencia), se cambian en un solo lugar.
+    """
     try:
         saldo = float(saldo)
     except (TypeError, ValueError):
@@ -229,6 +260,8 @@ def datos_saldo(saldo, saldo_fecha, umbral=2000.0):
         'Estado': '⚠️ SALDO BAJO' if saldo < umbral else '✅ OK',
         'Umbral': f'{umbral:,.0f}',
         'UltimaRevision': saldo_fecha or 'sin revisar',
+        'Clabe': CLABE_RECARGA,
+        'Referencia': REFERENCIA_RECARGA,
     }
 
 

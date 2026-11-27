@@ -167,7 +167,8 @@ def alertar_reporte_firmado(id_reporte, usuario_firma=''):
 
 # ── Aviso: saldo Go Vale (diario y por umbral) ───────────────────────────────
 
-def alertar_saldo_govale(saldo, saldo_fecha, umbral=2000.0, solo_si_bajo=False):
+def alertar_saldo_govale(saldo, saldo_fecha, umbral=2000.0, solo_si_bajo=False,
+                         incluir_bajo=True):
     """
     Avisa el saldo del monedero.
 
@@ -178,13 +179,17 @@ def alertar_saldo_govale(saldo, saldo_fecha, umbral=2000.0, solo_si_bajo=False):
     `solo_si_bajo=True` manda unicamente el de umbral: es lo que quieres cuando
     el worker revisa cada hora, porque si no cada revision con saldo bajo
     mandaria el aviso diario otra vez.
+
+    `incluir_bajo=False` manda solo el diario, aunque el saldo este bajo. Es lo
+    que usa el aviso de las 9:00: el de umbral lo dispara la transaccion, no
+    la hora.
     """
     try:
         datos = nm.datos_saldo(saldo, saldo_fecha, umbral)
         enviados = 0
         if not solo_si_bajo:
             enviados += _encolar('GOVALE_SALDO', datos)
-        if 'BAJO' in datos['Estado']:
+        if incluir_bajo and 'BAJO' in datos['Estado']:
             enviados += _encolar('GOVALE_SALDO_BAJO', datos)
         return enviados
     except Exception as e:

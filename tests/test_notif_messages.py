@@ -352,8 +352,12 @@ class Plantillas(unittest.TestCase):
             self.assertEqual(desconocidas, set(),
                              f'{evento} usa campos que el productor no llena: {desconocidas}')
 
-    def test_el_aviso_de_saldo_bajo_dice_que_hay_que_refactoriar(self):
-        self.assertIn('refactor', nm.PLANTILLAS['GOVALE_SALDO_BAJO'].lower())
+    def test_el_aviso_de_saldo_bajo_dice_como_recargar(self):
+        plantilla = nm.PLANTILLAS['GOVALE_SALDO_BAJO']
+        texto = nm.aplicar_plantilla(plantilla, nm.datos_saldo(1850, 'x'))
+        self.assertIn('*012580001208095515*', texto)
+        self.assertIn('*VD003526*', texto)
+        self.assertIn('$1,850.00', texto)
 
     def test_el_ticket_muestra_el_saldo_del_monedero(self):
         self.assertIn('{Saldo}', nm.PLANTILLAS['OXXOGAS_TICKET'])
