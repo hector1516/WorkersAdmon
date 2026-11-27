@@ -111,6 +111,23 @@ WORKERS_SPEC = {
            ayuda="Cursor: IdReporte del último firmado que ya salió al grupo. "
                  "Lo escribe el worker."),
     ],
+    "wa_limpieza": [
+        _f("WA_LIMPIEZA_CICLO_SEG", "Intervalo de revisión", "number", "env",
+           default=1800, min=300, max=86400, unidad="seg",
+           ayuda="Cada cuántos segundos revisa si ya es la ventana de purga "
+                 "(03:00-03:30 hora México)."),
+        _f("wa_purga_dias", "Días de retención", "number", "hub_config",
+           clave="wa_purga_dias", default=90, min=1, max=3650, unidad="días",
+           ayuda="Borra los mensajes y las conversaciones CERRADAS con más de "
+                 "estos días. Las conversaciones en BOT o HUMANO nunca se borran."),
+        _f("wa_purga_activa", "Purga activa", "bool", "hub_config",
+           clave="wa_purga_activa", default="1",
+           ayuda="Con No el worker late pero no borra nada."),
+        _f("ventana", "Ventana de purga", "const", "const",
+           valor="03:00-03:30 hora México, una vez al día",
+           ayuda="Es de madrugada a propósito: no compite con la bandeja "
+                 "del panel. Borra en lotes de 500 para no bloquear la tabla."),
+    ],
     "oxxogas_worker": [
         _f("intervalo", "Cadencia de sincronización", "const", "const",
            valor="cada 1 h",

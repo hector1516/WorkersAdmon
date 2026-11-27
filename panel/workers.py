@@ -184,6 +184,19 @@ CATALOGO = {
             "saltarse el orden. En el primer arranque siembra el cursor en el "
             "último firmado para no vaciar todo el historial al grupo."),
     },
+    # ── Purga diaria de la bandeja de WhatsApp (OpenWA) ───────────────────────
+    "wa_limpieza": {
+        "desc": "Purga diaria de la bandeja de WhatsApp",
+        "cadencia": "cada 30 min · purga 03:00-03:30",
+        "app": "HUB",
+        "descripcion": (
+            "Borra los mensajes de HUB_WhatsappEntrante y las conversaciones "
+            "en estado CERRADA con más de wa_purga_dias días (default 90). "
+            "Nunca toca conversaciones en BOT o HUMANO, ni OpenWA, ni ninguna "
+            "otra tabla. Borra en lotes de 500 (DELETE TOP en bucle) para no "
+            "bloquear la bandeja del panel. Se apaga con wa_purga_activa=0 y "
+            "fuera de 03:00-03:30 hora México no hace nada."),
+    },
     # ── Workers de Field (migrados de `field` el 2026-09-26, código en api/) ──
     "avisos": {
         "desc": "Avisos Field (push PWA) — APAGADO, muerto",

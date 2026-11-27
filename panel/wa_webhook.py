@@ -300,6 +300,14 @@ def _contestarbot(datos):
     try:
         if _estado_conversacion(datos["chat_id"]) != "BOT":
             return
+        # Tope por hora (chat y sesion). Si ya se llego, el mensaje queda
+        # guardado para que lo vea una persona y el bot se queda callado.
+        import wa_limites
+        permitido, motivo = wa_limites.puede_responder(datos["chat_id"])
+        if not permitido:
+            print(f"[wa_webhook] no se contesta {datos['chat_id']}: "
+                  f"limite por hora alcanzado ({motivo}); queda para una persona")
+            return
         import wa_bot
         from openwa_client import enviar_texto
 
