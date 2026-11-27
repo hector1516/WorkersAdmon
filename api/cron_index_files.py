@@ -25,13 +25,36 @@ except ImportError:
     print("[file_indexer] ERROR: pysmb no instalado. Ejecuta: pip install pysmb")
     sys.exit(1)
 
-SMB_USER = os.getenv("SMB_USER", "eccsa")
-SMB_PASS = os.getenv("SMB_PASSWORD", "")
+def _config(clave, defecto=""):
+    """Lee una clave de HUB_Config. Sin base, devuelve el respaldo."""
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT Valor FROM HUB_Config WHERE Clave = %s", (clave,))
+            fila = cur.fetchone()
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        return str(fila[0]).strip() if fila and fila[0] else defecto
+    except Exception as exc:
+        print(f"[file_indexer] sin {clave} en HUB_Config: {exc}")
+        return defecto
+
+
+# La contraseña vive en HUB_Config (panel > Configuracion > file_indexer) o
+# en la variable de entorno. Antes solo se leía el entorno y el worker moría
+# al migrar desde Field, donde sí estaba exportada.
+SMB_USER = os.getenv("SMB_USER") or _config("smb_user", "eccsa")
+SMB_PASS = os.getenv("SMB_PASSWORD") or _config("smb_password", "")
 if not SMB_PASS:
-    raise RuntimeError("SMB_PASSWORD no definida — no se puede conectar al file server")
+    raise RuntimeError(
+        "falta SMB_PASSWORD: ponla en Configuracion o en HUB_Config.smb_password")
 SMB_SERVER = os.getenv("SMB_SERVER", "FILESERVER")
 SMB_IP = os.getenv("SMB_IP", "10.188.141.15")
-SMB_DOMAIN = os.getenv("SMB_DOMAIN", "")
+SMB_DOMAIN = os.getenv("SMB_DOMAIN") or _config("smb_domain", "")
 SMB_CLIENT = "workers_indexer"  # nombre de este cliente
 
 SHARES = [

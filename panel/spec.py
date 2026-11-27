@@ -325,8 +325,9 @@ WORKERS_SPEC = {
     ],
     "file_indexer": [
         _f("smb_user", "Usuario SMB", "const", "const", valor="eccsa",
-           ayuda="FILESERVER 10.188.141.15; usuario y contraseña están "
-                 "escritos en cron_index_files.py (origen: repo Field)."),
+           ayuda="FILESERVER 10.188.141.15. El usuario y la contraseña se "
+                 "leen de HUB_Config (smb_user / smb_password); también se "
+                 "pueden pasar como SMB_USER / SMB_PASSWORD."),
         _f("intervalo", "Intervalo de indexado", "const", "const", valor="300 s (código)",
            ayuda="Indexa Docs/Shared y Docs/Aplicaciones en HUB_FileIndex."),
     ],
