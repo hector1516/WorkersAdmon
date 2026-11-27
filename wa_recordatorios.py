@@ -15,8 +15,12 @@ que dice `HUB_Config`.
      lectura desde el lunes a las 00:00, se le recuerda a su conductor **una vez
      al día** hasta que la registre.
   2. **VALE**: un vale GENERADO lleva más de `wa_rec_vale_horas` horas sin el
-     comprobante (`HUB_OxxoGasTickets`). Se avisa a quien lo solicitó cada 48 h
-     y como máximo `wa_rec_vale_max` veces por vale.
+     comprobante (`HUB_OxxoGasTickets`). Se avisa a quien lo solicitó, en un
+     solo mensaje con todos sus vales pendientes, **una vez al día** y como
+     máximo `wa_rec_vale_max` veces por persona. Un vale con más de
+     `govale_recordatorio_dias_max` días (default 15) ya no se recuerda: es la
+     misma regla de `cron_vales_recordatorios`, y son tickets que no se van a
+     subir, así que insistir solo molesta.
   3. **RESUMEN**: el lunes entre 09:00 y 09:30, un resumen corto con lo que el
      usuario tiene pendiente. Sin datos no hay mensaje.
 
@@ -76,8 +80,6 @@ RESUMEN_HASTA = 9 * 60 + 30
 
 # Un auto no se recuerda más de una vez cada 3 días.
 DEDUPE_KM_DIAS = 3
-# Un vale no se recuerda más de una vez cada 48 horas.
-DEDUPE_VALE_HORAS = 48
 
 MESES = ("ene", "feb", "mar", "abr", "may", "jun",
          "jul", "ago", "sep", "oct", "nov", "dic")
@@ -89,6 +91,7 @@ CLAVES_CONFIG = (
     "wa_rec_vale_max",
     "wa_rec_resumen",
     "wa_rec_max_dia",
+    "govale_recordatorio_dias_max",
 )
 
 DEFAULTS = {
@@ -98,6 +101,7 @@ DEFAULTS = {
     "vale_max": 3,
     "resumen": True,
     "max_dia": 3,
+    "vale_dias_max": 15,
 }
 
 # ── SQL ──────────────────────────────────────────────────────────────────────
@@ -105,12 +109,12 @@ DEFAULTS = {
 
 SQL_CONFIG = (
     "SELECT Clave, CAST(Valor AS VARCHAR(200)) FROM HUB_Config "
-    "WHERE Clave IN (%s, %s, %s, %s, %s, %s)"
+    "WHERE Clave IN (%s, %s, %s, %s, %s, %s, %s)"
 )
 
 SQL_CONTEO_DIA = (
     "SELECT IdUsuario, COUNT(*) FROM HUB_WaRecordatorios "
-    "WHERE FechaDia = %s AND Ok = 1 GROUP BY IdUsuario"
+    "WHERE FechaDia = %s AND Ok = 1 AND Tipo <> 'VOLT' GROUP BY IdUsuario"
 )
 
 SQL_YA_HOY = (
@@ -124,8 +128,8 @@ SQL_KM_DEDUPE = (
 )
 
 SQL_VALE_HIST = (
-    "SELECT COUNT(*), MAX(Enviado) FROM HUB_WaRecordatorios "
-    "WHERE Tipo = 'VALE' AND Clave = %s AND IdUsuario = %s"
+    "SELECT COUNT(*) FROM HUB_WaRecordatorios "
+    "WHERE Tipo = 'VALE' AND Clave = %s AND IdUsuario = %s AND Ok = 1"
 )
 
 SQL_INSERT = (
@@ -170,6 +174,7 @@ SQL_VALES = (
     "  ON w.IdUsuario = v.IdSolicitante AND w.Activo = 1 "
     "WHERE v.Estatus = 'GENERADO' "
     "  AND v.FechaSolicitud <= %s "
+    "  AND v.FechaSolicitud >= %s "
     "  AND NOT EXISTS (SELECT 1 FROM HUB_OxxoGasTickets t "
     "                  WHERE t.IdSolicitudVale = v.Id) "
     "  AND LTRIM(RTRIM(ISNULL(w.Telefono, ''))) <> '' "
@@ -327,6 +332,8 @@ def leer_config(conn):
         "vale_max": _ent(valores.get("wa_rec_vale_max"), DEFAULTS["vale_max"]),
         "resumen": _flag(valores.get("wa_rec_resumen"), DEFAULTS["resumen"]),
         "max_dia": _ent(valores.get("wa_rec_max_dia"), DEFAULTS["max_dia"]),
+        "vale_dias_max": _ent(valores.get("govale_recordatorio_dias_max"),
+                              DEFAULTS["vale_dias_max"]),
     }
 
 
@@ -361,15 +368,12 @@ def _km_reciente(conn, clave, usuario_id, hoy):
 
 
 def _vale_historial(conn, clave, usuario_id):
-    """(avisos enviados alguna vez, último instante en que se intentó)."""
+    """Avisos de vales que YA salieron a esta persona (los fallos no gastan cupo)."""
     fila = _una(conn, SQL_VALE_HIST, (clave, usuario_id))
-    if not fila:
-        return 0, None
     try:
-        total = int(fila[0] or 0)
+        return int(fila[0] or 0) if fila else 0
     except (TypeError, ValueError):
-        total = 0
-    return total, fila[1]
+        return 0
 
 
 def _registrar(conn, candidato, ahora, ok, detalle):
@@ -450,14 +454,16 @@ def _candidatos_km(conn, cfg, ahora):
 
 def _candidatos_vales(conn, cfg, ahora):
     """
-    Vales GENERADO sin comprobante, pasadas las horas de gracia.
+    Vales GENERADO sin comprobante, pasadas las horas de gracia y dentro del
+    tope de edad (`govale_recordatorio_dias_max`, default 15 días).
 
     Se agrupan **por persona**: un solo mensaje con sus vales pendientes. Antes
     salía uno por vale y quien tenía cuatro recibía cuatro mensajes seguidos.
     """
     corte = ahora - timedelta(hours=cfg["vale_horas"])
+    corte_viejo = ahora - timedelta(days=cfg["vale_dias_max"])
     por_usuario = {}
-    for fila in _filas(conn, SQL_VALES, (corte,)):
+    for fila in _filas(conn, SQL_VALES, (corte, corte_viejo)):
         try:
             vale_id, usuario_id = int(fila[0]), int(fila[1])
         except (TypeError, ValueError):
@@ -575,11 +581,11 @@ def _permitido(conn, candidato, cfg, ahora):
         return not _km_reciente(conn, candidato["clave"],
                                 candidato["usuario_id"], ahora.date())
     if candidato["tipo"] == "VALE":
-        total, ultimo = _vale_historial(conn, candidato["clave"],
-                                        candidato["usuario_id"])
+        # Un solo mensaje de vales por persona y por día: eso ya lo garantiza
+        # `_ya_hoy` con la clave `u<id>`. Aquí solo queda el tope de por vida.
+        total = _vale_historial(conn, candidato["clave"],
+                                candidato["usuario_id"])
         if total >= cfg["vale_max"]:
-            return False
-        if ultimo is not None and ahora - ultimo < timedelta(hours=DEDUPE_VALE_HORAS):
             return False
     return True
 

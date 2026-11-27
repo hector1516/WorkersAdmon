@@ -208,13 +208,17 @@ CATALOGO = {
             "lectura de odómetro: se le pide al conductor, máximo una vez cada "
             "3 días por auto. (2) Un vale GENERADO lleva más de "
             "wa_rec_vale_horas horas sin comprobante en HUB_OxxoGasTickets: se "
-            "le recuerda al solicitante cada 48 h, máximo wa_rec_vale_max veces "
-            "por vale. (3) El lunes 09:00-09:30 manda un resumen con vales "
-            "pendientes, kilómetros del mes y reportes de la semana pasada; sin "
-            "datos no manda nada. Solo a quien tiene WhatsApp en "
-            "HUB_UsuariosWhatsapp, fuera de la ventana L-V 09:00-18:30 no sale "
-            "nada y nunca más de wa_rec_max_dia mensajes por usuario al día. El "
-            "dedupe vive en HUB_WaRecordatorios (también los fallos, Ok=0)."),
+            "le recuerda al solicitante en un solo mensaje con todos sus vales "
+            "pendientes, una vez al día y máximo wa_rec_vale_max veces por "
+            "persona; un vale con más de govale_recordatorio_dias_max días "
+            "(15 por omisión) ya no se recuerda, igual que en "
+            "cron_vales_recordatorios. (3) El lunes 09:00-09:30 manda un "
+            "resumen con vales pendientes, kilómetros del mes y reportes de la "
+            "semana pasada; sin datos no manda nada. Solo a quien tiene "
+            "WhatsApp en HUB_UsuariosWhatsapp, fuera de la ventana L-V "
+            "09:00-18:30 no sale nada y nunca más de wa_rec_max_dia mensajes "
+            "por usuario al día. El dedupe vive en HUB_WaRecordatorios "
+            "(también los fallos, Ok=0)."),
     },
     # ── Crónica semanal con IA del grupo ECCSita ────────────────────────────
     "wa_grupo_semana": {

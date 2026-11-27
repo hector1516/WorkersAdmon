@@ -93,7 +93,7 @@ class BotWa(unittest.TestCase):
     def test_desconocido_saluda_formal_sin_chiste(self):
         r = self.responder("hola")
         self.assertIsNotNone(r)
-        self.assertIn("asistente de ECCSA", r)
+        self.assertIn("Volt, el asistente de ECCSA", r)
         self.assertIn("horario", r.lower())
         self.assertIn("dirección", r.lower())
         self.assertIn("teléfonos", r.lower())

@@ -5,8 +5,9 @@ Lo que se vigila (y por qué):
 
   · fuera de la ventana no sale NADA: un aviso a las 22:00 molesta y se paga;
   · kilómetros: texto distinto si hay lectura vieja o si nunca hubo;
-  · vales: a las 47 h no molesta, a las 49 h sí, y nunca más de `wa_rec_vale_max`
-    veces por vale;
+  · vales: a las 47 h no molesta, a las 49 h sí; un vale de 14 días avisa y
+    uno de 16 ya no; un solo mensaje por persona y por día, y nunca más de
+    `wa_rec_vale_max` veces por persona;
   · el resumen del lunes solo sale con datos (sin datos es spam);
   · el índice único del dedupe: dos ciclos el mismo día mandan un solo mensaje;
   · el tope diario por usuario (3) y
@@ -129,7 +130,9 @@ class CursorFalso:
             dia = p[0]
             conteo = {}
             for r in b.recordatorios:
-                if r["dia"] == dia and r["ok"]:
+                # Un mensaje suelto de Volt no gasta el tope de recordatorios:
+                # viaja dentro de una respuesta normal.
+                if r["dia"] == dia and r["ok"] and r["tipo"] != "VOLT":
                     conteo[r["uid"]] = conteo.get(r["uid"], 0) + 1
             self.todas = sorted(conteo.items())
 
@@ -137,7 +140,7 @@ class CursorFalso:
             clave, uid = p
             filas = [r for r in b.recordatorios
                      if r["tipo"] == "VALE" and r["clave"] == clave
-                     and r["uid"] == uid]
+                     and r["uid"] == uid and r["ok"]]
             ultimo = max((r["enviado"] for r in filas), default=None)
             self.una = (len(filas), ultimo)
 
@@ -193,10 +196,11 @@ class CursorFalso:
             return
 
         corte = p[0]
+        desde = p[1] if len(p) > 1 else datetime.min
         self.todas = []
         for vale_id, uid, monto, fecha, estatus in b.vales:
             nombre, telefono, activo = b.usuarios.get(uid, ("", "", False))
-            if estatus != "GENERADO" or fecha > corte:
+            if estatus != "GENERADO" or fecha > corte or fecha < desde:
                 continue
             if vale_id in b.tickets or not activo or not telefono:
                 continue
@@ -318,6 +322,66 @@ class Vales(unittest.TestCase):
     def _base(self):
         base = _base_con_hector()
         return base
+
+    def test_vale_de_14_dias_si_avisa(self):
+        # La regla del dueño: un vale de hasta 15 días todavía se recuerda.
+        base = self._base()
+        base.vales = [(12, HECTOR, 500, JUEVES - timedelta(days=14), "GENERADO")]
+        envios = Envios()
+
+        _, enviados = wr.ciclo(ahora=JUEVES, conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 1)
+        self.assertIn("vale #12", envios.llamadas[0][1])
+
+    def test_vale_de_16_dias_no_avisa(self):
+        # Más viejo que el tope: ya no se va a comprobar, insistir solo molesta.
+        base = self._base()
+        base.vales = [(12, HECTOR, 500, JUEVES - timedelta(days=16), "GENERADO")]
+        envios = Envios()
+
+        _, enviados = wr.ciclo(ahora=JUEVES, conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 0)
+        self.assertEqual(envios.llamadas, [])
+
+    def test_el_corte_de_edad_se_configura(self):
+        base = self._base()
+        base.config = {"govale_recordatorio_dias_max": "30"}
+        base.vales = [(12, HECTOR, 500, JUEVES - timedelta(days=20), "GENERADO")]
+        envios = Envios()
+
+        _, enviados = wr.ciclo(ahora=JUEVES, conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 1)
+
+    def test_segundo_ciclo_el_mismo_dia_no_repite(self):
+        # Un solo mensaje de vales por persona y por día (antes eran 48 h).
+        base = self._base()
+        base.vales = [(12, HECTOR, 500, JUEVES - timedelta(days=3), "GENERADO")]
+
+        _, primero = wr.ciclo(ahora=JUEVES, conn=base, enviar=Envios())
+        _, segundo = wr.ciclo(ahora=JUEVES.replace(hour=16), conn=base,
+                              enviar=Envios())
+
+        self.assertEqual(primero, 1)
+        self.assertEqual(segundo, 0)
+        self.assertEqual(len(base.recordatorios), 1)
+
+    def test_al_dia_siguiente_si_puede_repetir(self):
+        # Sigue pendiente y dentro del tope: mañana toca otra vez (antes las
+        # 48 h lo bloqueaban).
+        base = self._base()
+        base.vales = [(12, HECTOR, 500, JUEVES - timedelta(days=13), "GENERADO")]
+        viernes = JUEVES + timedelta(days=1)
+
+        _, primero = wr.ciclo(ahora=JUEVES, conn=base, enviar=Envios())
+        _, segundo = wr.ciclo(ahora=viernes, conn=base, enviar=Envios())
+
+        self.assertEqual(primero, 1)
+        self.assertEqual(segundo, 1)
+        self.assertEqual([r["dia"] for r in base.recordatorios],
+                         [JUEVES.date(), viernes.date()])
 
     def test_a_las_47_horas_no_avisa(self):
         base = self._base()
@@ -461,6 +525,22 @@ class Dedupe(unittest.TestCase):
         self.assertEqual(enviados, 3)
         self.assertEqual(len(envios.llamadas), 3)
         self.assertEqual(len(base.recordatorios), 3)
+
+    def test_volt_no_gasta_el_tope_diario(self):
+        # La frase suelta de Volt viaja dentro de una respuesta normal: no es
+        # un recordatorio proactivo y no debe comerle cupo al tope de 3.
+        base = _base_con_hector()
+        base.autos = [(n, f"Auto {n}", f"P{n}", HECTOR) for n in range(1, 5)]
+        base.recordatorios = [
+            {"tipo": "VOLT", "clave": "volt", "uid": HECTOR,
+             "dia": JUEVES.date(), "enviado": JUEVES, "ok": True, "detalle": "x"}
+            for _ in range(3)
+        ]
+        envios = Envios()
+
+        _, enviados = wr.ciclo(ahora=JUEVES, conn=base, enviar=envios)
+
+        self.assertEqual(enviados, 3)
 
     def test_fallo_de_openwa_se_registra_y_no_se_reintenta(self):
         base = _base_con_hector()

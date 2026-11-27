@@ -34,6 +34,11 @@ Reglas de contenido:
   factura/cobranza y tres o mas ausencias seguidas lo apagan y se canaliza; a
   un desconocido se le contesta formal, nunca con roast.
 - El humor se apaga con palabras urgentes y con los temas factura/cobranza.
+- El bot se llama **Volt** y se presenta con su nombre. Ademas, cada
+  `wa_volt_cada` interacciones (default 12) puede soltar una linea propia en un
+  parrafo aparte (`wa_volt`): solo a registrados, una al dia, nunca con
+  urgencias, facturas, cobranza ni tres ausencias seguidas, y sin pasar por la
+  IA de redaccion.
 - Nunca se dan precios, cotizaciones, datos de otros clientes ni informacion
   interna: se rechaza y se canaliza con el responsable.
 - Todo lo que se sabe del personal (nombre y telefono) es publico y se puede
@@ -52,6 +57,7 @@ from tz_mx import now_mx
 import wa_consultas
 import wa_persona
 import wa_redaccion
+import wa_volt
 
 SITIO = "https://ecc-sa.com.mx"
 MAPA_BASE = "https://maps.google.com/?q="
@@ -827,14 +833,14 @@ CAPACIDADES = ("horario, dirección y mapa, teléfonos del equipo, servicios, "
 
 
 def _saludo_desconocido():
-    return (f"Soy el asistente de ECCSA. Con gusto te ayudo con {CAPACIDADES}. "
-            "¿Qué necesitas?")
+    return (f"Soy Volt, el asistente de ECCSA. Con gusto te ayudo con "
+            f"{CAPACIDADES}. ¿Qué necesitas?")
 
 
 def _saludo_registrado(nombre):
-    return (f"¡Hola, {nombre}! Soy el asistente de ECCSA. Puedo ayudarte con "
-            f"{CAPACIDADES}. Cuando esté disponible, también podrás consultar "
-            "aquí tus tickets, vales y reportes.")
+    return (f"¡Hola, {nombre}! Soy Volt, el asistente de ECCSA. Puedo ayudarte "
+            f"con {CAPACIDADES}. Cuando esté disponible, también podrás "
+            "consultar aquí tus tickets, vales y reportes.")
 
 
 # ─── Entrada ─────────────────────────────────────────────────────────────────
@@ -920,6 +926,34 @@ def _respuesta_opcion(opcion, kb, ahora):
     return _respuesta_canalizar(kb, "default")
 
 
+def _volt_frase(chat_id, telefono, texto, kb, conn, permitido):
+    """
+    El parrafo suelto de Volt, o "". Se calla igual que el sarcasmo: urgencias,
+    facturas, cobranza, grupos y desconocidos. Volt es un adorno: cualquier
+    fallo devuelve "" y el dato se manda igual.
+    """
+    if not permitido:
+        return ""
+    if chat_id and str(chat_id).strip().endswith("@g.us"):
+        return ""
+    norm = _normalizar(texto)
+    if _es_urgente(norm) or _tema(norm) in ("facturas", "cobranza"):
+        return ""
+    if kb is None:
+        try:
+            kb = cargar_kb()
+        except Exception:
+            return ""
+    persona = _identificar(telefono, kb)
+    if not persona or not persona.get("id"):
+        return ""
+    try:
+        return str(wa_volt.mensaje(persona["id"], conn=conn) or "")
+    except Exception as exc:
+        print(f"[wa_bot] sin Volt: {exc}")
+        return ""
+
+
 def responder(chat_id, telefono, texto, kb=None, ahora=None, conn=None):
     """
     Devuelve la respuesta para un mensaje entrante, o None si no hay que
@@ -929,15 +963,26 @@ def responder(chat_id, telefono, texto, kb=None, ahora=None, conn=None):
     dueno prendio `wa_bot_ia`, `wa_redaccion.mejorar` pule el texto. Si la IA
     falla o cambia un dato, sale el texto de las reglas: el bot nunca se queda
     mudo por la redaccion.
+
+    Despues de la redaccion se agrega, en un parrafo aparte, la frase suelta de
+    Volt (`wa_volt`). Esa frase NO pasa por la IA: es chiste propio y la IA
+    podria suavizarlo hasta dejarlo en nada. Si no cabe en los 800 caracteres,
+    no se agrega.
     """
+    permitido_volt = kb is None or conn is not None
     respuesta = _responder_reglas(chat_id, telefono, texto, kb=kb, ahora=ahora,
                                   conn=conn)
     if respuesta is None:
         return None
     try:
-        return wa_redaccion.mejorar(respuesta, kb)
+        texto_final = wa_redaccion.mejorar(respuesta, kb)
     except Exception:
-        return respuesta
+        texto_final = respuesta
+
+    frase = _volt_frase(chat_id, telefono, texto, kb, conn, permitido_volt)
+    if _cabe(texto_final, frase):
+        return f"{texto_final}\n\n{frase}"
+    return texto_final
 
 
 def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None, conn=None):

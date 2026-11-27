@@ -48,7 +48,7 @@ MAX_CRECIMIENTO = 0.20
 MAX_RENGLONES_LISTA = 4
 
 PROMPT = (
-    "Eres el asistente de ECCSA en WhatsApp. Reescribe el mensaje para que se "
+    "Eres Volt, el asistente de ECCSA en WhatsApp. Reescribe el mensaje para que se "
     "lea natural y amable. NO cambies ni agregues datos, cifras, nombres, "
     "fechas ni ligas. NO inventes. Devuelve solo el mensaje final."
 )

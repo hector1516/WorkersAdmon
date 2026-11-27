@@ -144,9 +144,17 @@ WORKERS_SPEC = {
            "hub_config", clave="wa_rec_vale_horas", default=48, min=1,
            max=8760, unidad="horas",
            ayuda="Un vale GENERADO sin comprobante avisa pasado este tiempo."),
-        _f("wa_rec_vale_max", "Avisos máximos por vale", "number",
+        _f("wa_rec_vale_max", "Avisos máximos por persona", "number",
            "hub_config", clave="wa_rec_vale_max", default=3, min=1, max=20,
-           ayuda="Tope de recordatorios por vale, para no insistir para siempre."),
+           ayuda="Tope de recordatorios de vales por persona, para no insistir "
+                 "para siempre. Va uno al día, en un solo mensaje con todos "
+                 "sus vales pendientes."),
+        _f("govale_recordatorio_dias_max", "Días máximos del vale",
+           "number", "hub_config", clave="govale_recordatorio_dias_max",
+           default=15, min=1, max=365, unidad="días",
+           ayuda="Un vale con más días desde FechaSolicitud ya no se recuerda: "
+                 "son tickets que no se van a subir. La misma regla aplica en "
+                 "cron_vales_recordatorios y en el resumen de Telegram."),
         _f("wa_rec_resumen", "Resumen del lunes", "bool", "hub_config",
            clave="wa_rec_resumen", default="1",
            ayuda="Con No se omite el resumen del lunes 09:00-09:30."),
