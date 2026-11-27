@@ -263,12 +263,20 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Client:
+    # Corte final: las vistas de Python viven bajo /clasico/... y la raíz es el
+    # SPA. Estas pruebas son de la vista clásica de WhatsApp, así que el cliente
+    # reescribe esas rutas (ver tests/test_panel.py).
+    _SSR = ("/", "/estado", "/whatsapp", "/notificaciones")
+
     def __init__(self):
         self.jar = http.cookiejar.CookieJar()
         self.opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self.jar), _NoRedirect())
 
     def _req(self, path, data=None):
+        base = path.split("?", 1)[0]
+        if base in self._SSR:
+            path = "/clasico" + path
         body = urllib.parse.urlencode(data, doseq=True).encode() if data else None
         req = urllib.request.Request(
             f"http://127.0.0.1:{PORT}{path}", data=body,

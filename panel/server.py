@@ -33,6 +33,7 @@ intentos de login, cabeceras anti-clickjacking y permiso `AccesoConfiguracion`.
 """
 import importlib
 import json
+import mimetypes
 import os
 import time
 import urllib.parse
@@ -225,12 +226,94 @@ class Handler(BaseHTTPRequestHandler):
         return user, False
 
     # ── GET ──────────────────────────────────────────────────────────────────
+    # Corte final: la raíz es el SPA de Svelte (panel_ui/dist). El servidor
+    # sigue atendiendo lo de infraestructura (salud, PWA, sesión) y las vistas
+    # de Python quedan de respaldo bajo /clasico/... para emergencias.
+    _GET_SERVIDOR = {"/healthz", "/logo.png", "/engrane.png", "/favicon.ico",
+                     "/manifest.webmanifest", "/sw.js", "/offline",
+                     "/login", "/logout", "/api/status", "/api/shell/state"}
+    _GET_PREFIJOS = ("/api/", "/passkey/", "/icons/")
+
     def do_GET(self):
-        # API JSON del frontend Svelte y fallback del SPA. Va ANTES del routing
-        # SSR: devuelve True solo para /api/panel/... y para un GET del SPA, así
-        # que las vistas de Python siguen respondiendo todo lo demás.
+        path, _query = self._parts()
+
+        if path == "/clasico" or path.startswith("/clasico/"):
+            self._quitar_clasico()
+            return Handler._ssr_get(self)
+
         if api.atender(self):
             return
+
+        if path in self._GET_SERVIDOR or path.startswith(self._GET_PREFIJOS):
+            return Handler._ssr_get(self)
+
+        if path.startswith("/assets/"):
+            return self._ui_asset(path[len("/assets/"):])
+
+        if path.startswith("/static/"):
+            return self._static_asset(path[len("/static/"):])
+
+        if self._quiere_index(path):
+            return self._ui_index()
+
+        return self._send(404, "No encontrado", "text/plain")
+
+    def _quitar_clasico(self):
+        """Deja `self.path` como la ruta vieja (sin el prefijo /clasico)."""
+        parts = urllib.parse.urlsplit(self.path)
+        resto = parts.path[len("/clasico"):] or "/"
+        if not resto.startswith("/"):
+            resto = "/" + resto
+        self.path = resto + (("?" + parts.query) if parts.query else "")
+
+    def _quiere_index(self, path):
+        """True si el GET lo debe resolver el SPA (ruta, no archivo)."""
+        ultimo = path.rsplit("/", 1)[-1]
+        if "." not in ultimo:
+            return True
+        return "text/html" in (self.headers.get("Accept") or "")
+
+    def _ui_index(self):
+        """index.html del build: sin caché, para que un deploy nuevo se vea ya."""
+        ruta = config.UI_INDEX_FILE
+        if not os.path.isfile(ruta):
+            return self._send(
+                503,
+                "El panel web todavía no está compilado (falta "
+                "panel_ui/dist/index.html). Construye con "
+                "`cd panel_ui && npm ci && npm run build`.",
+                "text/plain")
+        try:
+            with open(ruta, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            return self._send(503, "No se pudo leer el panel web compilado.",
+                              "text/plain")
+        return self._send(200, data, "text/html")
+
+    def _ui_asset(self, rel):
+        """Assets con hash del build: inmutables y solo dentro de dist/assets."""
+        base = os.path.realpath(os.path.join(config.UI_DIST_DIR, "assets"))
+        ruta = os.path.realpath(os.path.join(base, rel))
+        if ruta != base and not ruta.startswith(base + os.sep):
+            return self._send(404, "No encontrado", "text/plain")
+        if not os.path.isfile(ruta):
+            return self._send(404, "No encontrado", "text/plain")
+        ctype = mimetypes.guess_type(ruta)[0] or "application/octet-stream"
+        return self._static(ruta, ctype, "public, max-age=31536000, immutable")
+
+    def _static_asset(self, rel):
+        """Archivos de static/ (manifest, iconos sueltos, changelog) por /static/."""
+        base = os.path.realpath(config.STATIC_DIR)
+        ruta = os.path.realpath(os.path.join(base, rel))
+        if ruta != base and not ruta.startswith(base + os.sep):
+            return self._send(404, "No encontrado", "text/plain")
+        if not os.path.isfile(ruta):
+            return self._send(404, "No encontrado", "text/plain")
+        ctype = mimetypes.guess_type(ruta)[0] or "application/octet-stream"
+        return self._static(ruta, ctype, "public, max-age=3600")
+
+    def _ssr_get(self):
         path, query = self._parts()
 
         if path == "/healthz":
@@ -464,8 +547,16 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── POST ─────────────────────────────────────────────────────────────────
     def do_POST(self):
+        # La API del SPA (/api/panel/...) manda; el resto es el panel viejo,
+        # incluido /login y /logout, que sirven a las páginas clásicas.
         if api.atender(self):
             return
+        path, _query = self._parts()
+        if path == "/clasico" or path.startswith("/clasico/"):
+            self._quitar_clasico()
+        return Handler._ssr_post(self)
+
+    def _ssr_post(self):
         path, _query = self._parts()
 
         form = self._read_form()

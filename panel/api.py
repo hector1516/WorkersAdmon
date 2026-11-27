@@ -1,17 +1,17 @@
 """
 panel/api.py — API JSON del panel para el frontend Svelte
 =========================================================
-Contrato en `panel_ui/API.md`. Python deja de generar HTML y pasa a responder
-JSON; las vistas SSR de `panel/server.py` se conservan como respaldo hasta el
-corte final.
+Contrato en `panel_ui/API.md`. Python responde JSON bajo `/api/panel/...`; el
+SPA compilado (`panel_ui/dist`) lo sirve `panel/server.py` y las vistas SSR
+viven bajo `/clasico/...` como respaldo de emergencia.
 
 Cómo se engancha:
 
   * `atender(handler)` se llama al principio de `Handler.do_GET` y
     `Handler.do_POST`. Devuelve True si ya respondió (y False para que siga el
-    routing SSR de siempre).
-  * Solo intercepta `/api/panel/...` y el fallback del SPA: un GET del navegador
-    sin extensión y sin ruta SSR propia. Todo lo demás sigue igual.
+    routing del servidor).
+  * Solo intercepta `/api/panel/...`. Nada más: las rutas del SPA y las
+    estáticas las resuelve `panel/server.py`.
 
 Reglas:
 
@@ -56,17 +56,6 @@ RUTAS = []
 # gráfico. El primer punto es el valor de ahora; luego uno por consulta (12).
 _SERIES = collections.deque(maxlen=12)
 
-# Rutas que atiende el panel SSR y que el fallback del SPA NO debe tapar. Se
-# retiran cuando el SPA entre; hoy son el respaldo.
-_RUTAS_SSR = {
-    "/", "/estado", "/logs", "/configuracion", "/notificaciones", "/whatsapp",
-    "/avisos", "/correo", "/triaje", "/asistencia", "/apps", "/login",
-    "/logout", "/healthz", "/offline", "/logo.png", "/engrane.png",
-    "/favicon.ico", "/sw.js", "/manifest.webmanifest",
-}
-_RUTAS_SSR_PREFIJOS = ("/api/", "/static/", "/icons/", "/workers/",
-                       "/passkey/")
-
 
 # ── registro de rutas ────────────────────────────────────────────────────────
 def registrar(metodo, patron, funcion):
@@ -98,14 +87,11 @@ def atender(handler):
 
     metodo = (getattr(handler, "command", "GET") or "GET").upper()
     es_api = path == "/api/panel" or path.startswith("/api/panel/")
-    es_spa = metodo == "GET" and _es_spa(path)
-    if not (es_api or es_spa):
+    if not es_api:
         return False
 
     try:
-        if es_api:
-            return _atender_api(handler, metodo, path)
-        return _servir_spa(handler)
+        return _atender_api(handler, metodo, path)
     except Exception:
         log.exception("error inesperado atendiendo %s %s", metodo, path)
         try:
@@ -437,36 +423,6 @@ def _accion_worker(handler, params, cuerpo):
         "mensaje": f"Worker '{nombre}' {participio}.",
         "detalle": detalle[-1] if detalle else "",
     }
-
-
-# ── fallback del SPA ─────────────────────────────────────────────────────────
-def _es_spa(path):
-    """True si la ruta la debe resolver el Svelte (no la API ni el SSR)."""
-    if path in _RUTAS_SSR:
-        return False
-    if any(path.startswith(p) for p in _RUTAS_SSR_PREFIJOS):
-        return False
-    ultimo = path.rsplit("/", 1)[-1]
-    if "." in ultimo:            # archivo con extensión: no es una ruta del SPA
-        return False
-    return True
-
-
-def _servir_spa(handler):
-    """Devuelve panel_ui/dist/index.html o un 404 que dice qué falta."""
-    if not os.path.exists(config.UI_INDEX_FILE):
-        handler._send(404, "El frontend todavía no está compilado "
-                           "(falta panel_ui/dist/index.html).", "text/plain")
-        return True
-    try:
-        with open(config.UI_INDEX_FILE, "rb") as fh:
-            data = fh.read()
-    except OSError:
-        log.exception("no se pudo leer %s", config.UI_INDEX_FILE)
-        handler._send(500, "No se pudo leer el frontend.", "text/plain")
-        return True
-    handler._send(200, data, "text/html")
-    return True
 
 
 # ── rutas del primer corte ───────────────────────────────────────────────────

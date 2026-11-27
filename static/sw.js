@@ -5,16 +5,17 @@
  * el SW pierde el cuerpo y el backend recibe size=0 → 422.
  *
  * Estrategia:
- *   · Navegaciones (HTML) → SIEMPRE red; si no hay red → /offline.
- *     No se cachea HTML autenticado: evita servir contenido de otra sesión
- *     en una máquina compartida.
- *   · /api/status, /healthz, login y passkey → network-only (nunca en caché).
- *   · Estáticos (iconos, logo, manifest) → caché primero con revalidación.
+ *   · Navegaciones (HTML) → red primero; se guarda el index del SPA como
+ *     respaldo offline. Versión nueva de CACHE = adiós al HTML viejo.
+ *   · /api/*, /healthz, login y passkey → network-only (nunca en caché).
+ *   · Estáticos con hash (/assets/) e iconos → caché primero.
  */
-const CACHE = 'workers-v2';
+const CACHE = 'workers-v3';
 const OFFLINE = '/offline';
+const INDEX = '/';
 const APP_SHELL = [
 	OFFLINE,
+	INDEX,
 	'/manifest.webmanifest',
 	'/logo.png',
 	'/icons/icon-192x192.png',
@@ -23,7 +24,7 @@ const APP_SHELL = [
 ];
 
 // Prefijos que jamás se cachean (datos vivos o con sesión/CSRF).
-const NETWORK_ONLY = ['/api/status', '/healthz', '/login', '/logout', '/passkey/'];
+const NETWORK_ONLY = ['/api/', '/healthz', '/login', '/logout', '/passkey/'];
 
 self.addEventListener('install', (e) => {
 	e.waitUntil(
@@ -59,11 +60,18 @@ self.addEventListener('fetch', (e) => {
 		return;
 	}
 
-	// Navegaciones: red primero; sin conexión → página offline estática.
+	// Navegaciones: red primero; se refresca el index cacheado con la respuesta
+	// buena. Sin conexión → index del SPA; si no hay → página offline estática.
 	if (request.mode === 'navigate') {
 		e.respondWith(
-			fetch(request).catch(() =>
-				caches.match(OFFLINE).then((r) => r || new Response(
+			fetch(request).then((res) => {
+				if (res && res.ok) {
+					const copy = res.clone();
+					caches.open(CACHE).then((c) => c.put(INDEX, copy)).catch(() => {});
+				}
+				return res;
+			}).catch(() =>
+				caches.match(INDEX).then((r) => r || caches.match(OFFLINE)).then((r) => r || new Response(
 					'Sin conexión', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
 				))
 			)

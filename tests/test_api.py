@@ -380,39 +380,62 @@ class ApiTest(unittest.TestCase):
         self.assertIn("application/json", headers.get("Content-Type", ""))
         self.assertIn("error", json.loads(texto))
 
-    # ── fallback del SPA y respaldo SSR ──────────────────────────────────────
-    def test_13_fallback_spa_sirve_el_build(self):
+    # ── SPA, respaldo SSR y build ausente ────────────────────────────────────
+    def _dist_falso(self, contenido="<!doctype html><html><body>SPA</body></html>"):
+        """Crea un dist mínimo y apunta config a él; devuelve (dir, originales)."""
         from panel import config
-        original = config.UI_INDEX_FILE
-        ruta = os.path.join(ROOT, "index.html")
-        with open(ruta, "w", encoding="utf-8") as fh:
-            fh.write("<!doctype html><html><body>SPA</body></html>")
-        config.UI_INDEX_FILE = ruta
+        dist = os.path.join(ROOT, "dist")
+        os.makedirs(os.path.join(dist, "assets"), exist_ok=True)
+        with open(os.path.join(dist, "index.html"), "w", encoding="utf-8") as fh:
+            fh.write(contenido)
+        originales = (config.UI_DIST_DIR, config.UI_INDEX_FILE)
+        config.UI_DIST_DIR = dist
+        config.UI_INDEX_FILE = os.path.join(dist, "index.html")
+        return dist, originales
+
+    def _restaurar_dist(self, originales):
+        from panel import config
+        config.UI_DIST_DIR, config.UI_INDEX_FILE = originales
+
+    def test_13_fallback_spa_sirve_el_build(self):
+        dist, originales = self._dist_falso()
         try:
             code, headers, texto = Client().get("/apps/123")
             self.assertEqual(code, 200)
             self.assertIn("text/html", headers.get("Content-Type", ""))
             self.assertIn("SPA", texto)
+            self.assertEqual(headers.get("Cache-Control"), "no-store")
         finally:
-            config.UI_INDEX_FILE = original
+            self._restaurar_dist(originales)
 
-    def test_14_fallback_sin_build_404_claro(self):
+    def test_14_fallback_sin_build_503_claro(self):
         from panel import config
-        original = config.UI_INDEX_FILE
-        config.UI_INDEX_FILE = os.path.join(ROOT, "no_existe", "index.html")
+        originales = (config.UI_DIST_DIR, config.UI_INDEX_FILE)
+        config.UI_DIST_DIR = os.path.join(ROOT, "no_existe", "dist")
+        config.UI_INDEX_FILE = os.path.join(ROOT, "no_existe", "dist",
+                                            "index.html")
         try:
             code, headers, texto = Client().get("/apps/123")
-            self.assertEqual(code, 404)
+            self.assertEqual(code, 503)
             self.assertIn("text/plain", headers.get("Content-Type", ""))
             self.assertIn("no está compilado", texto)
+            self.assertNotIn("Traceback", texto)
         finally:
-            config.UI_INDEX_FILE = original
+            config.UI_DIST_DIR, config.UI_INDEX_FILE = originales
 
-    def test_15_ssr_sigue_respondiendo(self):
-        # La raíz y /estado no los tapa el SPA: siguen siendo del panel SSR.
-        code, headers, _ = Client().get("/estado")
+    def test_15_ssr_sigue_respondiendo_en_clasico(self):
+        # Las vistas de Python quedan solo bajo /clasico/... (respaldo).
+        code, headers, _ = Client().get("/clasico/estado")
         self.assertEqual(code, 303)
         self.assertEqual(headers.get("Location"), "/login")
+        # La raíz ya es el SPA: /estado es una ruta del frontend.
+        dist, originales = self._dist_falso()
+        try:
+            code, headers, _ = Client().get("/estado")
+            self.assertEqual(code, 200)
+            self.assertIn("text/html", headers.get("Content-Type", ""))
+        finally:
+            self._restaurar_dist(originales)
 
 
 def cookie_set(cliente, nombre):

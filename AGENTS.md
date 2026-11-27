@@ -262,12 +262,27 @@ Reglas del panel:
     en `page()`, `login_page()` y `offline_page()`); `forbidden_page` hereda de
     `page()`. Si se agrega una página nueva, usar `page()` (no HTML suelto).
   - `sw.js`: **SOLO GET** (nunca responder a POST con la petición de red: se
-    pierde el body). Navegaciones = red siempre + fallback `/offline`
-    (no cachear HTML autenticado); `/api/status`, `/healthz`, `/login`,
-    `/logout` y `/passkey/*` network-only; estáticos caché+revalidación.
+    pierde el body). Navegaciones = red primero + el `index.html` cacheado del
+    SPA como respaldo offline; `/api/*`, `/healthz`, `/login`, `/logout` y
+    `/passkey/*` network-only; estáticos caché primero. Al cambiar el SPA, subir
+    el `CACHE` de `sw.js` para no servir el index de la versión anterior.
   - Los iconos se generan desde `workers/worker.png` con Pillow (fondo
     `#0F172A`); al cambiar el logo, regenerarlos y subir el `CACHE` de `sw.js`.
   - Instalable solo con HTTPS (`https://worker.ecc-sa.com.mx`).
+
+## Corte final: el panel es un SPA
+
+- La raíz (`/`, `/estado`, `/logs`, …) la sirve el build de `panel_ui/`:
+  `npm ci && npm run build` → `panel_ui/dist`. El Dockerfile lo compila en la
+  etapa `ui` (Node solo ahí) y copia `dist` a `/app/panel_ui/dist`.
+- `panel/server.py` responde en la raíz `/healthz`, la API `/api/panel/*`
+  (`panel/api.py`), PWA (`/sw.js`, `/manifest.webmanifest`, `/icons/*`) y
+  `/static/*`; `/assets/*` sale de `dist/assets` con caché inmutable e
+  `index.html` sin caché. Un GET sin extensión (o `Accept: text/html`) devuelve
+  el index; sin build responde **503** con el comando para compilar.
+- Las vistas SSR de Python siguen vivas, pero solo bajo **`/clasico/...`**
+  (respaldo de emergencia). `/login` y `/logout` siguen en la raíz: el SPA usa
+  `/api/panel/login|logout`, y `/logout` cierra la cookie y manda a `/login`.
 - UI responsive (móvil): reglas en `panel/apple.css` con cortes en **768px**
   (barra inferior), **899px** (bandeja WhatsApp), **1023px** (rail compacto) y
   **430px** (teléfonos angostos). Al agregar vistas:

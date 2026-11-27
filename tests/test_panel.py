@@ -822,6 +822,25 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+# Corte final: la raíz la sirve el SPA Svelte y las vistas de Python quedan
+# bajo /clasico/... como respaldo. Estas pruebas son de las vistas clásicas,
+# así que el cliente reescribe esas rutas en vez de repetir el prefijo en cada
+# aserción. /login, /logout y /api/* viven en la raíz y no se tocan.
+_HABITUALES_SSR = {"/", "/estado", "/logs", "/configuracion", "/notificaciones",
+                   "/whatsapp", "/avisos", "/correo", "/triaje", "/asistencia",
+                   "/apps"}
+_PREFIJOS_SSR = ("/workers/",)
+
+
+def _con_clasico(path):
+    if path.startswith("/clasico"):
+        return path
+    base = path.split("?", 1)[0]
+    if base in _HABITUALES_SSR or base.startswith(_PREFIJOS_SSR):
+        return "/clasico" + path
+    return path
+
+
 class Client:
     """Cliente HTTP mínimo con cookies (login/CSRF) y soporte de formularios."""
 
@@ -844,11 +863,12 @@ class Client:
             return exc.code, dict(exc.headers), exc.read().decode("utf-8")
 
     def get(self, path):
-        return self._req(f"http://127.0.0.1:{PORT}{path}")
+        return self._req(f"http://127.0.0.1:{PORT}{_con_clasico(path)}")
 
     def get_bytes(self, path):
         """GET que devuelve los bytes crudos (PNG, etc.)."""
-        req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}")
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{PORT}{_con_clasico(path)}")
         try:
             resp = self.opener.open(req, timeout=10)
             return resp.getcode(), dict(resp.headers), resp.read()
@@ -856,7 +876,8 @@ class Client:
             return exc.code, dict(exc.headers), exc.read()
 
     def post(self, path, **fields):
-        return self._req(f"http://127.0.0.1:{PORT}{path}", data=fields)
+        return self._req(f"http://127.0.0.1:{PORT}{_con_clasico(path)}",
+                         data=fields)
 
     def post_json(self, path, obj, origin=None):
         """POST con cuerpo JSON (endpoints /passkey/*)."""
@@ -864,7 +885,7 @@ class Client:
         if origin:
             headers["Origin"] = origin
         req = urllib.request.Request(
-            f"http://127.0.0.1:{PORT}{path}",
+            f"http://127.0.0.1:{PORT}{_con_clasico(path)}",
             data=json.dumps(obj).encode("utf-8"), headers=headers, method="POST")
         try:
             resp = self.opener.open(req, timeout=10)
@@ -1943,7 +1964,7 @@ class PanelTest(unittest.TestCase):
         self.assertIn("request.method !== 'GET'", body)
         self.assertNotIn("respondWith(fetch(request))", body)
         # jamás cachear datos vivos ni login/passkey
-        for trozo in ("'/api/status'", "'/healthz'", "'/login'", "'/passkey/'",
+        for trozo in ("'/api/'", "'/healthz'", "'/login'", "'/passkey/'",
                       "'/offline'", "'/manifest.webmanifest'"):
             self.assertIn(trozo, body, f"falta {trozo}")
 

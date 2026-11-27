@@ -6,6 +6,17 @@
 
 # Base estándar del ecosistema: mirror.gcr.io (espejo pull-through de Docker
 # Hub). Docker Hub y ECR Public aplican cuotas por IP y ya tumbaron la CI.
+
+# ── Etapa UI: compila el SPA Svelte (Node SOLO existe aquí) ──────────────────
+FROM mirror.gcr.io/library/node:20-alpine AS ui
+
+WORKDIR /ui
+COPY panel_ui/package*.json ./
+RUN npm ci
+COPY panel_ui/ ./
+RUN npm run build
+
+# ── Etapa builder: dependencias de Python ───────────────────────────────────
 FROM mirror.gcr.io/library/python:3.11-slim AS builder
 
 WORKDIR /app
@@ -72,6 +83,10 @@ ARG CACHEBUST=4
 RUN echo "Cache bust: $CACHEBUST - $(date)"
 COPY . .
 RUN md5sum /app/mailbox_worker/sync.py
+
+# SPA compilado por la etapa `ui`. El contenedor final no lleva Node: solo el
+# resultado (index.html + assets con hash).
+COPY --from=ui /ui/dist /app/panel_ui/dist
 
 RUN sed -i 's/\r$//' /app/docker/entrypoint.sh && \
     chmod +x /app/docker/entrypoint.sh && \
