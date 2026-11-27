@@ -73,6 +73,13 @@ def chistes_en(texto):
 class BotWa(unittest.TestCase):
     def setUp(self):
         self.kb = kb_falso()
+        # El humor es ocasional (50%); en las pruebas se fuerza para que el
+        # resultado no dependa del azar.
+        self._azar = wa_bot.random.random
+        wa_bot.random.random = lambda: 0.0
+
+    def tearDown(self):
+        wa_bot.random.random = self._azar
 
     def responder(self, texto, telefono=DESCONOCIDO, ahora=None, kb=None):
         return wa_bot.responder(CHAT, telefono, texto,

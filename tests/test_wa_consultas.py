@@ -85,11 +85,13 @@ class CursorFalso:
         elif "FROM HUB_REGISTROKILOMETROS" in q:
             yo, desde = params
             filas = [k for k in base.km if k[2] == yo and k[1] >= desde]
-            if "SUM(KILOMETROS)" in q:
-                if filas:
-                    self.una = (sum(k[0] for k in filas), len(filas))
-                else:
-                    self.una = (None, 0)
+            if "GROUP BY IDAUTOMOVIL" in q:
+                autos = {}
+                for k in filas:
+                    auto = k[3] if len(k) > 3 else 1
+                    autos.setdefault(auto, []).append(k)
+                self.todas = [(auto, min(k[0] for k in ks), max(k[0] for k in ks),
+                               len(ks)) for auto, ks in sorted(autos.items())]
             else:
                 filas.sort(key=lambda k: k[1], reverse=True)
                 self.una = (filas[0][0], filas[0][1]) if filas else None
@@ -293,15 +295,15 @@ class ConsultasWa(unittest.TestCase):
     # ── kilómetros ───────────────────────────────────────────────────────────
     def test_km_del_mes_suma(self):
         self.base.km = [
-            (100.0, datetime(2026, 11, 1), YO),
-            (250.5, datetime(2026, 11, 15), YO),
-            (50.0, datetime(2026, 10, 31), YO),       # mes anterior
-            (999.0, datetime(2026, 11, 20), 8),       # otro usuario
+            (100.0, datetime(2026, 11, 1), YO, 1),
+            (250.0, datetime(2026, 11, 15), YO, 1),
+            (50.0, datetime(2026, 10, 31), YO, 1),       # mes anterior
+            (999.0, datetime(2026, 11, 20), 8, 1),       # otro usuario
         ]
         r = self.responder("mis kilómetros del mes")
-        self.assertIn("350.50 km", r)
+        self.assertIn("150 km recorridos", r)
         self.assertIn("2 registros", r)
-        self.assertIn("Último: 250.50 km el 15 nov 2026", r)
+        self.assertIn("Último odómetro: 250 km el 15 nov 2026", r)
 
     # ── cotizaciones (materiales, base quotely) ──────────────────────────────
     def _cotizaciones(self):

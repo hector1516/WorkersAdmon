@@ -86,10 +86,12 @@ SQL_TICKETS = """
     ORDER BY FechaRegistro DESC, Id DESC
 """
 
-SQL_KM_RESUMEN = """
-    SELECT SUM(Kilometros) AS Total, COUNT(*) AS Registros
+SQL_KM_POR_AUTO = """
+    SELECT IdAutomovil, MIN(Kilometros) AS Desde, MAX(Kilometros) AS Hasta,
+           COUNT(*) AS Registros
     FROM HUB_RegistroKilometros
     WHERE IdUsuario = %s AND FechaHora >= %s
+    GROUP BY IdAutomovil
 """
 
 SQL_KM_ULTIMO = """
@@ -303,20 +305,39 @@ def _respuesta_tickets(conn, usuario_id):
 # ─── Kilómetros ──────────────────────────────────────────────────────────────
 
 def _respuesta_km(conn, usuario_id):
+    """
+    `HUB_RegistroKilometros.Kilometros` es el **odómetro**, no el recorrido:
+    sumarlos daba "395,876 km este mes", que es falso. El recorrido de cada
+    vehículo es la diferencia entre la lectura mayor y la menor del mes.
+    """
     ahora = now_mx()
     desde = datetime(ahora.year, ahora.month, 1)
 
-    resumen = _una(conn, SQL_KM_RESUMEN, (usuario_id, desde))
-    total = resumen[0] if resumen else None
-    registros = int((resumen[1] if resumen else 0) or 0)
-    if not registros:
+    por_auto = _filas(conn, SQL_KM_POR_AUTO, (usuario_id, desde))
+    if not por_auto:
         return "No tienes kilómetros registrados este mes."
 
+    recorrido = 0
+    registros = 0
+    for fila in por_auto:
+        desde_km = fila[1] or 0
+        hasta_km = fila[2] or 0
+        if hasta_km > desde_km:
+            recorrido += hasta_km - desde_km
+        registros += int(fila[3] or 0)
+
     ultimo = _una(conn, SQL_KM_ULTIMO, (usuario_id, desde))
-    texto = (f"Este mes llevas {_numero(total)} km en {registros} "
-             f"{'registro' if registros == 1 else 'registros'}.")
+    if recorrido:
+        texto = (f"Este mes llevas {recorrido:,.0f} km recorridos en {registros} "
+                 f"{'registro' if registros == 1 else 'registros'}.")
+    else:
+        texto = (f"Este mes tienes {registros} "
+                 f"{'lectura' if registros == 1 else 'lecturas'} de kilometraje"
+                 " (aún sin dos lecturas del mismo vehículo para calcular el "
+                 "recorrido).")
     if ultimo:
-        texto += (f" Último: {_numero(ultimo[0])} km el {_fecha(ultimo[1])}.")
+        texto += (f" Último odómetro: {float(ultimo[0] or 0):,.0f} km "
+                  f"el {_fecha(ultimo[1])}.")
     return texto
 
 
@@ -361,9 +382,14 @@ def _partidas(conn_quotely, folio):
     for fila in _filas(conn_quotely, SQL_COT_PARTIDAS, (folio,)):
         cantidad = fila[1]
         unidad = str(fila[2] or "").strip()
+        if unidad.upper() == "NA":
+            unidad = ""
         descripcion = str(fila[3] or "").strip()
+        if len(descripcion) > 70:
+            descripcion = descripcion[:67].rstrip() + "…"
         cantidad_texto = str(cantidad if cantidad is not None else "")
-        lineas.append(f"- {cantidad_texto} {unidad} · {descripcion} · "
+        medida = f"{cantidad_texto} {unidad}".strip()
+        lineas.append(f"- {medida} · {descripcion} · "
                       f"{_dinero(fila[4])} c/u · {_dinero(fila[5])}")
     return lineas
 

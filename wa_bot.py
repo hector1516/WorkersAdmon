@@ -554,12 +554,25 @@ def _elegir_chiste():
     return CHISTES[indice]
 
 
-def _con_humor(texto, persona, norm, tema):
+def _con_humor(texto, persona, norm, tema, siempre=False):
     """
     Agrega UN chiste al final si el que escribe esta registrado y el mensaje no
     es urgente ni de factura/cobranza. El dato ya va en `texto`.
+
+    Se calla cuando la respuesta es negativa ("no tienes...", "no encontre...")
+    o es una canalizacion: burlarse de un problema o de un dato que no existe
+    es justo lo que un cliente interno no agradece. En el saludo si va, y en el
+    resto es ocasional para que no se vuelva ruido.
     """
     if not persona or _es_urgente(norm) or tema in ("facturas", "cobranza"):
+        return texto
+    plano = _normalizar(texto)
+    if any(marca in plano for marca in ("no tienes", "no encontre", "no pude",
+                                        "no hay", "solo las consulta",
+                                        "te canalizo")):
+        return texto
+    saludo = plano.startswith("hola")
+    if not (siempre or saludo) and random.random() > 0.5:
         return texto
     return f"{texto}\n\n{_elegir_chiste()}"
 
