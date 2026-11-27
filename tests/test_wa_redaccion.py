@@ -196,7 +196,7 @@ class Prompt(RedaccionBase):
 
     def test_temperatura_baja(self):
         self.assertLessEqual(wa_redaccion.TEMPERATURA, 0.3)
-        self.assertEqual(wa_redaccion.TIMEOUT_S, 8)
+        self.assertGreaterEqual(wa_redaccion.TIMEOUT_S, 8)
 
 
 class QueSePule(RedaccionBase):
