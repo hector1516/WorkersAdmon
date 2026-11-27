@@ -356,7 +356,7 @@ class Vales(unittest.TestCase):
         base.vales = [(12, HECTOR, 500, JUEVES - timedelta(hours=49), "GENERADO")]
         for dias in (11, 9, 7):
             base.recordatorios.append({
-                "tipo": "VALE", "clave": "12", "uid": HECTOR,
+                "tipo": "VALE", "clave": f"u{HECTOR}", "uid": HECTOR,
                 "dia": (JUEVES - timedelta(days=dias)).date(),
                 "enviado": JUEVES - timedelta(days=dias),
                 "ok": True, "detalle": "",

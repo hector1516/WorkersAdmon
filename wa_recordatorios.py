@@ -449,24 +449,42 @@ def _candidatos_km(conn, cfg, ahora):
 
 
 def _candidatos_vales(conn, cfg, ahora):
-    """Vales GENERADO sin comprobante, pasadas las horas de gracia."""
+    """
+    Vales GENERADO sin comprobante, pasadas las horas de gracia.
+
+    Se agrupan **por persona**: un solo mensaje con sus vales pendientes. Antes
+    salía uno por vale y quien tenía cuatro recibía cuatro mensajes seguidos.
+    """
     corte = ahora - timedelta(hours=cfg["vale_horas"])
-    salida = []
+    por_usuario = {}
     for fila in _filas(conn, SQL_VALES, (corte,)):
         try:
             vale_id, usuario_id = int(fila[0]), int(fila[1])
         except (TypeError, ValueError):
             continue
-        texto = (f"Hola {str(fila[4] or '').strip()}, el vale #{vale_id} de "
-                 f"{_dinero(fila[2])} del {_fecha(fila[3])} sigue sin "
-                 "comprobante. Cuando lo tengas, mándame la foto.")
+        por_usuario.setdefault(usuario_id, []).append(
+            (vale_id, fila[2], fila[3], str(fila[4] or "").strip(), fila[5]))
+
+    salida = []
+    for usuario_id, vales in por_usuario.items():
+        nombre, telefono = vales[0][3], vales[0][4]
+        lineas = [f"#{v[0]} de {_dinero(v[1])} del {_fecha(v[2])}"
+                  for v in vales[:3]]
+        if len(vales) > 3:
+            lineas.append(f"y {len(vales) - 3} más")
+        if len(vales) == 1:
+            texto = (f"Hola {nombre}, el vale {lineas[0]} sigue sin "
+                     "comprobante. Cuando lo tengas, mándame la foto.")
+        else:
+            texto = (f"Hola {nombre}, tienes {len(vales)} vales sin comprobante: "
+                     + "; ".join(lineas) + ". Mándame las fotos cuando las tengas.")
         salida.append({
             "tipo": "VALE",
-            "clave": str(vale_id),
+            "clave": f"u{usuario_id}",
             "usuario_id": usuario_id,
-            "telefono": fila[5],
+            "telefono": telefono,
             "texto": texto,
-            "motivo": f"vale {vale_id}",
+            "motivo": f"{len(vales)} vale(s) sin comprobante",
         })
     return salida
 
