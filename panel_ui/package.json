@@ -1,0 +1,21 @@
+{
+  "name": "workersadmon-panel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host --port 5174",
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "lucide-svelte": "^1.0.1",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "jsdom": "^25.0.1",
+    "vite": "^5.4.0",
+    "vitest": "^2.1.9"
+  }
+}
