@@ -11,7 +11,7 @@
   dispara la sincronización de la app.
 
   Datos: GET /api/shell/state  →  ver docs/CONTRATO.md
-  Reglas: fail silent (si /api/shell/state falla, el lugar queda 📍 —).
+  Reglas: fail silent (si /api/shell/state falla, el lugar queda «—»).
 
   Quién produce esto en la práctica: panel/templates.py → shell_banner().
 -->
@@ -19,7 +19,7 @@
   <span class="dot {{ clase_punto }}"></span><span class="txt">{{ texto }}</span>
   {% if user %}
   <span class="who">
-    👤 {{ user.nombre }}
+    {{ user.nombre }}
     <span class="lugar {{ lugar.modo }}" title="{{ lugar.ip }}">{{ lugar.icono }} {{ lugar.texto }}</span>
   </span>
   {% endif %}

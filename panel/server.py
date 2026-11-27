@@ -45,6 +45,7 @@ from tz_mx import now_mx
 from .templates import (esc, forbidden_page, lugar_de, login_page,
                         offline_page, page)
 from .lugar import lugar_de_handler
+from .icons import icono
 from .views import apps as apps_view
 from .views import asistencia as asis_view
 from .views import config as config_view
@@ -491,7 +492,8 @@ class Handler(BaseHTTPRequestHandler):
         # Todo el resto exige sesión + CSRF
         if not auth.check_csrf(self, form):
             return self._html(page("error",
-                '<div class="panel"><div class="empty">⚠️ Token de seguridad '
+                '<div class="panel"><div class="empty">' + icono("alert") +
+                ' Token de seguridad '
                 'inválido o caducado. <a href="/">Recarga la página</a> e '
                 'intenta de nuevo.</div></div>'), 403)
         user, done = self._require()

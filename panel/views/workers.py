@@ -1,5 +1,5 @@
 """
-panel.views.workers — Módulos "📊 Estado" y "📄 Logs" del panel
+panel.views.workers — Módulos "Estado" y "Logs" del panel
 
 Estado: tablero sin scroll de página. Arriba una fila de KPIs y abajo una
 rejilla de tarjetas que llena el alto restante; lo único que se desplaza es la

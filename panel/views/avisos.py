@@ -1,9 +1,9 @@
 """
-panel.views.avisos — Módulo "📣 Avisos" del panel
-================================================
+panel.views.avisos — Módulo "Avisos" del panel
+==============================================
 Configuración de los avisos push que manda `cron_avisos_push.py`, y solo de eso.
 Lo demás de notificaciones (Telegram, WhatsApp, claves VAPID, SMTP, IA) sigue en
-la pestaña "🔔 Notificaciones": esta es la pantalla de los avisos PWA por app.
+la pestaña "Notificaciones": esta es la pantalla de los avisos PWA por app.
 
 POR QUÉ ES UN MÓDULO APARTE Y NO OTRA TARJETA EN "NOTIFICACIONES"
 -----------------------------------------------------------------
@@ -24,7 +24,7 @@ LO QUE SE VE, Y POR QUÉ
 Por cada tipo de aviso:
 
   * su interruptor (encendido/apagado), que escribe en `HUB_Config` y por eso
-    también aparece en la pestaña "⚙️ Apps";
+    también aparece en la pestaña "Apps";
   * a CUÁNTAS personas le llegaría ahora mismo, y cuántos dispositivos hay en
     total, con un detalle que suele ser el que falta: puede haber veinte personas
     con el permiso y cero con el teléfono suscrito, y en ese caso el aviso no le

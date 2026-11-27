@@ -147,38 +147,38 @@ LOGIN_LOCK_SECONDS = 60
 MODULO_RAIZ = "estado"
 
 TABS = [
-    {"id": "estado", "label": "📊 Estado", "href": "/estado", "enabled": True,
+    {"id": "estado", "label": "Estado", "href": "/estado", "enabled": True,
      "modulo": "Estado",
      "desc": "Qué está corriendo ahora mismo: cada worker, en qué estado y "
              "hace cuánto."},
-    {"id": "logs", "label": "📄 Logs", "href": "/logs", "enabled": True,
+    {"id": "logs", "label": "Logs", "href": "/logs", "enabled": True,
      "modulo": "Logs",
      "desc": "La última salida de cada worker, y los errores recientes."},
-    {"id": "config", "label": "⚙️ Configuración", "href": "/configuracion",
+    {"id": "config", "label": "Configuración", "href": "/configuracion",
      "enabled": True, "modulo": "Configuración",
      "desc": "Variables de entorno y claves por worker."},
-    {"id": "notificaciones", "label": "🔔 Notificaciones",
+    {"id": "notificaciones", "label": "Notificaciones",
      "href": "/notificaciones", "enabled": True, "modulo": "Notificaciones",
      "desc": "Telegram, push, correo saliente y ajustes de IA."},
-    {"id": "whatsapp", "label": "💬 WhatsApp", "href": "/whatsapp",
+    {"id": "whatsapp", "label": "WhatsApp", "href": "/whatsapp",
      "enabled": True, "perm": "AccesoWhatsapp", "modulo": "WhatsApp",
      "desc": "Conexión de OpenWA, avisos, grupos, historial y la bandeja de "
              "conversaciones."},
-    {"id": "apps", "label": "⚙️ Apps", "href": "/apps", "enabled": True,
+    {"id": "apps", "label": "Apps", "href": "/apps", "enabled": True,
      "perm": "AccesoAppConfig", "modulo": "Apps",
      "desc": "Catálogo de apps: tipo, endpoint y credenciales."},
-    {"id": "asistencia", "label": "🕒 Asistencia", "href": "/asistencia",
+    {"id": "asistencia", "label": "Asistencia", "href": "/asistencia",
      "enabled": True, "perm": "AccesoDeteccionRed", "modulo": "Asistencia",
      "desc": "Entradas y salidas por día, con la ventana en la que "
              "ocurrieron."},
-    {"id": "avisos", "label": "📣 Avisos", "href": "/avisos", "enabled": True,
+    {"id": "avisos", "label": "Avisos", "href": "/avisos", "enabled": True,
      "perm": "AccesoAppConfig", "modulo": "Avisos",
      "desc": "Avisos push a los usuarios: cuáles estan encendidos, a quien "
              "le llega y en que horario."},
-    {"id": "correo", "label": "✉️ Correo", "href": "/correo",
+    {"id": "correo", "label": "Correo", "href": "/correo",
      "enabled": True, "perm": "AccesoUsuarios", "modulo": "Correo",
      "desc": "Cuentas de correo de Mailbox: alta, asignación y estado."},
-    {"id": "triaje", "label": "🛡️ Triaje", "href": "/triaje",
+    {"id": "triaje", "label": "Triaje", "href": "/triaje",
      "enabled": True, "perm": "AccesoUsuarios", "modulo": "Triaje",
      "desc": "Correo a direcciones que ya no existen: clasificación, "
              "borrador de respuesta y envío con aprobación."},

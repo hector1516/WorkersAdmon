@@ -2466,7 +2466,7 @@ class PanelTest(unittest.TestCase):
             html,
             r'<div class="card"><div class="wcard-name">[^<]+</div>'
             r'<div class="muted nota-sm">')
-        self.assertNotIn('<div class="empty">⚠️ no hay log', html)
+        self.assertNotIn('<div class="empty">no hay log', html)
 
     def test_71_tarjeta_del_menu_se_ajusta_al_contenido(self):
         """La tarjeta del menú no es un cuadrado con aire muerto.

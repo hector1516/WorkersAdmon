@@ -6,7 +6,7 @@
 
   Cada botón se emite solo si su manejador existe: en el panel, Configuración y
   Notificaciones ya son pestañas de la tab bar, así que ahí se pasan en null y
-  no se duplican. Solo queda 🚪 Salir, que es un GET a /logout.
+  no se duplican. Solo queda Salir (icono `logout`), que es un GET a /logout.
 
   En el panel las acciones se enlazan con <a> porque son naveACIONES (el panel
   es HTML plano con formularios POST y redirección Post/Redirect/Get), no
@@ -16,6 +16,6 @@
 -->
 <div class="shell-actions">
   {% if onlogout %}
-  <a class="btn btn-sm btn-secondary" href="{{ onlogout }}" title="Cerrar sesión">🚪 Salir</a>
+  <a class="btn btn-sm btn-secondary" href="{{ onlogout }}" title="Cerrar sesión">Salir</a>
   {% endif %}
 </div>

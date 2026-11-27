@@ -349,7 +349,7 @@ socket.
 
 - **Zona horaria**: usar SIEMPRE `now_mx()` de `tz_mx.py`. Nunca `datetime.now()` sin zona, `utcnow() - N`, ni depender de `TZ`. Ver `ESTANDARIZACION-TZ.md`.
 - Español en UI y comentarios; comentarios explicativos en el código.
-- Emojis en títulos/tarjetas de UI.
+- **Sin emojis en la interfaz**: se usan iconos (`panel/icons.py` o `lucide-svelte`).
 - Estructura de un worker: docstring → imports → constantes con env var →
   `main()` con loop → `if __name__ == "__main__": main()`.
 - Sin placeholders `?` en SQL (pymssql/DB-Lib no los soporta) → interpolar `%s`.
@@ -358,17 +358,18 @@ socket.
 ## Módulos del panel (shell ECCSA)
 
 El panel se organiza en **módulos**, uno por sección, declarados en
-`panel/config.py:TABS`. Cada uno tiene `id`, `label` (con emoji, para la barra
-inferior), `href`, `modulo` (el título de la página) y `desc`.
+`panel/config.py:TABS`. Cada uno tiene `id`, `label` (sin emoji: el icono lo
+pone la navegación con `icono()`), `href`, `modulo` (el título de la página) y
+`desc`.
 
 | id | Módulo | Ruta | Permiso |
 |---|---|---|---|
-| `estado` | 📊 Estado | `/` (y `/estado`) | — |
-| `logs` | 📄 Logs | `/logs` | — |
-| `config` | ⚙️ Configuración | `/configuracion` | — |
-| `notificaciones` | 🔔 Notificaciones | `/notificaciones` | AccesoTelegram / AccesoConfigurarCorreo / AccesoConfigAI |
-| `apps` | ⚙️ Apps | `/apps` | AccesoAppConfig |
-| `avisos` | 📣 Avisos | `/avisos` | AccesoAppConfig |
+| `estado` | Estado | `/` (y `/estado`) | — |
+| `logs` | Logs | `/logs` | — |
+| `config` | Configuración | `/configuracion` | — |
+| `notificaciones` | Notificaciones | `/notificaciones` | AccesoTelegram / AccesoConfigurarCorreo / AccesoConfigAI |
+| `apps` | Apps | `/apps` | AccesoAppConfig |
+| `avisos` | Avisos | `/avisos` | AccesoAppConfig |
 
 - **La raíz `/` ES el Estado**: al abrir el panel se ve el tablero, no una
   grilla de módulos (se retiró; `/estado` se conserva por los enlaces y los

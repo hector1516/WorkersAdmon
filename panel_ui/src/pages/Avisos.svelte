@@ -6,6 +6,7 @@
 	import Skeleton from '../lib/components/Skeleton.svelte';
 	import Empty from '../lib/components/Empty.svelte';
 	import Toast from '../lib/components/Toast.svelte';
+	import Icon from '../lib/components/Icon.svelte';
 
 	let cargando = $state(true);
 	let error = $state('');
@@ -44,7 +45,7 @@
 </script>
 
 <div>
-	<h2 class="page-title">📣 Avisos</h2>
+	<h2 class="page-title"><Icon name="megaphone" size={20} /> Avisos</h2>
 	<p class="desc">
 		Estado del ecosistema: workers, shell y versiones. Un aviso en rojo es
 		algo que hay que revisar, no un simple registro.

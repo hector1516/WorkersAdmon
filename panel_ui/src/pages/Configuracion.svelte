@@ -8,6 +8,7 @@
 	import Skeleton from '../lib/components/Skeleton.svelte';
 	import Empty from '../lib/components/Empty.svelte';
 	import Toast from '../lib/components/Toast.svelte';
+	import Icon from '../lib/components/Icon.svelte';
 
 	// Canales del ecosistema. El backend los expone en /api/panel/canales; aquí
 	// solo se consumen, con el nombre y la nota que se muestran siempre.
@@ -165,7 +166,7 @@
 </script>
 
 <div>
-	<h2 class="page-title">⚙️ Configuración</h2>
+	<h2 class="page-title"><Icon name="settings" size={20} /> Configuración</h2>
 	<p class="desc">
 		Misma configuración que el HUB, por worker. <strong>ENTORNO</strong> se
 		persiste en el volumen y <strong>HUB_CONFIG</strong> aplica al instante.

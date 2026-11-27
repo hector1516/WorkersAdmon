@@ -96,8 +96,7 @@ def flash(message, kind="ok"):
 
 # ─── Navegación del panel ────────────────────────────────────────────────────
 # Icono de cada destino (panel/DESIGN.md → Iconos). El texto visible es el
-# `modulo` del tab (sin emoji), no el `label` viejo, que existía para la barra
-# inferior del shell.
+# `modulo` del tab, sin emoji: el icono lo pone esta navegación con icono().
 NAV_ICONS = {
     "estado": "dashboard",
     "logs": "logs",
@@ -130,7 +129,7 @@ def _puede_ver(user, tab):
 
 
 def _etiqueta(tab):
-    return tab.get("modulo") or (tab.get("label") or "").strip(" 📊📄⚙️🔔💬📦🕒✉️📣🛡️")
+    return tab.get("modulo") or (tab.get("label") or "").strip()
 
 
 def _nav_item(tab, active, user):

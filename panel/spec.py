@@ -204,7 +204,7 @@ WORKERS_SPEC = {
     # ─── Avisos push de las apps (nuevo 2026-10-06) ─────────────────────────
     # Sustituye a `avisos` (abajo), que quedó muerto por un desajuste de
     # columnas. Los intervalos SÍ son editables por entorno; el horario de
-    # jornada no: vive en HUB_Config y lo edita el módulo "📣 Avisos" del
+    # jornada no: vive en HUB_Config y lo edita el módulo "Avisos" del
     # panel, no esta pantalla (está en HUB_Config para que el worker y la
     # pantalla no puedan discrepar).
     "avisos_push": [
@@ -273,7 +273,7 @@ WORKERS_SPEC = {
     "legends_audit": [
         _f("instancia", "Instancias en el entorno", "const", "const",
            valor="1 (obligatorio)",
-           ayuda="⚠️ REGLA DURA: solo puede existir UNA instancia en todo el "
+           ayuda="REGLA DURA: solo puede existir UNA instancia en todo el "
                  "entorno; con dos se duplica HUB_ScoreLog. Verificado: field "
                  "corre solo nginx+api y admon no lo tiene."),
         _f("intervalo", "Frecuencia de auditoría", "const", "const", valor="300 s (código)",
@@ -290,7 +290,7 @@ WORKERS_SPEC = {
                  "esto el worker no arranca y dice por qué en el log."),
         _f("MAILBOX_ENCRYPTION_KEY", "Clave de cifrado de las cuentas", "secret", "env",
            ayuda="Clave Fernet con la que el panel cifró las credenciales IMAP. "
-                 "Si está vacía se cae a MAILBOX_KEY_FILE. ⚠️ Si no coincide con "
+                 "Si está vacía se cae a MAILBOX_KEY_FILE. Si no coincide con "
                  "la que se usó al cifrar, decrypt_secret LANZA: no hay "
                  "recuperación y todas las cuentas quedan como ERROR."),
         _f("MAILBOX_STREAM_TOKEN", "Token del servidor de adjuntos", "secret", "env",
@@ -300,14 +300,14 @@ WORKERS_SPEC = {
         _f("HUB_DB_SERVER", "Servidor SQL Server", "text", "env",
            default="10.188.141.15"),
         _f("HUB_DB_DATABASE", "Base de datos", "text", "env", default="ECCSA_Admon",
-           ayuda="⚠️ NO apuntes a ECCSA_Admon_Pruebas en producción: el worker "
+           ayuda="NO apuntes a ECCSA_Admon_Pruebas en producción: el worker "
                  "escribe mensajes y movería datos de prueba al buzón real."),
         _f("MAILBOX_SYNC_ENABLED", "Sincronizar", "bool", "env", default=True,
            ayuda="En OFF el proceso queda vivo y el panel lo muestra, pero no "
                  "sincroniza. Es la llave del corte: se apaga MAILBOX_SYNC_ENABLED "
                  "aquí, HUBMAIL_SYNC_ENABLED en el worker viejo, y se verifica."),
         _f("MAILBOX_DRY_RUN", "Modo ensayo", "bool", "env", default=False,
-           ayuda="⚠️ Con ON lee IMAP y llena el índice pero NO escribe en el buzón "
+           ayuda="Con ON lee IMAP y llena el índice pero NO escribe en el buzón "
                  "(no drena la cola de envío, no mueve mensajes ni envía). Los dos "
                  "workers pueden LEER a la vez; lo que no puede ser es escribir "
                  "los dos."),
@@ -330,7 +330,7 @@ WORKERS_SPEC = {
                  "contenedores, el worker sincroniza perfecto y el usuario no ve "
                  "ningún correo, sin error en ninguna parte."),
         _f("MAILBOX_VAPID_PRIVATE", "Clave VAPID privada", "secret", "env",
-           ayuda="⚠️ Tiene que ser la MISMA que la de la app. Si no coincide, el "
+           ayuda="Tiene que ser la MISMA que la de la app. Si no coincide, el "
                  "navegador rechaza cada push con un error que no menciona la "
                  "llave. Sin esto no hay push, pero la sincronización funciona."),
         _f("MAILBOX_DIAS_INDICE", "Retención del índice (días)", "number", "env",
@@ -358,7 +358,7 @@ WORKERS_SPEC = {
                  "el ciclo entero."),
         _f("instancia", "Instancias en el entorno", "const", "const",
            valor="1 (obligatorio)",
-           ayuda="⚠️ REGLA DURA: solo UNA instancia. El worker toma un "
+           ayuda="REGLA DURA: solo UNA instancia. El worker toma un "
                  "sp_getapplock de SQL Server ('mailbox_worker_sync') y se sale "
                  "con código 3 si ya está tomado. Con dos, la cola de envío se "
                  "drena dos veces y el cliente recibe correos duplicados."),

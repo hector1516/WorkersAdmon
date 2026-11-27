@@ -1,6 +1,6 @@
 """
-panel.views.apps — Pestaña "⚙️ Apps" del panel (Fase D)
-========================================================
+panel.views.apps — Pestaña "Apps" del panel (Fase D)
+====================================================
 Catálogo de claves de configuración **agrupadas por aplicación** (HUB, Field,
 admon y cualquier futura). Los METADATOS viven en `HUB_ConfigCatalogo`
 (app, título, tipo, unidad, orden, descripción) y el VALOR sigue en

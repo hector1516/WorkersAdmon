@@ -743,7 +743,7 @@ def remove_push_subscription(endpoint):
         return 0
 
 
-# ── Avisos push por app (módulo "📣 Avisos") ─────────────────────────────────
+# ── Avisos push por app (módulo "Avisos") ────────────────────────────────────
 # Estas cinco leen HUB_PushSuscripciones / HUB_AvisosCola, que son las tablas
 # con columna `App` creadas por la migración 0056. Las de arriba
 # (HUB_PushSubscriptions) son la tabla VIEJA, sin columna de app: ahí una

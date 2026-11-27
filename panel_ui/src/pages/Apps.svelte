@@ -8,6 +8,7 @@
 	import Skeleton from '../lib/components/Skeleton.svelte';
 	import Empty from '../lib/components/Empty.svelte';
 	import Toast from '../lib/components/Toast.svelte';
+	import Icon from '../lib/components/Icon.svelte';
 
 	const TIPOS = [
 		{ valor: 'text', texto: 'TEXTO' },
@@ -165,7 +166,7 @@
 </script>
 
 <div>
-	<h2 class="page-title">⚙️ Apps</h2>
+	<h2 class="page-title"><Icon name="apps" size={20} /> Apps</h2>
 	<p class="desc">
 		Catálogo de metadatos en <code>HUB_ConfigCatalogo</code> y valores en
 		<code>HUB_Config</code>: lo que guardes aquí lo ve al instante la app que

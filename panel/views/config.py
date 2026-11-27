@@ -1,6 +1,6 @@
 """
-panel.views.config — Pestaña "⚙️ Configuración" del panel
-=========================================================
+panel.views.config — Pestaña "Configuración" del panel
+=====================================================
 Una tarjeta por worker con todos sus parámetros editables, agrupados por
 origen (variables de entorno del conf / claves de HUB_Config / constantes del
 código). Un formulario por worker → POST /configuracion/<worker>.

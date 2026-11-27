@@ -1,7 +1,7 @@
 """
 panel/probes.py — Pruebas de conectividad de las notificaciones (Fase C)
 ========================================================================
-Botones "🧪 Probar" de la pestaña Notificaciones. Cada sonda hace UNA sola
+Botones «Probar» de la pestaña Notificaciones. Cada sonda hace UNA sola
 comprobación de red y devuelve (ok, mensaje); los mensajes nunca contienen
 contraseñas ni tokens completos.
 
@@ -85,7 +85,7 @@ def probe_push():
     subs = db.get_push_subscriptions()
     if not subs:
         return False, ("No hay suscripciones: alguien debe habilitar las "
-                       "notificaciones en su navegador (HUB → 🔔).")
+                       "notificaciones en su navegador (HUB → Notificaciones).")
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:

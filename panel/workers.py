@@ -247,7 +247,7 @@ CATALOGO = {
             "ECCSA_Admon (usa config.load_db_config con las env HUB_DB_*)."),
     },
     "legends_audit": {
-        "desc": "Auditoría de Scores de Legends ⚠️ 1 sola instancia",
+        "desc": "Auditoría de Scores de Legends (1 sola instancia)",
         "cadencia": "cada 5 min",
         "app": "Field",
         "descripcion": (
@@ -276,7 +276,7 @@ CATALOGO = {
             "**El cache de adjuntos es un coalescador, no un almacén**: cinco "
             "personas abriendo el mismo PDF hacen un solo fetch a IMAP. Vive 6 h "
             "y se autolimita por tamaño.\n\n"
-            "⚠️ Solo puede existir 1 instancia en todo el entorno. Se protege con "
+            "Solo puede existir 1 instancia en todo el entorno. Se protege con "
             "sp_getapplock de SQL Server ('mailbox_worker_sync'): si el candado ya "
             "está tomado, el proceso se sale con código 3. Dos workers a la vez "
             "drenarían la misma cola de envío y el cliente recibiría correos "
@@ -286,7 +286,7 @@ CATALOGO = {
             "MAILBOX_SYNC_ENABLED=0 lo deja vivo sin sincronizar. Conviven con "
             "durante el corte: los dos pueden leer, lo que no "
             "puede ser es escribir los dos.\n\n"
-            "⚠️ MAILBOX_DATOS_DIR tiene que ser el MISMO volumen montado en la "
+            "MAILBOX_DATOS_DIR tiene que ser el MISMO volumen montado en la "
             "app de Mailbox. Si no, el worker sincroniza perfecto y el usuario no "
             "ve ningún correo, sin error en ninguna parte."),
     },
