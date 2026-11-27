@@ -103,38 +103,49 @@ SQL_KM_ULTIMO = """
 
 SQL_CONFIG = "SELECT Valor FROM HUB_Config WHERE Clave = %s"
 
-# Las cotizaciones del bot son las de MATERIALES y viven en otra base de datos,
-# `quotely` (app Quotely), no en ECCSA_Admon.
+# Cotizaciones de materiales: las MISMAS tablas del módulo de Admon
+# (`IndiceMateriales` + `Partidas`) en `ECCSA_Admon`. `Color` es el estatus
+# (0 PENDIENTE, 1 ENTREGADA, 2 PAGADA) y el precio de venta sale de
+# `PrecioCompraUnitario * (1 + Factor)`; el costo de compra NO se muestra.
 SQL_COT_LISTA = """
-    SELECT TOP 5 i.Folio, i.Empresa, i.Fecha, COALESCE(p.Total, 0) AS Total
-    FROM tab_indice i
-    LEFT JOIN (SELECT Folio, SUM(Cantidad * PrecioUnitario) AS Total
-               FROM tab_partidas GROUP BY Folio) p ON p.Folio = i.Folio
-    ORDER BY i.Fecha DESC, i.Folio DESC
+    SELECT TOP 5 I.Folio, I.IdCliente,
+           COALESCE((SELECT TOP 1 C.Cliente FROM Clientes C
+                     WHERE C.IdCliente = I.IdCliente), '') AS Cliente,
+           I.Contacto, I.Fecha, I.Autor, I.Color,
+           COALESCE((SELECT SUM((P.PrecioCompraUnitario * (1.0 + P.Factor)) * P.Cantidad)
+                     FROM Partidas P WHERE P.Folio = I.Folio), 0) AS Suma,
+           COALESCE((SELECT MAX(P.Flete) FROM Partidas P WHERE P.Folio = I.Folio), 0) AS Flete
+    FROM IndiceMateriales I
+    ORDER BY I.Fecha DESC, I.Folio DESC
 """
 
 SQL_COT_INDICE = """
-    SELECT TOP 1 i.Folio, i.Empresa, i.Contacto, i.Fecha,
-           COALESCE(u.Usuario, '') AS Elaboro
-    FROM tab_indice i
-    LEFT JOIN tab_usuarios u ON u.ID = i.Usuario
-    WHERE UPPER(LTRIM(RTRIM(i.Folio))) = %s
-    ORDER BY i.Fecha DESC, i.Folio DESC
+    SELECT TOP 1 I.Folio, I.IdCliente,
+           COALESCE((SELECT TOP 1 C.Cliente FROM Clientes C
+                     WHERE C.IdCliente = I.IdCliente), '') AS Cliente,
+           I.Contacto, I.Fecha, I.Autor, I.Color,
+           COALESCE(I.Descripcion, ''), COALESCE(I.Nota, '')
+    FROM IndiceMateriales I
+    WHERE I.Folio = %s
 """
 
 SQL_COT_TOTAL = """
-    SELECT SUM(Cantidad * PrecioUnitario) AS Total
-    FROM tab_partidas
-    WHERE UPPER(LTRIM(RTRIM(Folio))) = %s
+    SELECT COALESCE(SUM((PrecioCompraUnitario * (1.0 + Factor)) * Cantidad), 0),
+           COALESCE(MAX(Flete), 0)
+    FROM Partidas
+    WHERE Folio = %s
 """
 
 SQL_COT_PARTIDAS = """
-    SELECT TOP 3 Partida, Cantidad, UME, Descripcion, PrecioUnitario,
-           Cantidad * PrecioUnitario AS Importe
-    FROM tab_partidas
-    WHERE UPPER(LTRIM(RTRIM(Folio))) = %s
+    SELECT TOP 3 Partida, Cantidad, Descripcion,
+           PrecioCompraUnitario * (1.0 + Factor) AS PrecioVenta,
+           (PrecioCompraUnitario * (1.0 + Factor)) * Cantidad AS Importe
+    FROM Partidas
+    WHERE Folio = %s
     ORDER BY Partida
 """
+
+ESTATUS_MATERIALES = {0: "PENDIENTE", 1: "ENTREGADA", 2: "PAGADA"}
 
 
 # ─── Texto ───────────────────────────────────────────────────────────────────
@@ -361,93 +372,110 @@ def _ids_autorizados(conn):
     return ids or set(IDS_COTIZACIONES_DEFECTO)
 
 
-def _abrir_quotely():
+def _folio_pedido(texto):
     """
-    Conexión a la base `quotely` (app Quotely, cotizaciones de materiales).
+    Folio que pide el mensaje: `("num", 1329)`, `("otro", "zzz999")` o
+    `(None, None)`.
 
-    La conexión del HUB apunta a `ECCSA_Admon`, así que aquí se copia su
-    configuración cambiando solo el nombre de la base.
+    Los folios de materiales son numéricos. Si el mensaje trae letras
+    (`3K17WZ`) no se recorta a los dígitos: eso contestaría la cotización 317,
+    que es otra, y es peor que decir que no existe.
     """
-    import eccsa_db
-    import pymssql
+    m = re.search(
+        r"\b(?:cotizaciones|cotizacion|cotiza|folio)\b\s*"
+        r"(?:no\.?|numero|n[o°])?\s*#?\s*([a-z0-9][a-z0-9\-]{0,9})",
+        texto)
+    if not m:
+        return None, None
+    token = m.group(1).strip("-")
+    if not token:
+        return None, None
+    if token.isdigit():
+        return "num", int(token)
+    return "otro", token.upper()
 
-    cfg = dict(eccsa_db.DB_CONFIG)
-    cfg["database"] = "quotely"
-    return pymssql.connect(**cfg, login_timeout=30, timeout=60)
+
+def _estatus(color):
+    try:
+        return ESTATUS_MATERIALES.get(int(color or 0), "PENDIENTE")
+    except (TypeError, ValueError):
+        return "PENDIENTE"
 
 
-def _partidas(conn_quotely, folio):
-    """Primeras 3 partidas de una cotización (cantidad, descripción, precios)."""
+def _partidas(conn, folio):
+    """Primeras 3 partidas: cantidad, descripción y precio de VENTA."""
     lineas = []
-    for fila in _filas(conn_quotely, SQL_COT_PARTIDAS, (folio,)):
+    for fila in _filas(conn, SQL_COT_PARTIDAS, (folio,)):
         cantidad = fila[1]
-        unidad = str(fila[2] or "").strip()
-        if unidad.upper() == "NA":
-            unidad = ""
-        descripcion = str(fila[3] or "").strip()
+        descripcion = str(fila[2] or "").strip()
         if len(descripcion) > 70:
             descripcion = descripcion[:67].rstrip() + "…"
         cantidad_texto = str(cantidad if cantidad is not None else "")
-        medida = f"{cantidad_texto} {unidad}".strip()
-        lineas.append(f"- {medida} · {descripcion} · "
-                      f"{_dinero(fila[4])} c/u · {_dinero(fila[5])}")
+        lineas.append(f"- {cantidad_texto} × {descripcion} · "
+                      f"{_dinero(fila[3])} c/u · {_dinero(fila[4])}")
     return lineas
 
 
-def _respuesta_cotizacion_folio(conn_quotely, folio):
-    fila = _una(conn_quotely, SQL_COT_INDICE, (folio,))
+def _respuesta_cotizacion_folio(conn, folio):
+    fila = _una(conn, SQL_COT_INDICE, (folio,))
     if not fila:
         return f"No encontré la cotización {folio}."
 
-    total = _una(conn_quotely, SQL_COT_TOTAL, (folio,))
-    partidas = _partidas(conn_quotely, folio)
+    total = _una(conn, SQL_COT_TOTAL, (folio,))
+    suma = float(total[0] or 0) if total else 0.0
+    flete = float(total[1] or 0) if total else 0.0
+    partidas = _partidas(conn, folio)
 
-    texto = (f"Cotización {str(fila[0] or '').strip()}: "
-             f"{str(fila[1] or '').strip() or 'sin empresa'}")
-    contacto = str(fila[2] or "").strip()
+    cliente = str(fila[2] or "").strip()
+    contacto = str(fila[3] or "").strip()
+    texto = f"Cotización {int(fila[0])}: {cliente or str(fila[1] or 'sin cliente')}"
     if contacto:
         texto += f" · Contacto: {contacto}"
-    texto += f" · {_fecha(fila[3])}"
-    elaboro = str(fila[4] or "").strip()
+    texto += f" · {_fecha(fila[4])}"
+    elaboro = str(fila[5] or "").strip()
     if elaboro:
         texto += f" · Elaboró: {elaboro}"
-    texto += f" · Total: {_dinero(total[0] if total else 0)}."
+    texto += f" · Estatus: {_estatus(fila[6])}"
+    texto += f" · Total: {_dinero(suma + flete)}."
 
     if partidas:
         texto += "\nPartidas:\n" + "\n".join(partidas)
     else:
         texto += "\nSin partidas registradas."
+    if flete:
+        texto += f"\nFlete: {_dinero(flete)}"
     return texto
 
 
-def _respuesta_cotizaciones_lista(conn_quotely):
-    filas = _filas(conn_quotely, SQL_COT_LISTA, ())
+def _respuesta_cotizaciones_lista(conn):
+    filas = _filas(conn, SQL_COT_LISTA, ())
     if not filas:
         return MENSAJE_SIN_COTIZACIONES
 
     lineas = []
     for fila in filas:
-        lineas.append(f"- {str(fila[0] or '').strip() or '(sin folio)'} · "
-                      f"{str(fila[1] or '').strip() or 'sin empresa'} · "
-                      f"{_fecha(fila[2])} · {_dinero(fila[3])}")
+        cliente = str(fila[2] or fila[1] or "sin cliente").strip()
+        total = float(fila[7] or 0) + float(fila[8] or 0)
+        lineas.append(f"- {int(fila[0])} · {cliente} · {_fecha(fila[4])} · "
+                      f"{_dinero(total)} · {_estatus(fila[6])}")
     return (f"Últimas {len(filas)} cotizaciones de materiales:\n"
             + "\n".join(lineas))
 
 
-def _respuesta_cotizaciones(conn, usuario_id, texto, conn_quotely):
+def _respuesta_cotizaciones(conn, usuario_id, texto):
     if usuario_id not in _ids_autorizados(conn):
         return MENSAJE_COTIZACIONES_CERRADAS
-    if conn_quotely is None:
-        conn_quotely = _abrir_quotely()
-    folio = _folio(texto)
-    if folio:
-        return _respuesta_cotizacion_folio(conn_quotely, folio)
-    return _respuesta_cotizaciones_lista(conn_quotely)
+    tipo, valor = _folio_pedido(texto)
+    if tipo == "num":
+        return _respuesta_cotizacion_folio(conn, valor)
+    if tipo == "otro":
+        return f"No encontré la cotización {valor}."
+    return _respuesta_cotizaciones_lista(conn)
 
 
 # ─── Entrada ─────────────────────────────────────────────────────────────────
 
-def responder(norm, usuario_id, conn=None, conn_quotely=None):
+def responder(norm, usuario_id, conn=None):
     """
     Contesta una consulta interna de solo lectura, o `None` si el mensaje no
     pide ninguna. No lanza: los errores de base se devuelven como texto.
@@ -479,7 +507,7 @@ def responder(norm, usuario_id, conn=None, conn_quotely=None):
             return _respuesta_tickets(conn, propio)
         if tema == "kilometros":
             return _respuesta_km(conn, propio)
-        return _respuesta_cotizaciones(conn, propio, texto, conn_quotely)
+        return _respuesta_cotizaciones(conn, propio, texto)
     except Exception as exc:
         print(f"[wa_consultas] {tema}: {exc}")
         return MENSAJE_ERROR
