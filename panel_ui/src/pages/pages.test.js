@@ -145,6 +145,38 @@ describe('Logs', () => {
 function apiEccsita({ grupo = true } = {}) {
 	return vi.fn(async (url) => {
 		const u = String(url);
+		if (u.includes('/personas/7')) {
+			return respuesta({
+				usuario: { id: 7, nombre: 'Ana' },
+				items: [
+					{
+						id: 9,
+						texto: 'Ana y su termo eterno',
+						autor: 'Beto',
+						fecha: '2026-11-03T09:00:00',
+						tipo: 'broma',
+						aprobado: false
+					},
+					{
+						id: 10,
+						texto: 'Le dicen La Jefa',
+						autor: 'Ceci',
+						fecha: '2026-11-04T09:00:00',
+						tipo: 'apodo',
+						aprobado: true
+					}
+				]
+			});
+		}
+		if (u.includes('/personas')) {
+			return respuesta({
+				items: [
+					{ idUsuario: 7, nombre: 'Ana', perfiles: 2, ultimo: '2026-11-04T09:00:00' },
+					{ idUsuario: 8, nombre: 'Beto', perfiles: 1, ultimo: '2026-11-02T10:00:00' }
+				],
+				total: 2
+			});
+		}
 		if (u.includes('/semanas/2026/44')) {
 			return respuesta({
 				anio: 2026,
@@ -257,5 +289,69 @@ describe('Eccsita', () => {
 		expect(json?.getAttribute('href')).toBe(
 			'/api/panel/eccsita/semanas/2026/44/export?formato=json'
 		);
+	});
+
+	it('pinta las personas de Roasts por persona con sus menciones', async () => {
+		navigate('/eccsita', { replace: true });
+		vi.stubGlobal('fetch', apiEccsita());
+
+		const el = pintar(Eccsita);
+		await esperar();
+
+		expect(el.textContent).toContain('Roasts por persona');
+		expect(el.querySelectorAll('.ecc-persona').length).toBe(2);
+		expect(el.textContent).toContain('Ana');
+		expect(el.textContent).toContain('2 mención(es)');
+
+		el.querySelectorAll('.ecc-persona')[0].click();
+		await esperar();
+
+		expect(el.querySelectorAll('.ecc-mencion').length).toBe(2);
+		expect(el.textContent).toContain('Ana y su termo eterno');
+		expect(el.textContent).toContain('Le dicen La Jefa');
+		expect(el.textContent).toContain('BROMA');
+		expect(el.textContent).toContain('APODO');
+		expect(el.textContent).toContain('Oculta');
+	});
+
+	it('aprobar manda el POST al perfil abierto', async () => {
+		navigate('/eccsita', { replace: true });
+		const fetchMock = apiEccsita();
+		vi.stubGlobal('fetch', fetchMock);
+
+		const el = pintar(Eccsita);
+		await esperar();
+		el.querySelectorAll('.ecc-persona')[0].click();
+		await esperar();
+
+		const aprobar = [...el.querySelectorAll('.ecc-mencion button')].find((b) =>
+			b.textContent.includes('Aprobar')
+		);
+		aprobar.click();
+		await esperar();
+
+		const llamada = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/perfiles/9'));
+		expect(llamada).toBeTruthy();
+		expect(String(llamada[0])).toBe('/api/panel/eccsita/perfiles/9');
+		expect(llamada[1].method).toBe('POST');
+		expect(JSON.parse(llamada[1].body)).toEqual({ accion: 'aprobar' });
+		expect(el.querySelector('.ecc-mencion').classList.contains('is-oculta')).toBe(false);
+	});
+
+	it('el buscador filtra las personas por nombre', async () => {
+		navigate('/eccsita', { replace: true });
+		vi.stubGlobal('fetch', apiEccsita());
+
+		const el = pintar(Eccsita);
+		await esperar();
+		expect(el.querySelectorAll('.ecc-persona').length).toBe(2);
+
+		const input = el.querySelector('input[name="buscar"]');
+		input.value = 'beto';
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		await esperar();
+
+		expect(el.querySelectorAll('.ecc-persona').length).toBe(1);
+		expect(el.querySelector('.ecc-persona').textContent).toContain('Beto');
 	});
 });

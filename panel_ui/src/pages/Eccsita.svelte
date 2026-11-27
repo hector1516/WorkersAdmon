@@ -15,7 +15,10 @@
 	// panel/api_eccsita.py y cuelga de /api/panel/eccsita. La API entrega las
 	// semanas, el detalle con la crónica y los mensajes crudos, y las acciones
 	// de generar / marcar revisada.
-	const API = '/api/panel/eccsita';
+	// `get`/`post` ya anteponen /api/panel, así que aquí la ruta va relativa.
+	const API = '/eccsita';
+	// Para hrefs directos (export) se usa la ruta absoluta del backend.
+	const API_ABS = '/api/panel/eccsita';
 
 	// Los estados de la tabla HUB_GrupoSemanas (migración del plan).
 	const ESTADOS = {
@@ -49,6 +52,32 @@
 	let errorGrupos = $state('');
 	let chatSel = $state('');
 	let guardandoGrupo = $state(false);
+
+	// Roasts por persona: ECCSita agrupa sus menciones por persona y aquí se
+	// moderan (aprobar, ocultar, borrar). El API las sirve en
+	// /api/panel/eccsita/personas y /api/panel/eccsita/perfiles/{id}.
+	let personasRoast = $state([]);
+	let cargandoPersonas = $state(true);
+	let errorPersonas = $state('');
+	let buscarRoast = $state('');
+	let roastSel = $state(null);
+	let roastMenciones = $state([]);
+	let cargandoMenciones = $state(false);
+	let errorMenciones = $state('');
+	let accionando = $state('');
+	let confirmando = $state('');
+
+	const TIPOS_MENCION = {
+		BROMA: { texto: 'BROMA', tone: 'info' },
+		APODO: { texto: 'APODO', tone: 'warn' },
+		INSISTENCIA: { texto: 'INSISTENCIA', tone: '' }
+	};
+
+	const personasFiltradas = $derived.by(() => {
+		const q = buscarRoast.trim().toLowerCase();
+		if (!q) return personasRoast;
+		return personasRoast.filter((p) => p.nombre.toLowerCase().includes(q));
+	});
 
 	// La ruta manda: /eccsita es la lista y /eccsita/:anio/:semana el detalle.
 	// Se lee del store (no de los props) para que el botón de una semana y el
@@ -149,6 +178,37 @@
 		};
 	}
 
+	function normalizarPersonaRoast(p) {
+		const item = p || {};
+		const perfiles = item.perfiles ?? item.Perfiles ?? 0;
+		const cuenta =
+			item.menciones ??
+			item.menciones_count ??
+			item.total ??
+			(Array.isArray(perfiles) ? perfiles.length : perfiles);
+		return {
+			idUsuario: String(item.idUsuario ?? item.id_usuario ?? item.id ?? ''),
+			nombre: item.nombre ?? item.Nombre ?? 'Sin nombre',
+			perfiles: Array.isArray(perfiles) ? perfiles : [],
+			menciones: Number(cuenta) || 0,
+			ultimo: item.ultimo ?? item.Ultimo ?? ''
+		};
+	}
+
+	function normalizarMencion(m) {
+		const item = m || {};
+		const tipo = String(item.tipo ?? item.Tipo ?? '').toUpperCase();
+		const aprobado = item.aprobado ?? item.Aprobado ?? true;
+		return {
+			id: String(item.id ?? item.Id ?? ''),
+			texto: item.texto ?? item.Texto ?? '',
+			autor: item.autor ?? item.Autor ?? 'Sin autor',
+			fecha: item.fecha ?? item.Fecha ?? '',
+			tipo: TIPOS_MENCION[tipo] ? tipo : '',
+			aprobado: Boolean(aprobado)
+		};
+	}
+
 	// Un tema, personaje o momento puede venir como texto o como objeto.
 	function tituloItem(x) {
 		if (x == null) return '';
@@ -217,7 +277,7 @@
 	function ligaExport(formato) {
 		const a = detalle?.anio ?? anio;
 		const s = detalle?.semana ?? semanaNum;
-		return `${API}/semanas/${a}/${s}/export?formato=${formato}`;
+		return `${API_ABS}/semanas/${a}/${s}/export?formato=${formato}`;
 	}
 
 	// ── carga ────────────────────────────────────────────────────────────────
@@ -278,6 +338,7 @@
 	onMount(() => {
 		cargarGrupo();
 		cargarSemanas();
+		cargarPersonas();
 	});
 
 	// ── acciones ─────────────────────────────────────────────────────────────
@@ -310,6 +371,79 @@
 			revisando = false;
 		}
 	}
+
+	async function cargarPersonas(silencioso = false) {
+		if (!silencioso) cargandoPersonas = true;
+		errorPersonas = '';
+		try {
+			const res = await get(`${API}/personas`);
+			const items = res?.items ?? res?.personas ?? [];
+			personasRoast = lista(items)
+				.map(normalizarPersonaRoast)
+				.filter((p) => p.idUsuario);
+		} catch (err) {
+			personasRoast = [];
+			errorPersonas = err?.message || 'No se pudieron leer las personas.';
+		} finally {
+			cargandoPersonas = false;
+		}
+	}
+
+	async function abrirPersona(p) {
+		roastSel = p;
+		roastMenciones = [];
+		errorMenciones = '';
+		cargandoMenciones = true;
+		confirmando = '';
+		try {
+			const res = await get(`${API}/personas/${encodeURIComponent(p.idUsuario)}`);
+			roastMenciones = lista(res?.items ?? res?.menciones ?? []).map(normalizarMencion);
+		} catch (err) {
+			errorMenciones = err?.message || 'No se pudieron leer las menciones.';
+		} finally {
+			cargandoMenciones = false;
+		}
+	}
+
+	function cerrarPersona() {
+		roastSel = null;
+		roastMenciones = [];
+		errorMenciones = '';
+		confirmando = '';
+	}
+
+	// «Borrar» pide confirmación en el mismo botón: el primer clic solo arma
+	// la confirmación, el segundo manda el POST. Cualquier otra acción la
+	// desarma.
+	async function accionMencion(m, accion) {
+		if (accionando) return;
+		if (accion === 'borrar' && confirmando !== m.id) {
+			confirmando = m.id;
+			return;
+		}
+		confirmando = '';
+		accionando = m.id;
+		try {
+			await post(`${API}/perfiles/${encodeURIComponent(m.id)}`, { accion });
+			if (accion === 'borrar') {
+				roastMenciones = roastMenciones.filter((x) => x.id !== m.id);
+				avisar('ok', 'Mención borrada.');
+			} else {
+				roastMenciones = roastMenciones.map((x) =>
+					x.id === m.id ? { ...x, aprobado: accion === 'aprobar' } : x
+				);
+				avisar('ok', accion === 'aprobar' ? 'Mención aprobada.' : 'Mención ocultada.');
+			}
+			cargarPersonas(true);
+		} catch (err) {
+			avisar('err', err?.message || 'No se pudo actualizar la mención.');
+		} finally {
+			accionando = '';
+		}
+	}
+
+	const tipoMencion = (tipo) =>
+		TIPOS_MENCION[tipo] || { texto: tipo || 'SIN TIPO', tone: '' };
 
 	async function cargarGrupos() {
 		cargandoGrupos = true;
@@ -657,6 +791,164 @@
 			</div>
 		{/if}
 	</section>
+
+	<section
+		class="ecc-roasts"
+		class:ecc-roasts--abierto={!!roastSel}
+		aria-label="Roasts por persona"
+	>
+		<div class="ecc-roasts__list">
+			<div class="ecc-list__head">
+				<span class="ecc-list__title">Roasts por persona</span>
+				<Button variant="quiet" tam="sm" icono="refresh" onclick={() => cargarPersonas()}>
+					<span class="sr-only">Actualizar</span>
+				</Button>
+			</div>
+
+			<div class="ecc-roasts__buscar">
+				<Field
+					id="roast-buscar"
+					label="Buscar persona"
+					nombre="buscar"
+					bind:valor={buscarRoast}
+					placeholder="Nombre"
+				/>
+			</div>
+
+			{#if cargandoPersonas}
+				<div class="ecc-roasts__cargando">
+					<Skeleton alto="16px" lineas={4} />
+				</div>
+			{:else if errorPersonas}
+				<Empty icono="alert" titulo="No se pudieron leer las personas" texto={errorPersonas}>
+					<Button variant="quiet" icono="refresh" onclick={() => cargarPersonas()}>
+						Reintentar
+					</Button>
+				</Empty>
+			{:else if !personasRoast.length}
+				<Empty
+					icono="users"
+					titulo="Sin roasts"
+					texto="Aparecen cuando ECCSita mencione a alguien del grupo."
+				/>
+			{:else if !personasFiltradas.length}
+				<Empty
+					icono="search"
+					titulo="Sin coincidencias"
+					texto={`Ninguna persona se llama «${buscarRoast.trim()}».`}
+				/>
+			{:else}
+				<ul class="ecc-roasts__personas">
+					{#each personasFiltradas as p (p.idUsuario)}
+						<li>
+							<button
+								type="button"
+								class="ecc-persona"
+								class:is-active={roastSel?.idUsuario === p.idUsuario}
+								onclick={() => abrirPersona(p)}
+							>
+								<span class="ecc-persona__main">
+									<span class="ecc-persona__nombre">{p.nombre}</span>
+									<span class="ecc-persona__meta">
+										{p.menciones} mención(es) · {fechaCorta(p.ultimo)}
+									</span>
+								</span>
+								<Icon name="chevronright" size={18} />
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+
+		<div class="ecc-roasts__menciones">
+			{#if !roastSel}
+				<div class="ecc-roasts__body">
+					<Empty
+						icono="messagecircle"
+						titulo="Elige una persona"
+						texto="Abre una persona para ver y moderar lo que ECCSita dijo de ella."
+					/>
+				</div>
+			{:else}
+				<div class="ecc-detail__head">
+					<span class="ecc-back">
+						<Button variant="quiet" tam="sm" onclick={cerrarPersona}>
+							<Icon name="chevronleft" size={18} /> Atrás
+						</Button>
+					</span>
+					<div class="ecc-detail__titles">
+						<h2 class="ecc-detail__title">{roastSel.nombre}</h2>
+						<p class="ecc-detail__sub">
+							{roastSel.menciones} mención(es) · última {fechaCorta(roastSel.ultimo)}
+						</p>
+					</div>
+				</div>
+
+				<div class="ecc-roasts__body">
+					{#if cargandoMenciones}
+						<Skeleton alto="16px" lineas={4} />
+					{:else if errorMenciones}
+						<Empty icono="alert" titulo="No se pudieron leer las menciones" texto={errorMenciones}>
+							<Button variant="quiet" icono="refresh" onclick={() => abrirPersona(roastSel)}>
+								Reintentar
+							</Button>
+						</Empty>
+					{:else if !roastMenciones.length}
+						<Empty
+							icono="chat"
+							titulo="Sin menciones"
+							texto="Todavía no hay nada de esta persona en ECCSita."
+						/>
+					{:else}
+						<ul class="ecc-menciones">
+							{#each roastMenciones as m (m.id)}
+								{@const et = tipoMencion(m.tipo)}
+								<li class="ecc-mencion" class:is-oculta={!m.aprobado}>
+									<div class="ecc-mencion__head">
+										<Badge tone={et.tone}>{et.texto}</Badge>
+										{#if !m.aprobado}<Badge>Oculta</Badge>{/if}
+										<span class="ecc-mencion__meta">
+											{m.autor} · {fechaCorta(m.fecha)}{#if hora(m.fecha)}· {hora(m.fecha)}{/if}
+										</span>
+									</div>
+									<p class="ecc-mencion__texto">{m.texto}</p>
+									<div class="ecc-mencion__acciones">
+										<Button
+											variant="quiet"
+											tam="sm"
+											icono="check"
+											disabled={m.aprobado || accionando === m.id}
+											onclick={() => accionMencion(m, 'aprobar')}
+										>
+											Aprobar
+										</Button>
+										<Button
+											variant="quiet"
+											tam="sm"
+											disabled={!m.aprobado || accionando === m.id}
+											onclick={() => accionMencion(m, 'ocultar')}
+										>
+											Ocultar
+										</Button>
+										<Button
+											variant={confirmando === m.id ? 'danger' : 'quiet'}
+											tam="sm"
+											icono="trash"
+											disabled={accionando === m.id}
+											onclick={() => accionMencion(m, 'borrar')}
+										>
+											{confirmando === m.id ? 'Confirmar borrado' : 'Borrar'}
+										</Button>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	</section>
 </div>
 
 <style>
@@ -668,13 +960,14 @@
 		min-height: 0;
 		display: grid;
 		grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
-		grid-template-rows: auto minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr) minmax(0, 300px);
 		gap: 12px;
 	}
 
 	.ecc-head,
 	.ecc-toast,
-	.ecc-picker {
+	.ecc-picker,
+	.ecc-roasts {
 		grid-column: 1 / -1;
 	}
 
@@ -839,6 +1132,108 @@
 	.ecc-msg__hora { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 	.ecc-msg__texto { font-size: 15px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
 
+	/* Roasts por persona: dos paneles como las semanas; cada uno scrollea
+	   por su cuenta, así la página nunca crece. */
+	.ecc-roasts {
+		min-height: 0;
+		display: grid;
+		grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+		background: var(--surface);
+		border: 1px solid var(--separator);
+		border-radius: var(--radius);
+		overflow: hidden;
+	}
+	.ecc-roasts__list,
+	.ecc-roasts__menciones {
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.ecc-roasts__list { border-right: 1px solid var(--separator); }
+
+	.ecc-roasts__buscar { padding: 10px 12px 0; }
+	.ecc-roasts__buscar :global(.field) { margin: 0; }
+
+	.ecc-roasts__cargando { padding: 12px; }
+
+	.ecc-roasts__personas {
+		flex: 1 1 auto;
+		min-height: 0;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		-webkit-overflow-scrolling: touch;
+	}
+	.ecc-persona {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+		width: 100%;
+		padding: 8px 12px;
+		border: none;
+		border-bottom: 1px solid var(--separator);
+		background: transparent;
+		color: var(--text);
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.ecc-persona:hover { background: var(--fill); }
+	.ecc-persona.is-active { background: var(--fill-strong); }
+	.ecc-persona__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+	.ecc-persona__nombre {
+		font-weight: 590;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.ecc-persona__meta { font-size: 12px; color: var(--text-2); }
+
+	.ecc-roasts__body {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		-webkit-overflow-scrolling: touch;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding: 12px;
+		background: var(--surface-2);
+	}
+
+	.ecc-menciones {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.ecc-mencion {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding: 10px 12px;
+		background: var(--surface);
+		border: 1px solid var(--separator);
+		border-radius: var(--radius);
+	}
+	.ecc-mencion.is-oculta { opacity: .55; }
+	.ecc-mencion__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+	.ecc-mencion__meta { font-size: 12px; color: var(--text-2); }
+	.ecc-mencion__texto {
+		margin: 0;
+		font-size: 15px;
+		line-height: 1.4;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+	.ecc-mencion__acciones { display: flex; flex-wrap: wrap; gap: 6px; }
+
 	/* Teléfono: una sola columna y, al abrir una semana, el detalle ocupa el
 	   lugar de la lista (con Atrás), como la bandeja de WhatsApp. */
 	@media (max-width: 899px) {
@@ -848,5 +1243,13 @@
 		.eccsita--detalle .ecc-detail { display: flex; }
 		.ecc-back { display: inline-flex; }
 		.ecc-head > :global(.btn) { margin-left: 0; }
+
+		/* Roasts en una columna: al abrir una persona, sus menciones
+		   reemplazan la lista (con Atrás). */
+		.ecc-roasts { grid-template-columns: minmax(0, 1fr); }
+		.ecc-roasts__list { border-right: none; }
+		.ecc-roasts__menciones { display: none; }
+		.ecc-roasts--abierto .ecc-roasts__list { display: none; }
+		.ecc-roasts--abierto .ecc-roasts__menciones { display: flex; }
 	}
 </style>
