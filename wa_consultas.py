@@ -321,18 +321,20 @@ def _respuesta_tickets(conn, usuario_id):
 
 # ─── Kilómetros ──────────────────────────────────────────────────────────────
 
-def _respuesta_km(conn, usuario_id):
+def kilometros_mes(conn, usuario_id):
     """
+    `(recorrido, registros, ultimo_odometro, ultima_fecha)` del mes en curso.
+
     `HUB_RegistroKilometros.Kilometros` es el **odómetro**, no el recorrido:
     sumarlos daba "395,876 km este mes", que es falso. El recorrido de cada
-    vehículo es la diferencia entre la lectura mayor y la menor del mes.
+    vehículo es la diferencia entre la lectura mayor y la menor del mes. Los
+    números salen aquí y los usan tanto el texto de la consulta como el
+    sarcasmo (`wa_persona`): una sola definición, un solo resultado.
     """
     ahora = now_mx()
     desde = datetime(ahora.year, ahora.month, 1)
 
     por_auto = _filas(conn, SQL_KM_POR_AUTO, (usuario_id, desde))
-    if not por_auto:
-        return "No tienes kilómetros registrados este mes."
 
     recorrido = 0
     registros = 0
@@ -343,7 +345,18 @@ def _respuesta_km(conn, usuario_id):
             recorrido += hasta_km - desde_km
         registros += int(fila[3] or 0)
 
-    ultimo = _una(conn, SQL_KM_ULTIMO, (usuario_id, desde))
+    ultimo = _una(conn, SQL_KM_ULTIMO, (usuario_id, desde)) if por_auto else None
+    ultimo_km = float(ultimo[0] or 0) if ultimo else None
+    ultima_fecha = ultimo[1] if ultimo else None
+    return recorrido, registros, ultimo_km, ultima_fecha
+
+
+def _respuesta_km(conn, usuario_id):
+    """Texto de la consulta de kilómetros (los números salen de `kilometros_mes`)."""
+    recorrido, registros, ultimo_km, ultima_fecha = kilometros_mes(conn, usuario_id)
+    if not registros:
+        return "No tienes kilómetros registrados este mes."
+
     if recorrido:
         texto = (f"Este mes llevas {recorrido:,.0f} km recorridos en {registros} "
                  f"{'registro' if registros == 1 else 'registros'}.")
@@ -352,9 +365,9 @@ def _respuesta_km(conn, usuario_id):
                  f"{'lectura' if registros == 1 else 'lecturas'} de kilometraje"
                  " (aún sin dos lecturas del mismo vehículo para calcular el "
                  "recorrido).")
-    if ultimo:
-        texto += (f" Último odómetro: {float(ultimo[0] or 0):,.0f} km "
-                  f"el {_fecha(ultimo[1])}.")
+    if ultimo_km is not None:
+        texto += (f" Último odómetro: {ultimo_km:,.0f} km "
+                  f"el {_fecha(ultima_fecha)}.")
     return texto
 
 

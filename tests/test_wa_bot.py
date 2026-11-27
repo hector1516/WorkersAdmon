@@ -27,6 +27,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
 import wa_bot  # noqa: E402
+import wa_consultas  # noqa: E402
+import wa_persona  # noqa: E402
 import eccsa_db  # noqa: E402
 
 CHAT = "5218123211516@c.us"
@@ -260,6 +262,237 @@ class BotWa(unittest.TestCase):
         self.assertEqual(kb["rutas"], {})
         self.assertIn("09:00", kb["horario_texto"])
         self.assertIn("empresa_telefono", kb)
+        self.assertEqual(kb["sarcasmo"], "1")
+
+
+# ─── Kilometraje y sarcasmo ──────────────────────────────────────────────────
+#
+# Dobles de `HUB_Automoviles` y `HUB_RegistroKilometros`: el bot guarda la
+# lectura de verdad, así que la prueba comprueba las filas, no solo el texto.
+
+HECTOR = "528155555555"          # id 5 en `kb_falso`
+HECTOR_ID = 5
+
+
+class BaseKm:
+    def __init__(self):
+        self.autos = []           # (Id, MarcaModelo, Placas, IdUsuarioAsignado)
+        self.registros = []       # [Id, IdAutomovil, Kilometros, IdUsuario]
+        self.sqls = []
+        self.commits = 0
+        self._siguiente = 1
+
+    def nuevo_id(self):
+        self._siguiente += 1
+        return self._siguiente
+
+    def cursor(self):
+        return CursorKm(self)
+
+    def commit(self):
+        self.commits += 1
+
+
+class CursorKm:
+    def __init__(self, base):
+        self.base = base
+        self.una = None
+        self.todas = []
+
+    def execute(self, sql, params=()):
+        base = self.base
+        q = " ".join(str(sql).split()).upper()
+        base.sqls.append((q, tuple(params)))
+        self.una, self.todas = None, []
+
+        if "FROM HUB_AUTOMOVILES" in q:
+            yo = params[0]
+            filas = sorted((a for a in base.autos if a[3] == yo),
+                           key=lambda a: a[0])
+            self.una = (filas[0][0], filas[0][1], filas[0][2]) if filas else None
+        elif "INSERT INTO HUB_REGISTROKILOMETROS" in q:
+            auto, kilometros, yo = params
+            base.registros.append([base.nuevo_id(), auto, kilometros, yo])
+        elif "UPDATE HUB_REGISTROKILOMETROS" in q:
+            kilometros, registro = params
+            for fila in base.registros:
+                if fila[0] == registro:
+                    fila[2] = kilometros
+        elif "FROM HUB_REGISTROKILOMETROS" in q:
+            yo, auto = params
+            filas = [f for f in base.registros
+                     if f[3] == yo and f[1] == auto]
+            self.una = (filas[-1][0],) if filas else None
+
+    def fetchone(self):
+        return self.una
+
+    def fetchall(self):
+        return self.todas
+
+    def close(self):
+        return None
+
+
+class Kilometraje(unittest.TestCase):
+    def setUp(self):
+        self.kb = kb_falso()
+        self.base = BaseKm()
+        self.base.autos = [(7, "Nissan Versa", "ABC-123", HECTOR_ID)]
+        self._azar = wa_bot.random.random
+        wa_bot.random.random = lambda: 0.0
+        self._sarcasmo = wa_persona.sarcasmo
+        self.frases = []
+
+    def tearDown(self):
+        wa_bot.random.random = self._azar
+        wa_persona.sarcasmo = self._sarcasmo
+        wa_persona.olvidar()
+
+    def sarcasmo_fijo(self, frase):
+        def falso(usuario_id, hechos=None, conn=None):
+            self.frases.append(usuario_id)
+            return frase
+        wa_persona.sarcasmo = falso
+
+    def responder(self, texto, telefono=HECTOR, kb=None):
+        return wa_bot.responder(CHAT, telefono, texto,
+                                kb=self.kb if kb is None else kb,
+                                conn=self.base)
+
+    def test_numero_guarda_la_lectura_con_el_auto(self):
+        self.sarcasmo_fijo("179,679 kilómetros. El auto va a pedir aumento.")
+        r = self.responder("179679")
+        self.assertIn("179,679", r)
+        self.assertIn("Nissan Versa", r)
+        self.assertIn("ABC-123", r)
+        self.assertIn("El auto va a pedir aumento", r)
+        self.assertEqual(len(self.base.registros), 1)
+        self.assertEqual(self.base.registros[0][1:4], [7, 179679, HECTOR_ID])
+        self.assertEqual(self.base.commits, 1)
+
+    def test_numero_con_comas_tambien_cuenta(self):
+        r = self.responder(" 179,679 ")
+        self.assertIn("179,679", r)
+        self.assertEqual(self.base.registros[0][2], 179679)
+
+    def test_numero_de_hoy_se_actualiza_y_no_se_duplica(self):
+        self.base.registros = [[1, 7, 179000, HECTOR_ID]]
+        r = self.responder("179679")
+        self.assertIn("Actualicé", r)
+        self.assertEqual(len(self.base.registros), 1)
+        self.assertEqual(self.base.registros[0][2], 179679)
+
+    def test_numero_sin_auto_pide_el_menu(self):
+        self.base.autos = []
+        r = self.responder("179679")
+        self.assertIn("¿179,679 qué, Héctor?", r)
+        self.assertIn("vehículo asignado", r)
+        self.assertIn(wa_bot.MENU_CORTO, r)
+        self.assertEqual(self.base.registros, [])
+
+    def test_numero_fuera_de_rango_no_guarda(self):
+        r = self.responder("999")
+        self.assertIn("rango", r)
+        self.assertIn("No guardé nada", r)
+        self.assertEqual(self.base.registros, [])
+
+    def test_numero_de_desconocido_no_guarda_y_ofrece_menu(self):
+        r = self.responder("179679", telefono=DESCONOCIDO)
+        self.assertIn("1. Horario", r)
+        self.assertEqual(self.base.registros, [])
+
+    def test_numero_sin_interruptor_no_inventa_sarcasmo(self):
+        kb = kb_falso(sarcasmo="0")
+        r = self.responder("179679", kb=kb)
+        self.assertIn("Registré", r)
+        self.assertNotIn("aumento", r)
+        self.assertEqual(self.frases, [])
+
+
+class SarcasmoEnBot(unittest.TestCase):
+    """El sarcasmo va al final, solo a registrados y respeta el interruptor."""
+
+    FRASE = "Tres vales sin comprobante, Héctor. ¿Los estás coleccionando?"
+
+    def setUp(self):
+        self.kb = kb_falso()
+        self.base = BaseKm()
+        self._azar = wa_bot.random.random
+        wa_bot.random.random = lambda: 0.0
+        self._sarcasmo = wa_persona.sarcasmo
+        self.llamadas = []
+
+        def falso(usuario_id, hechos=None, conn=None):
+            self.llamadas.append(usuario_id)
+            return self.FRASE
+
+        wa_persona.sarcasmo = falso
+
+    def tearDown(self):
+        wa_bot.random.random = self._azar
+        wa_persona.sarcasmo = self._sarcasmo
+        wa_persona.olvidar()
+
+    def responder(self, texto, telefono=HECTOR, kb=None, ahora=None):
+        return wa_bot.responder(CHAT, telefono, texto,
+                                kb=self.kb if kb is None else kb,
+                                ahora=ahora, conn=self.base)
+
+    def test_mensaje_sin_intencion_usa_un_hecho_y_el_menu_corto(self):
+        r = self.responder("Esta bien eso bot menso, son cada lunes")
+        self.assertIn(self.FRASE, r)
+        self.assertIn(wa_bot.MENU_CORTO, r)
+        self.assertNotIn("1. Horario", r)      # ya no es el menú seco
+        self.assertNotIn("¡Hola, Héctor!", r)  # ni el saludo genérico
+
+    def test_el_dato_va_primero_y_el_sarcasmo_al_final(self):
+        r = self.responder("¿están abiertos?", ahora=LUNES_10)
+        self.assertTrue(r.startswith("Ahora estamos"), r)
+        self.assertTrue(r.endswith(self.FRASE), r)
+
+    def test_urgencia_apaga_el_sarcasmo(self):
+        r = self.responder("urgente, no funciona el sistema")
+        self.assertNotIn(self.FRASE, r)
+        self.assertIn("Héctor", r)
+        self.assertEqual(self.llamadas, [])
+
+    def test_factura_apaga_el_sarcasmo(self):
+        r = self.responder("necesito una factura")
+        self.assertNotIn(self.FRASE, r)
+        self.assertEqual(self.llamadas, [])
+
+    def test_interruptor_apagado_no_agrega_nada(self):
+        kb = kb_falso(sarcasmo="0")
+        r = self.responder("Esta bien eso bot menso, son cada lunes", kb=kb)
+        self.assertNotIn(self.FRASE, r)
+        self.assertIn(wa_bot.MENU_CORTO, r)
+        self.assertEqual(self.llamadas, [])
+
+    def test_desconocido_nunca_recibe_sarcasmo(self):
+        r = self.responder("Esta bien eso bot menso, son cada lunes",
+                           telefono=DESCONOCIDO)
+        self.assertNotIn(self.FRASE, r)
+        self.assertIn("1. Horario", r)
+        self.assertEqual(self.llamadas, [])
+
+    def test_cotizacion_con_partidas_no_lleva_sarcasmo(self):
+        original = wa_consultas.responder
+        wa_consultas.responder = lambda norm, uid, conn=None: (
+            "Cotizacion de materiales\nPartidas:\n- 1 PLC: 1,200.00")
+        try:
+            r = self.responder("cotizacion")
+        finally:
+            wa_consultas.responder = original
+        self.assertIn("Partidas:", r)
+        self.assertNotIn(self.FRASE, r)
+
+    def test_el_sarcasmo_no_rebasa_los_800_caracteres(self):
+        wa_persona.sarcasmo = lambda usuario_id, hechos=None, conn=None: (
+            "x" * 900)
+        r = self.responder("Esta bien eso bot menso, son cada lunes")
+        self.assertLessEqual(len(r), wa_bot.MAX_RESPUESTA)
+        self.assertNotIn("x" * 900, r)
 
 
 if __name__ == "__main__":

@@ -8,18 +8,27 @@ que permite probar el motor sin SQL Server, sin OpenWA y sin WhatsApp.
 
 Contrato:
 
-    responder(chat_id, telefono, texto, kb=None, ahora=None) -> str | None
+    responder(chat_id, telefono, texto, kb=None, ahora=None, conn=None) -> str | None
     cargar_kb() -> dict
 
 - `kb` es la base de conocimiento (configuracion + personal). Si no se pasa, se
-  lee con `cargar_kb()` (60 s de cache). Los tests pasan un `kb` falso.
+  lee con `cargar_kb()` (60 s de cache). Los tests pasan un `kb` falso (y con
+  `kb` inyectado, sin `conn`, el motor NO abre la base).
 - `ahora` permite inyectar la hora de Monterrey en las pruebas.
+- `conn` es la conexion a usar para kilometraje y sarcasmo; los tests pasan una
+  falsa. Sin `conn` y sin `kb`, se usa la del HUB.
 - `None` significa "no contestar": mensaje vacio, solo emojis, grupo, etc.
 
 Reglas de contenido:
 
 - El DATO va siempre primero. El humor, si aplica, va al final y como maximo
   UNA vez por mensaje; nunca dos veces seguidas el mismo chiste.
+- Un mensaje que es SOLO un numero (3 a 7 cifras, con o sin comas) de un
+  usuario registrado es su lectura de kilometros: se guarda o se actualiza el
+  registro de hoy en `HUB_RegistroKilometros`.
+- El humor de los registrados sale de sus propios datos (`wa_persona`): vales
+  sin comprobante, llegadas tarde, ultimo reporte, odometro. Se apaga con
+  `HUB_Config.wa_bot_sarcasmo = 0`.
 - El humor se apaga con palabras urgentes y con los temas factura/cobranza.
 - Nunca se dan precios, cotizaciones, datos de otros clientes ni informacion
   interna: se rechaza y se canaliza con el responsable.
@@ -37,6 +46,7 @@ from urllib.parse import quote
 
 from tz_mx import now_mx
 import wa_consultas
+import wa_persona
 import wa_redaccion
 
 SITIO = "https://ecc-sa.com.mx"
@@ -44,6 +54,12 @@ MAPA_BASE = "https://maps.google.com/?q="
 
 # Mensajes de mas de esto no se intentan entender: se pide un resumen.
 MAX_ENTRADA = 800
+
+# Una respuesta no pasa de aqui: si el humor no cabe, no se agrega.
+MAX_RESPUESTA = 800
+
+# Lectura de odometro que se acepta para guardarla.
+RANGO_KM = (1000, 2000000)
 
 # Horario de atencion (hora de Monterrey, UTC-6 todo el ano).
 HORARIO_TEXTO = ("lunes a viernes de 09:00 a 18:30 y sabados de 09:30 a 13:30")
@@ -61,6 +77,7 @@ CLAVES_CONFIG = {
     "rutas": "wa_bot_rutas",                     # JSON tema -> [ids]
     "servicios": "wa_bot_servicios",             # una linea por servicio
     "ia": "wa_bot_ia",                           # "1" = pulir con IA
+    "sarcasmo": "wa_bot_sarcasmo",               # "0" = sin sarcasmo
 }
 
 KB_TTL = 60
@@ -77,6 +94,7 @@ KB_DEFECTO = {
     "servicios": [],
     "personal": [],
     "ia": "0",
+    "sarcasmo": "1",
 }
 
 # Reparto por defecto. En la base manda `wa_bot_rutas` (tema -> ids de
@@ -150,6 +168,17 @@ MENU = (
     "5. Hablar con alguien\n"
     "Responde con el número de la opción."
 )
+
+# Menu de una linea: cuando ya se dijo algo con gracia, no se repite la lista
+# completa; solo se recuerda lo que el bot sabe hacer.
+MENU_CORTO = ("Puedo ayudarte con horario, dirección y mapa, teléfonos del "
+              "equipo, servicios o pasarle el mensaje a la persona correcta.")
+
+# Kilometraje.
+MENSAJE_KM_SIN_BASE = ("No pude consultar tu vehículo en este momento; "
+                       "intenta más tarde.")
+MENSAJE_KM_ERROR = ("No pude guardar la lectura en este momento; "
+                    "intenta más tarde.")
 
 # Chistes cortos de oficina. Se usa UNO por mensaje, nunca dos seguidos iguales.
 CHISTES = (
@@ -546,6 +575,160 @@ def _respuesta_menu(kb):
     return MENU
 
 
+# ─── Kilometraje ─────────────────────────────────────────────────────────────
+
+SQL_AUTO_ASIGNADO = """
+    SELECT TOP 1 Id, MarcaModelo, Placas
+    FROM HUB_Automoviles
+    WHERE IdUsuarioAsignado = %s
+    ORDER BY Id
+"""
+
+SQL_KM_HOY = """
+    SELECT TOP 1 Id
+    FROM HUB_RegistroKilometros
+    WHERE IdUsuario = %s AND IdAutomovil = %s
+      AND CAST(FechaHora AS DATE) = CAST(GETDATE() AS DATE)
+    ORDER BY Id DESC
+"""
+
+SQL_KM_ACTUALIZAR = """
+    UPDATE HUB_RegistroKilometros
+    SET Kilometros = %s, FechaHora = GETDATE()
+    WHERE Id = %s
+"""
+
+SQL_KM_INSERTAR = """
+    INSERT INTO HUB_RegistroKilometros (IdAutomovil, Kilometros, IdUsuario,
+                                        FechaHora)
+    VALUES (%s, %s, %s, GETDATE())
+"""
+
+
+def _conexion():
+    """Conexion del HUB; los tests la sustituyen."""
+    import eccsa_db
+    return eccsa_db.get_connection()
+
+
+def _una(conn, sql, params):
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, params)
+        return cur.fetchone()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def _ejecutar(conn, sql, params):
+    cur = conn.cursor()
+    try:
+        cur.execute(sql, params)
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def _auto_asignado(conn, usuario_id):
+    """
+    El auto del usuario (`IdUsuarioAsignado`). Si tiene varios, el de Id menor:
+    el bot no elige por gusto, sigue el orden de la base.
+    """
+    fila = _una(conn, SQL_AUTO_ASIGNADO, (usuario_id,))
+    if not fila:
+        return None
+    try:
+        return {"id": int(fila[0]),
+                "marca": str(fila[1] or "").strip(),
+                "placas": str(fila[2] or "").strip()}
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def _guardar_lectura(conn, usuario_id, auto_id, kilometros):
+    """
+    Un registro por usuario y auto por dia: si ya hay uno de hoy se actualiza
+    (la ultima lectura del dia manda), si no se crea. Devuelve el estado.
+    """
+    fila = _una(conn, SQL_KM_HOY, (usuario_id, auto_id))
+    if fila:
+        _ejecutar(conn, SQL_KM_ACTUALIZAR, (int(kilometros), int(fila[0])))
+        estado = "actualizado"
+    else:
+        _ejecutar(conn, SQL_KM_INSERTAR,
+                  (int(auto_id), int(kilometros), int(usuario_id)))
+        estado = "nuevo"
+    conn.commit()
+    return estado
+
+
+def _sarcasmo_final(usuario_id, conn, kb):
+    """Una linea de sarcasmo propio, o "" (interruptor, hechos o error)."""
+    if not _sarcasmo_activo(kb):
+        return ""
+    try:
+        # La cache se tira: el hecho que se acaba de escribir tiene que salir.
+        wa_persona.olvidar(usuario_id)
+        return wa_persona.sarcasmo(usuario_id, conn=conn)
+    except Exception as exc:
+        print(f"[wa_bot] sin sarcasmo de {usuario_id}: {exc}")
+        return ""
+
+
+def _respuesta_lectura(lectura, persona, kb, conn=None):
+    """
+    Contesta una lectura de kilometros: confirmacion con el auto, o el aviso de
+    que no tiene vehiculo / la lectura esta fuera de rango. Nunca inventa.
+    """
+    nombre = _nombre_pila(persona.get("nombre"))
+    quien = f", {nombre}" if nombre else ""
+    propio = persona.get("id")
+
+    try:
+        if conn is None:
+            conn = _conexion()
+        auto = _auto_asignado(conn, propio)
+    except Exception as exc:
+        print(f"[wa_bot] sin vehiculo de {propio}: {exc}")
+        return MENSAJE_KM_SIN_BASE
+
+    if auto is None:
+        if _sarcasmo_activo(kb):
+            cuerpo = (f"¿{lectura:,.0f} qué{quien}? ¿Kilómetros, pesos o "
+                      "excusas? No tienes vehículo asignado.")
+        else:
+            cuerpo = (f"No tienes vehículo asignado{quien}, así que no "
+                      f"registré los {lectura:,.0f}.")
+        return f"{cuerpo}\n\n{MENU_CORTO}"
+
+    if not (RANGO_KM[0] <= lectura <= RANGO_KM[1]):
+        return (f"{lectura:,.0f} no parece una lectura de odómetro: el rango "
+                f"va de {RANGO_KM[0]:,} a {RANGO_KM[1]:,} km. "
+                "¿Te equivocaste al escribirlo? No guardé nada.")
+
+    try:
+        estado = _guardar_lectura(conn, propio, auto["id"], lectura)
+    except Exception as exc:
+        print(f"[wa_bot] no se pudo guardar la lectura de {propio}: {exc}")
+        return MENSAJE_KM_ERROR
+
+    auto_texto = auto["marca"] or "tu auto"
+    if auto["placas"]:
+        auto_texto += f" ({auto['placas']})"
+    verbo = "Actualicé" if estado == "actualizado" else "Registré"
+    texto = f"{verbo} {lectura:,.0f} km en {auto_texto}{quien}."
+
+    frase = _sarcasmo_final(propio, conn, kb)
+    if _cabe(texto, frase):
+        return f"{texto}\n\n{frase}"
+    return texto
+
+
 # ─── Humor ───────────────────────────────────────────────────────────────────
 
 def _elegir_chiste():
@@ -557,10 +740,51 @@ def _elegir_chiste():
     return CHISTES[indice]
 
 
-def _con_humor(texto, persona, norm, tema, siempre=False):
+def _sarcasmo_activo(kb):
+    """Interruptor `wa_bot_sarcasmo`: apagado solo con un '0' explicito."""
+    if not isinstance(kb, dict):
+        return True
+    valor = kb.get("sarcasmo")
+    if valor is None:
+        return True
+    return str(valor).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _sarcasmo_diferido(persona, kb, conn=None, permitido=True):
     """
-    Agrega UN chiste al final si el que escribe esta registrado y el mensaje no
-    es urgente ni de factura/cobranza. El dato ya va en `texto`.
+    Funcion sin argumentos que entrega UNA linea de sarcasmo con un hecho real
+    del usuario, o `""`.
+
+    Es diferida a proposito: el sarcasmo cuesta consultas, y en urgencias,
+    facturas o partidas ni se pide. `permitido=False` (kb inyectado sin
+    conexion, es decir una prueba) mantiene el motor sin tocar la base.
+    """
+    if not persona or not permitido or not _sarcasmo_activo(kb):
+        return None
+    estado = {"hecho": False, "frase": ""}
+
+    def obtener():
+        if estado["hecho"]:
+            return estado["frase"]
+        estado["hecho"] = True
+        try:
+            estado["frase"] = wa_persona.sarcasmo(persona.get("id"), conn=conn)
+        except Exception as exc:
+            print(f"[wa_bot] sin sarcasmo: {exc}")
+            estado["frase"] = ""
+        return estado["frase"]
+
+    return obtener
+
+
+def _con_humor(texto, persona, norm, tema, siempre=False, obtener=None):
+    """
+    Agrega UNA linea de humor al final si el que escribe esta registrado y el
+    mensaje no es urgente ni de factura/cobranza. El dato ya va en `texto`.
+
+    Primero se intenta el sarcasmo con un hecho propio (`obtener`, que puede
+    venir desactivado: ver `_sarcasmo_diferido`); si no hay hecho real, cae al
+    chiste de oficina. Nunca los dos: el que habla es uno.
 
     Se calla cuando la respuesta es negativa ("no tienes...", "no encontre...")
     o es una canalizacion: burlarse de un problema o de un dato que no existe
@@ -577,6 +801,10 @@ def _con_humor(texto, persona, norm, tema, siempre=False):
     # Un desglose de cotización (costos, partidas) no lleva chiste: tapa datos.
     if plano.startswith("cotizacion") or "partidas:" in plano:
         return texto
+    if obtener is not None:
+        frase = obtener()
+        if _cabe(texto, frase):
+            return f"{texto}\n\n{frase}"
     saludo = plano.startswith("hola")
     if not (siempre or saludo) and random.random() > 0.5:
         return texto
@@ -608,6 +836,43 @@ def _opcion_menu(norm):
     return int(m.group(1)) if m else None
 
 
+_LECTURA_RE = re.compile(r"^(?:\d{1,3}(?:,\d{3})+|\d{3,7})$")
+
+
+def _lectura_kilometros(crudo):
+    """
+    Lectura de odometro escrita como numero solo: de 3 a 7 cifras, con o sin
+    comas. `179679`, `179,679` y `1,234` cuentan; `2` (opcion del menu) y
+    `12345678` no.
+    """
+    txt = str(crudo or "").strip()
+    if not _LECTURA_RE.match(txt):
+        return None
+    digitos = txt.replace(",", "")
+    if not (3 <= len(digitos) <= 7):
+        return None
+    return int(digitos)
+
+
+def _cabe(texto, frase):
+    """True si agregar la frase deja la respuesta dentro de `MAX_RESPUESTA`."""
+    return bool(frase) and len(texto) + len(frase) + 2 <= MAX_RESPUESTA
+
+
+def _respuesta_sin_intencion(nombre, obtener):
+    """
+    Usuario registrado con un mensaje que no se entiende: en vez del menu seco,
+    una frase con un hecho real suyo y el menu corto. Si no hay hecho, o no
+    cabe, se dice sin adornos.
+    """
+    frase = obtener() if obtener is not None else ""
+    if _cabe(MENU_CORTO, frase):
+        return f"{frase}\n\n{MENU_CORTO}"
+    if nombre:
+        return f"{nombre}, no entendí ese mensaje. {MENU_CORTO}"
+    return f"No entendí ese mensaje. {MENU_CORTO}"
+
+
 def _respuesta_opcion(opcion, kb, ahora):
     if opcion == 1:
         return _respuesta_horario(kb, ahora)
@@ -620,17 +885,18 @@ def _respuesta_opcion(opcion, kb, ahora):
     return _respuesta_canalizar(kb, "default")
 
 
-def responder(chat_id, telefono, texto, kb=None, ahora=None):
+def responder(chat_id, telefono, texto, kb=None, ahora=None, conn=None):
     """
     Devuelve la respuesta para un mensaje entrante, o None si no hay que
-    contestar. No envia nada y no toca la base si recibe `kb`.
+    contestar. No envia nada y no toca la base si recibe `kb` y `conn`.
 
     Primero deciden las reglas (`_responder_reglas`); al final, y solo si el
     dueno prendio `wa_bot_ia`, `wa_redaccion.mejorar` pule el texto. Si la IA
     falla o cambia un dato, sale el texto de las reglas: el bot nunca se queda
     mudo por la redaccion.
     """
-    respuesta = _responder_reglas(chat_id, telefono, texto, kb=kb, ahora=ahora)
+    respuesta = _responder_reglas(chat_id, telefono, texto, kb=kb, ahora=ahora,
+                                  conn=conn)
     if respuesta is None:
         return None
     try:
@@ -639,9 +905,14 @@ def responder(chat_id, telefono, texto, kb=None, ahora=None):
         return respuesta
 
 
-def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None):
+def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None, conn=None):
     """
     Motor de reglas: decide QUE contestar. Sin IA.
+
+    Con `kb` inyectado y sin `conn` no se abre la base: es lo que promete el
+    contrato ("no toca la base si recibe kb") y lo que permite probarlo sin SQL
+    Server. La unica excepcion es una lectura de kilometros de alguien
+    registrado, porque guardarla es justo lo que pidio.
     """
     # Grupos: el webhook ya los filtra, pero el motor tambien se cuida.
     if chat_id and str(chat_id).strip().endswith("@g.us"):
@@ -656,6 +927,7 @@ def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None):
     if not _con_contenido(norm):
         return None
 
+    kb_propia = kb is None
     if kb is None:
         kb = cargar_kb()
     persona = _identificar(telefono, kb)
@@ -669,18 +941,30 @@ def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None):
         return ("Tu mensaje es muy largo. "
                 "¿Me lo resumes en una o dos líneas, por favor?")
 
+    # Un numero solo es la lectura del odometro de un usuario registrado. Va
+    # antes que el menu: escribir "179679" no es pedir informacion.
+    if persona:
+        lectura = _lectura_kilometros(crudo)
+        if lectura is not None:
+            return _respuesta_lectura(lectura, persona, kb, conn)
+
+    # Sarcasmo con hechos propios, diferido: solo se pide si se va a usar.
+    obtener = _sarcasmo_diferido(persona, kb, conn,
+                                 permitido=kb_propia or conn is not None)
+
     # Opcion numerica del menu.
     opcion = _opcion_menu(norm)
     if opcion is not None:
         return _con_humor(_respuesta_opcion(opcion, kb, ahora), persona, norm,
-                          None)
+                          None, obtener=obtener)
 
     # Consultas internas de solo lectura: solo para personal registrado. Si no
     # hay consulta clara, se sigue el flujo general del bot.
     if persona:
-        consulta = wa_consultas.responder(norm, persona.get("id"))
+        consulta = wa_consultas.responder(norm, persona.get("id"), conn=conn)
         if consulta:
-            return _con_humor(consulta, persona, norm, _tema(norm))
+            return _con_humor(consulta, persona, norm, _tema(norm),
+                              obtener=obtener)
 
     tema = _tema(norm)
 
@@ -696,7 +980,7 @@ def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None):
         return f"Te canalizo con {_frase_responsables(items, kb)}."
     if persona_nombrada and _contiene(norm, INTENCIONES["telefonos"]):
         return _con_humor(_respuesta_telefonos(kb, persona_nombrada), persona,
-                          norm, tema)
+                          norm, tema, obtener=obtener)
 
     if _contiene(norm, INTENCIONES["horario"]):
         cuerpo = _respuesta_horario(kb, ahora)
@@ -715,8 +999,10 @@ def _responder_reglas(chat_id, telefono, texto, kb=None, ahora=None):
     elif tema:
         cuerpo = _respuesta_canalizar(kb, tema)
     elif persona:
-        cuerpo = _saludo_registrado(nombre)
+        # Registrado con un mensaje que no se entiende: se contesta con algo
+        # suyo, no con el saludo de siempre (era el bug del "menú seco").
+        return _respuesta_sin_intencion(nombre, obtener)
     else:
         return _respuesta_menu(kb)
 
-    return _con_humor(cuerpo, persona, norm, tema)
+    return _con_humor(cuerpo, persona, norm, tema, obtener=obtener)
