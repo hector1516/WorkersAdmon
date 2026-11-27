@@ -1,5 +1,5 @@
 """
-panel.views.correo — Pestaña "✉️ Correo" del panel (cuentas de Mailbox)
+panel.views.correo — Pestaña "Correo" del panel (cuentas de Mailbox)
 ========================================================================
 Dónde se da de alta una cuenta de correo. La app de Mailbox **no** la da de
 alta: el usuario solo ve las cuentas que alguien le asignó, por decisión de diseño
@@ -33,17 +33,19 @@ cuenta que nunca va a funcionar.
 import datetime
 
 from .. import db_correo as _db
+from ..icons import icono
 from ..templates import esc, page
 
 # Los mismos colores de las apps del ecosistema, para que una tarjeta de cuenta
 # en el panel se parezca a la que el usuario ve en Mailbox.
 COLORES = ("#FF6B00", "#0EA5E9", "#22C55E", "#A855F7", "#EF4444", "#F59E0B")
 
+# estado → (clase de badge, etiqueta). El color lo pone `.badge--*`, no un emoji.
 ESTADOS_UI = {
-    "ACTIVA":    ("🟢", "Activa"),
-    "PENDIENTE": ("🟡", "Pendiente de validar"),
-    "ERROR":     ("🔴", "Error"),
-    "PAUSADA":   ("⚪", "Pausada"),
+    "ACTIVA":    ("badge--ok", "Activa"),
+    "PENDIENTE": ("badge--warn", "Pendiente de validar"),
+    "ERROR":     ("badge--bad", "Error"),
+    "PAUSADA":   ("", "Pausada"),
 }
 
 # Un servidor IMAP sin TLS es una puerta abierta. El panel no ofrece otra cosa a
@@ -78,9 +80,10 @@ def _formulario(csrf, cuenta=None):
         return '<option value="%s"%s>%s</option>' % (esc(txt), chosen, esc(txt))
 
     return f"""
-<div class="panel">
-  <h2>{'✏️ Editar cuenta' if editando else '➕ Nueva cuenta de correo'}</h2>
-  <form method="post" action="/correo" class="grid2">
+<div class="card" style="margin-bottom:16px">
+  <h2 style="margin:0 0 12px;font-size:17px;display:flex;align-items:center;gap:8px">
+    {icono("plus")} {'Editar cuenta' if editando else 'Nueva cuenta de correo'}</h2>
+  <form method="post" action="/correo" class="grid2" autocomplete="off">
     <input type="hidden" name="csrf" value="{esc(csrf)}">
     <input type="hidden" name="accion" value="{'editar' if editando else 'crear'}">
     <input type="hidden" name="id_cuenta" value="{esc(c.get('Id', ''))}">
@@ -88,14 +91,15 @@ def _formulario(csrf, cuenta=None):
     <div class="field">
       <label for="co-alias">Alias</label>
       <input id="co-alias" name="alias" class="input" required maxlength="120"
-             value="{v('Alias')}" placeholder="Ventas">
+             autocomplete="off" value="{v('Alias')}" placeholder="Ventas">
       <p class="hint">Cómo se ven las tarjetas en la app del usuario.</p>
     </div>
 
     <div class="field">
       <label for="co-email">Correo</label>
       <input id="co-email" name="email" type="email" class="input" required
-             value="{v('Email')}" placeholder="ventas@ecc-sa.com.mx">
+             autocomplete="off" value="{v('Email')}"
+             placeholder="ventas@ecc-sa.com.mx">
     </div>
 
     <div class="field">
@@ -112,26 +116,28 @@ def _formulario(csrf, cuenta=None):
     <div class="field">
       <label for="co-imap">Servidor IMAP</label>
       <input id="co-imap" name="servidor_imap" class="input" required
-             value="{v('ServidorIMAP', IMAP_POR_DEFECTO[0])}">
+             autocomplete="off" value="{v('ServidorIMAP', IMAP_POR_DEFECTO[0])}">
     </div>
 
     <div class="field">
       <label for="co-pimap">Puerto IMAP</label>
       <input id="co-pimap" name="puerto_imap" type="number" class="input" required
-             min="1" max="65535" value="{v('PuertoIMAP', str(IMAP_POR_DEFECTO[1]))}">
+             min="1" max="65535" autocomplete="off"
+             value="{v('PuertoIMAP', str(IMAP_POR_DEFECTO[1]))}">
       <p class="hint">993 con TLS. Sin TLS no hay soporte.</p>
     </div>
 
     <div class="field">
       <label for="co-smtp">Servidor SMTP</label>
       <input id="co-smtp" name="servidor_smtp" class="input" required
-             value="{v('ServidorSMTP', SMTP_POR_DEFECTO[0])}">
+             autocomplete="off" value="{v('ServidorSMTP', SMTP_POR_DEFECTO[0])}">
     </div>
 
     <div class="field">
       <label for="co-psmtp">Puerto SMTP</label>
       <input id="co-psmtp" name="puerto_smtp" type="number" class="input" required
-             min="1" max="65535" value="{v('PuertoSMTP', str(SMTP_POR_DEFECTO[1]))}">
+             min="1" max="65535" autocomplete="off"
+             value="{v('PuertoSMTP', str(SMTP_POR_DEFECTO[1]))}">
       <p class="hint">587 con STARTTLS. 465 abre TLS directo.</p>
     </div>
 
@@ -146,14 +152,14 @@ def _formulario(csrf, cuenta=None):
     <div class="field">
       <label for="co-carpeta">Carpeta de entrada</label>
       <input id="co-carpeta" name="carpeta_raiz" class="input" maxlength="200"
-             value="{v('CarpetaRaiz', 'INBOX')}" placeholder="INBOX">
+             autocomplete="off" value="{v('CarpetaRaiz', 'INBOX')}" placeholder="INBOX">
       <p class="hint">En Gmail es <code>INBOX</code>; en un Exchange, la carpeta del buzón.</p>
     </div>
 
     <div class="field">
       <label for="co-icono">Icono</label>
       <input id="co-icono" name="icono" class="input" maxlength="8"
-             value="{v('Icono', '📮')}">
+             autocomplete="off" value="{v('Icono', '📮')}">
     </div>
 
     <div class="field">
@@ -166,20 +172,23 @@ def _formulario(csrf, cuenta=None):
     <div class="field">
       <label for="co-ventana">Retención (días)</label>
       <input id="co-ventana" name="ventana_dias" type="number" class="input"
-             min="1" max="3650" value="{v('VentanaDias', '90')}">
+             min="1" max="3650" autocomplete="off"
+             value="{v('VentanaDias', '90')}">
     </div>
 
     <div class="field">
       <label for="co-max">Máximo de mensajes</label>
       <input id="co-max" name="max_mensajes" type="number" class="input"
-             min="100" max="100000" value="{v('MaxMensajes', '5000')}">
+             min="100" max="100000" autocomplete="off"
+             value="{v('MaxMensajes', '5000')}">
     </div>
 
-    <div class="field" style="grid-column:1/-1">
-      <button class="btn primary" type="submit">
-        {'💾 Guardar cambios' if editando else '➕ Crear cuenta'}
+    <div class="field" style="grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn--primary" type="submit">
+        {icono("check", 18)}
+        {'Guardar cambios' if editando else 'Crear cuenta'}
       </button>
-      {'<a class="btn" href="/correo">Cancelar</a>' if editando else ''}
+      {'<a class="btn btn--quiet" href="/correo">Cancelar</a>' if editando else ''}
     </div>
   </form>
 </div>"""
@@ -188,17 +197,17 @@ def _formulario(csrf, cuenta=None):
 # ── Lista de cuentas ──────────────────────────────────────────────────────────
 
 def _tarjeta(cuenta, usuarios_asignados, todos):
-    """Una cuenta con su estado, su error y quién la tiene."""
+    """Un buzón con su estado, su error y quién lo tiene."""
     estado = cuenta.get("Estado") or "PENDIENTE"
-    icono, etiqueta = ESTADOS_UI.get(estado, ("⚪", estado))
+    badge, etiqueta = ESTADOS_UI.get(estado, ("", estado))
     color = cuenta.get("Color") or COLORES[0]
 
     error = cuenta.get("UltimoError")
     # El error se muestra entero y en su propia caja porque es lo único que dice
     # por qué no llegan correos. Recortarlo a 500 en la base es suficiente; aquí
     # se muestra completo.
-    banda_error = (f'<div class="callout bad">🔴 <b>Último error:</b> '
-                   f'{esc(error)}</div>') if error else ""
+    banda_error = (f'<div class="callout bad">{icono("alert", 18)} '
+                   f'<b>Último error:</b> {esc(error)}</div>') if error else ""
 
     checks = []
     for u in todos:
@@ -208,54 +217,62 @@ def _tarjeta(cuenta, usuarios_asignados, todos):
             ' %s</label>'
             % (esc(u["Id"]), marcado, esc(u.get("Nombre") or u.get("Email"))))
 
-    sin_sync = (f'<span class="muted">nunca sincronizada</span>'
+    sin_sync = (f'<span class="hint">nunca sincronizada</span>'
                 if not cuenta.get("UltimoSync")
-                else f'<span class="muted">{esc(cuenta["UltimoSync"].strftime("%d/%m %H:%M"))}</span>')
+                else f'<span class="hint">{esc(cuenta["UltimoSync"].strftime("%d/%m %H:%M"))}</span>')
 
     return f"""
-<div class="card" style="border-left:4px solid {esc(color)}">
-  <div class="card-head">
-    <span style="font-size:1.6rem">{esc(cuenta.get("Icono") or "📮")}</span>
-    <div style="flex:1">
-      <strong>{esc(cuenta.get("Alias") or cuenta.get("Email"))}</strong>
-      <div class="muted">{esc(cuenta.get("Email"))}</div>
+<div class="card" style="margin-bottom:12px;border-left:4px solid {esc(color)}">
+  <div class="list">
+    <div class="list__row" style="flex-wrap:wrap">
+      <div class="list__main">
+        <strong>{esc(cuenta.get("Alias") or cuenta.get("Email"))}</strong>
+        <div class="hint">{esc(cuenta.get("Email"))}</div>
+      </div>
+      <div class="list__meta" style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="badge {badge}">{esc(etiqueta)}</span>
+        <span class="badge">{esc(cuenta.get("CuantosUsan") or 0)} usuario(s)</span>
+        <span class="badge">{esc(cuenta.get("NoLeidos") or 0)} sin leer</span>
+      </div>
     </div>
-    <span class="badge">{icono} {esc(etiqueta)}</span>
-    <span class="badge">{esc(cuenta.get("CuantosUsan") or 0)} usuario(s)</span>
-    <span class="badge">{esc(cuenta.get("NoLeidos") or 0)} sin leer</span>
-  </div>
-
-  <div class="muted" style="font-size:.86rem">
-    IMAP {esc(cuenta.get("ServidorIMAP"))}:{esc(cuenta.get("PuertoIMAP"))} ·
-    SMTP {esc(cuenta.get("ServidorSMTP"))}:{esc(cuenta.get("PuertoSMTP"))} ·
-    {esc(cuenta.get("TipoAuth"))} · retención {esc(cuenta.get("VentanaDias"))}d ·
-    tope {esc(cuenta.get("MaxMensajes"))} · último sync {sin_sync}
+    <div class="list__row" style="flex-wrap:wrap">
+      <div class="list__main hint">
+        IMAP {esc(cuenta.get("ServidorIMAP"))}:{esc(cuenta.get("PuertoIMAP"))} ·
+        SMTP {esc(cuenta.get("ServidorSMTP"))}:{esc(cuenta.get("PuertoSMTP"))} ·
+        {esc(cuenta.get("TipoAuth"))} · retención {esc(cuenta.get("VentanaDias"))}d ·
+        tope {esc(cuenta.get("MaxMensajes"))}
+      </div>
+      <div class="list__meta">último sync {sin_sync}</div>
+    </div>
   </div>
 
   {banda_error}
 
-  <details>
-    <summary>👥 Quién tiene esta cuenta ({esc(len(usuarios_asignados))})</summary>
-    <form method="post" action="/correo" class="chklist">
+  <details class="wdesc" style="margin-top:12px">
+    <summary>{icono("users", 18)} Quién tiene esta cuenta ({esc(len(usuarios_asignados))})</summary>
+    <form method="post" action="/correo" class="chklist" style="margin-top:8px">
       <input type="hidden" name="csrf" value="{esc(_CSRF['token'])}">
       <input type="hidden" name="accion" value="asignar">
       <input type="hidden" name="id_cuenta" value="{esc(cuenta["Id"])}">
-      {"".join(checks) or '<p class="muted">No hay usuarios activos.</p>'}
+      {"".join(checks) or '<p class="hint">No hay usuarios activos.</p>'}
       <div>
-        <button class="btn" type="submit">💾 Guardar asignación</button>
+        <button class="btn btn--sm btn--primary" type="submit">
+          {icono("check", 18)} Guardar asignación</button>
       </div>
     </form>
   </details>
 
-  <div class="acciones">
-    <a class="btn" href="/correo?editar={esc(cuenta["Id"])}">✏️ Editar</a>
+  <div class="actions" style="margin-top:12px">
+    <a class="btn btn--sm btn--quiet" href="/correo?editar={esc(cuenta["Id"])}">
+      {icono("settings", 18)} Editar</a>
     <form method="post" action="/correo" class="inline">
       <input type="hidden" name="csrf" value="{esc(_CSRF['token'])}">
       <input type="hidden" name="accion" value="estado">
       <input type="hidden" name="id_cuenta" value="{esc(cuenta["Id"])}">
       <input type="hidden" name="estado" value="{'PAUSADA' if estado == 'ACTIVA' else 'ACTIVA'}">
-      <button class="btn" type="submit">
-        {'⏸️ Pausar' if estado == 'ACTIVA' else '▶️ Activar'}
+      <button class="btn btn--sm" type="submit">
+        {icono("pause" if estado == "ACTIVA" else "play", 18)}
+        {'Pausar' if estado == 'ACTIVA' else 'Activar'}
       </button>
     </form>
     <form method="post" action="/correo" class="inline"
@@ -263,13 +280,33 @@ def _tarjeta(cuenta, usuarios_asignados, todos):
       <input type="hidden" name="csrf" value="{esc(_CSRF['token'])}">
       <input type="hidden" name="accion" value="borrar">
       <input type="hidden" name="id_cuenta" value="{esc(cuenta["Id"])}">
-      <button class="btn danger" type="submit">🗑️ Borrar</button>
+      <button class="btn btn--sm btn--danger" type="submit">
+        {icono("trash", 18)} Borrar</button>
     </form>
   </div>
 </div>"""
 
 
 _CSRF = {"token": ""}
+
+EXPLICACION = """
+<div class="card" style="margin-bottom:16px">
+  <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px">
+    """ + icono("mail") + """ Cuentas de correo de Mailbox</h2>
+  <p class="hint" style="margin:0 0 8px">
+    Lo que se da de alta acá es lo que la app de Mailbox muestra. El usuario ve
+    únicamente las cuentas que le asignes; no puede crear cuentas ni ver
+    credenciales. La contraseña se cifra antes de guardarse y ni esta vista ni el
+    panel vuelven a leerla: solo el worker la descifra, porque es el único que abre
+    una conexión IMAP.
+  </p>
+  <p class="hint" style="margin:0">
+    Al crear una cuenta queda <b>PENDIENTE</b>, no activa. En su siguiente ciclo el
+    worker prueba la conexión: si el servidor acepta, la pasa a
+    <b>ACTIVA</b>; si no, la deja en <b>ERROR</b> con el motivo, que aparece en la
+    tarjeta.
+  </p>
+</div>"""
 
 
 def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
@@ -294,12 +331,14 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
             cuerpo += ('<div class="callout bad">Esa cuenta ya no existe.</div>')
 
     if not cuentas:
-        cuerpo += ('<div class="callout">No hay ninguna cuenta de correo dada de '
-                   'alta. Arriba está el formulario.</div>')
+        cuerpo += ('<div class="empty"><p>No hay ninguna cuenta de correo dada de '
+                   'alta. Abajo está el formulario.</p></div>')
     else:
-        cuerpo += f'<h2>Cuentas ({len(cuentas)})</h2>'
-        for c in cuentas:
-            cuerpo += _tarjeta(c, _db.usuarios_con_cuenta(c["Id"]), todos)
+        cuerpo += (f'<h2 style="font-size:22px;margin:0 0 12px">'
+                   f'Cuentas ({len(cuentas)})</h2>')
+        filas = "".join(_tarjeta(c, _db.usuarios_con_cuenta(c["Id"]), todos)
+                        for c in cuentas)
+        cuerpo += f'<div class="list" style="margin-bottom:16px">{filas}</div>'
 
     # El formulario de alta va UNA vez, al final. Ponerlo arriba de la lista
     # obligaría a pasar por un formulario largo antes de ver si hay cuentas.
@@ -308,22 +347,3 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
 
     return page("correo", cuerpo, user=user, flash_ok=flash_ok,
                 flash_err=flash_err, lugar=lugar, ip=ip)
-
-
-EXPLICACION = """
-<div class="panel">
-  <h2>✉️ Cuentas de correo de Mailbox</h2>
-  <p class="card-desc">
-    Lo que se da de alta acá es lo que la app de Mailbox muestra. El usuario ve
-    únicamente las cuentas que le asignes; no puede crear cuentas ni ver
-    credenciales. La contraseña se cifra antes de guardarse y ni esta vista ni el
-    panel vuelven a leerla: solo el worker la descifra, porque es el único que abre
-    una conexión IMAP.
-  </p>
-  <p class="card-desc">
-    Al crear una cuenta queda <b>PENDIENTE</b>, no activa. En su siguiente ciclo el
-    worker prueba la conexión: si el servidor acepta, la pasa a
-    <b>ACTIVA</b>; si no, la deja en <b>ERROR</b> con el motivo, que aparece en la
-    tarjeta.
-  </p>
-</div>"""

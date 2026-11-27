@@ -1,6 +1,6 @@
 """
-panel.views.atencion — Pestaña "🕒 Asistencia" del panel
-========================================================
+panel.views.atencion — Pestaña "Asistencia" del panel
+=====================================================
 La asistencia se infiere de la red: el escáner ve el MAC del teléfono o la
 laptop en la red de la oficina y registra una ENTRADA o un SALIDA. Con el
 escáner cada 3 minutos, lo que se sabe de una llegada NO es "llegó a las 9:02"
@@ -9,13 +9,13 @@ ventana y no un minuto suelto.
 
 Cinco estados, y la diferencia entre ellos es lo importante:
 
-  ✅ Normal            puntual, dentro de la tolerancia
-  🟠 Tarde             se puede AFIRMAR que pasó la tolerancia
-  🟡 Salida temprana   se puede afirmar que se fue antes
-  🔍 Indeterminado     la ventana CRUZA la tolerancia: no se puede saber
-  ⚪ Sin datos         el escáner no cubrió el día: NO es una falta
-  ❌ Ausente           se escaneó y no hubo presencia del equipo
-  ➖ No aplica         ese día no había turno configurado
+  Normal            puntual, dentro de la tolerancia
+  Tarde             se puede AFIRMAR que pasó la tolerancia
+  Salida temprana   se puede afirmar que se fue antes
+  Indeterminado     la ventana CRUZA la tolerancia: no se puede saber
+  Sin datos         el escáner no cubrió el día: NO es una falta
+  Ausente           se escaneó y no hubo presencia del equipo
+  No aplica         ese día no había turno configurado
 
 Los dos últimos se separaron porque antes todo caía en "Ausente", y con el
 escáner caído eso significaba marcar ausente a todo el planta.
@@ -26,23 +26,28 @@ Reglas de la vista:
     no es un GET.
   * La fecha por defecto es AYER: el día de hoy todavía no termina, así que
     casi siempre daría "sin salida registrada".
+  * El resumen del día son tarjetas `.kpi`; el detalle por persona es una
+    lista de filas `.list__row` que se apila en el teléfono (nada de tablas
+    anchas fuera de `.tscroll`).
 """
 import datetime
 
 from .. import db
+from ..icons import icono
 from ..templates import esc, page
 
 _CSRF = {"token": ""}
 
-# estado → (icono, etiqueta). El orden es el de "más grave a menos".
+# estado → (icono viejo, etiqueta). El icono se conserva por compatibilidad;
+# la UI usa badges, no emojis.
 ESTADOS = {
-    "TARDE": ("🟠", "Tarde"),
-    "SALIDA_TEMPRANA": ("🟡", "Salida temprana"),
-    "INDETERMINADO": ("🔍", "Indeterminado"),
-    "AUSENTE": ("❌", "Ausente"),
-    "SIN_DATOS": ("⚪", "Sin datos"),
-    "NO_APLICA": ("➖", "No aplica"),
-    "CALCULADA": ("✅", "Normal"),
+    "TARDE": ("", "Tarde"),
+    "SALIDA_TEMPRANA": ("", "Salida temprana"),
+    "INDETERMINADO": ("", "Indeterminado"),
+    "AUSENTE": ("", "Ausente"),
+    "SIN_DATOS": ("", "Sin datos"),
+    "NO_APLICA": ("", "No aplica"),
+    "CALCULADA": ("", "Normal"),
 }
 
 # El nombre del día en español, a mano: `strftime("%A")` sale en el locale del
@@ -58,20 +63,31 @@ def _fecha_larga(fecha):
 
 
 ICONO_ESTADO = {
-    "TARDE": "🟠", "SALIDA_TEMPRANA": "🟡", "INDETERMINADO": "🔍",
-    "AUSENTE": "❌", "SIN_DATOS": "⚪", "NO_APLICA": "➖", "CALCULADA": "✅",
+    "TARDE": "", "SALIDA_TEMPRANA": "", "INDETERMINADO": "",
+    "AUSENTE": "", "SIN_DATOS": "", "NO_APLICA": "", "CALCULADA": "",
+}
+
+# Clase de badge por estado: el color dice la gravedad, la palabra la explica.
+BADGE_ESTADO = {
+    "CALCULADA": "badge--ok",
+    "TARDE": "badge--warn",
+    "SALIDA_TEMPRANA": "badge--warn",
+    "INDETERMINADO": "badge--info",
+    "AUSENTE": "badge--bad",
+    "SIN_DATOS": "",
+    "NO_APLICA": "",
 }
 
 EXPLICACION = """
 <div class="empty" style="text-align:left;padding-top:0">
 La hora real es una <b>ventana</b>, no un minuto: el escáner ve la red cada
 3 minutos, así que lo que se sabe es entre qué dos instantes ocurrió. Si esa
-ventana <b>cruza</b> la tolerancia se marca 🔍 <b>Indeterminado</b> en vez de
+ventana <b>cruza</b> la tolerancia se marca <b>Indeterminado</b> en vez de
 acusar o exonerar, porque con esa evidencia no se puede afirmar ninguna de las
 dos cosas.
 <br><br>
-⚪ <b>Sin datos</b> NO es una falta: es que el escáner no cubrió ese día (estuvo
-caído, o el servidor no escaneó). ➖ <b>No aplica</b> es que ese día no había
+<b>Sin datos</b> NO es una falta: es que el escáner no cubrió ese día (estuvo
+caído, o el servidor no escaneó). <b>No aplica</b> es que ese día no había
 turno configurado.
 </div>
 """
@@ -136,11 +152,21 @@ def _fecha_de_query(valor):
 
 
 def _contar(estados):
-    """Cuántos de cada estado, para las tarjetas de arriba."""
+    """Cuántos de cada estado, para el resumen de arriba."""
     n = {k: 0 for k in ESTADOS}
     for e in estados:
         n[e] = n.get(e, 0) + 1
     return n
+
+
+def _hay_entrada(fila):
+    return bool(fila.get("EntradaPiso") or fila.get("EntradaTecho")
+                or fila.get("HoraEntradaReal"))
+
+
+def _hay_salida(fila):
+    return bool(fila.get("SalidaPiso") or fila.get("SalidaTecho")
+                or fila.get("HoraSalidaReal"))
 
 
 # Si no hay escaneos desde mas de esto, la asistencia no se puede fiar. El
@@ -160,39 +186,46 @@ def _banda_escaneo(info):
     ultimo = (info or {}).get("ultimo")
     equipos = (info or {}).get("equipos") or 0
     if not ultimo:
-        return ('<div class="panel"><div class="empty" style="text-align:left">'
-                '\U0001f6a8 <b>El escáner no ha registrado nada.</b> '
+        return ('<div class="callout bad">' + icono("alert", 18)
+                + ' <b>El escáner no ha registrado nada.</b> '
                 'Si el worker sigue vivo, el que no está barredno es el '
                 'productor de escaneos (en el host): revísalo antes de '
-                'fiarte de la asistencia.</div></div>')
+                'fiarte de la asistencia.</div>')
 
     minutos = max(0, int((datetime.datetime.now() - ultimo).total_seconds() // 60))
     if minutos >= MINUTOS_ESCANER_VIEJO:
-        return (f'<div class="panel"><div class="empty" style="text-align:left">'
-                f'\U0001f6a8 <b>El escáner lleva {minutos} min sin registrar '
+        return ('<div class="callout bad">' + icono("alert", 18)
+                + f' <b>El escáner lleva {minutos} min sin registrar '
                 f'equipos</b> (el último fue {ultimo:%H:%M:%S}). El worker puede '
                 f'estar vivo y aun así no entrarle nada: <b>la asistencia de este '
-                f'momento no es confiable</b>.</div></div>')
-    return (f'<div class="panel"><div class="empty" style="text-align:left">'
-            f'\U0001f5e8\ufe0f Último escaneo hace {minutos} min '
-            f'({ultimo:%H:%M:%S}, {equipos} equipo(s) en la red).</div></div>')
+                f'momento no es confiable</b>.</div>')
+    return ('<div class="callout">' + icono("clock", 18)
+            + f' Último escaneo hace {minutos} min '
+            f'({ultimo:%H:%M:%S}, {equipos} equipo(s) en la red).</div>')
 
 
-def _tarjetas(estados):
-    n = _contar(estados)
-    afirmables = n.get("CALCULADA", 0) + n.get("TARDE", 0) + n.get("AUSENTE", 0)
+def _kpi(etiqueta, valor, pista=""):
+    return (f'<div class="kpi"><span class="kpi__label">{esc(etiqueta)}</span>'
+            f'<span class="kpi__value">{esc(valor)}</span>'
+            f'<span class="kpi__hint">{pista}</span></div>')
+
+
+def _tarjetas(asistencias):
+    """Resumen del día: presentes, entradas, salidas y sin registro."""
+    total = len(asistencias)
+    entradas = sum(1 for a in asistencias if _hay_entrada(a))
+    salidas = sum(1 for a in asistencias if _hay_salida(a))
+    sin_registro = sum(1 for a in asistencias if _estado_de(a) == "SIN_DATOS")
+    presentes = sum(
+        1 for a in asistencias
+        if _hay_entrada(a)
+        and _estado_de(a) not in ("AUSENTE", "NO_APLICA", "SIN_DATOS"))
     return f"""
-  <div class="cards">
-    <div class="card green"><div class="n">{afirmables}</div>
-      <div class="l">Afirmables</div></div>
-    <div class="card blue"><div class="n">{n.get('TARDE', 0)}</div>
-      <div class="l">Tardanzas</div></div>
-    <div class="card gray"><div class="n">{n.get('INDETERMINADO', 0)}</div>
-      <div class="l">Indeterminados</div></div>
-    <div class="card orange"><div class="n">{n.get('SIN_DATOS', 0)}</div>
-      <div class="l">Sin datos</div></div>
-    <div class="card red"><div class="n">{n.get('AUSENTE', 0)}</div>
-      <div class="l">Ausentes</div></div>
+  <div class="grid">
+    {_kpi("Presentes", presentes, f"de {total} personas")}
+    {_kpi("Entradas", entradas, "con entrada registrada")}
+    {_kpi("Salidas", salidas, "con salida registrada")}
+    {_kpi("Sin registro", sin_registro, "el escáner no cubrió")}
   </div>"""
 
 
@@ -203,66 +236,77 @@ def _filtro(fecha, usuarios, usuario_sel):
         sel = " selected" if str(uid) == str(usuario_sel or "") else ""
         opts.append(f'<option value="{esc(uid)}"{sel}>{esc(nombre)}</option>')
     return f"""
-  <div class="panel">
-    <h2>🔎 Consultar</h2>
-    <form method="get" action="/asistencia" class="cfg-save" style="padding:14px 18px">
-      <label class="cfg-field" style="margin:0">
-        <span>Fecha</span>
-        <input class="input" type="date" name="fecha" value="{esc(fecha.isoformat())}">
-      </label>
-      <label class="cfg-field" style="margin:0">
-        <span>Usuario</span>
-        <select class="input sel-tipo" name="usuario">{''.join(opts)}</select>
-      </label>
-      <button class="btn btn-primary" type="submit">🔍 Consultar</button>
+  <div class="card" style="margin-bottom:16px">
+    <h2 style="margin:0 0 12px;font-size:17px;display:flex;align-items:center;gap:8px">
+      {icono("search")} Consultar</h2>
+    <form method="get" action="/asistencia" class="grid2">
+      <div class="field">
+        <label for="as-fecha">Fecha</label>
+        <input id="as-fecha" class="input" type="date" name="fecha"
+               value="{esc(fecha.isoformat())}" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="as-usuario">Usuario</label>
+        <select id="as-usuario" class="input sel-tipo" name="usuario">{''.join(opts)}</select>
+      </div>
+      <div class="field" style="display:flex;align-items:flex-end">
+        <button class="btn btn--primary" type="submit">
+          {icono("search")} Consultar</button>
+      </div>
     </form>
   </div>"""
 
 
+def _fila(a):
+    estado = _estado_de(a)
+    etiqueta = ESTADOS.get(estado, ("", estado))[1]
+    badge = BADGE_ESTADO.get(estado, "")
+    tarde = a.get("MinutosTarde")
+    antes = a.get("MinutosAntes")
+    detalle = [
+        esc(a.get("TurnoNombre") or "—"),
+        "Entrada esp. " + esc(_fmt_hora(a.get("HoraEntradaEsperada"))),
+        "Entrada " + esc(_fmt_ventana(a.get("EntradaPiso"),
+                                      a.get("EntradaTecho"),
+                                      a.get("HoraEntradaReal"))),
+        "Salida esp. " + esc(_fmt_hora(a.get("HoraSalidaEsperada"))),
+        "Salida " + esc(_fmt_ventana(a.get("SalidaPiso"),
+                                     a.get("SalidaTecho"),
+                                     a.get("HoraSalidaReal"))),
+    ]
+    if tarde:
+        detalle.append(esc(f"{tarde} min tarde"))
+    if antes:
+        detalle.append(esc(f"{antes} min antes"))
+    return f"""
+    <div class="list__row" style="align-items:flex-start;flex-wrap:wrap">
+      <div class="list__main">
+        <strong>{esc(a.get("UsuarioNombre") or "")}</strong>
+        <div class="hint" style="margin-top:2px">{' · '.join(detalle)}</div>
+      </div>
+      <div class="list__meta" style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="badge {badge}">{esc(etiqueta)}</span>
+      </div>
+    </div>"""
+
+
 def _tabla(fecha, asistencias):
+    """El día en tarjeta, con una fila por persona (no una tabla ancha)."""
     if not asistencias:
         return ('<div class="empty">No hay asistencias calculadas para el '
                 f'{esc(fecha.strftime("%d/%m/%Y"))}. Pulsa «Calcular y guardar» '
                 'abajo.</div>')
 
-    filas = []
-    for a in asistencias:
-        estado = _estado_de(a)
-        icono = ICONO_ESTADO.get(estado, "•")
-        tarde = a.get("MinutosTarde")
-        antes = a.get("MinutosAntes")
-        nota = a.get("Observaciones") or ""
-        # La nota larga (por qué SIN DATOS) solo aparece en el bloque de
-        # evidencia de abajo: en la tabla haría la fila ilegible en un
-        # teléfono.
-        filas.append(f"""<tr>
-  <td>{icono}</td>
-  <td>{esc(a.get("UsuarioNombre") or "")}</td>
-  <td class="hide-sm">{esc(a.get("TurnoNombre") or "—")}</td>
-  <td>{esc(_fmt_hora(a.get("HoraEntradaEsperada")))}</td>
-  <td>{esc(_fmt_ventana(a.get("EntradaPiso"), a.get("EntradaTecho"),
-                        a.get("HoraEntradaReal")))}</td>
-  <td class="hide-sm">{esc(_fmt_hora(a.get("HoraSalidaEsperada")))}</td>
-  <td>{esc(_fmt_ventana(a.get("SalidaPiso"), a.get("SalidaTecho"),
-                        a.get("HoraSalidaReal")))}</td>
-  <td>{esc(f"±{a['VentanaMin']}" if a.get("VentanaMin") is not None else "—")}</td>
-  <td>{esc(f"{tarde} min" if tarde else "—")}</td>
-  <td>{esc(f"{antes} min" if antes else "—")}</td>
-  <td>{esc(ESTADOS.get(estado, (icono, estado))[1])}</td>
-</tr>""")
+    filas = "".join(_fila(a) for a in asistencias)
     return f"""
-  <div class="panel">
-    <h2>📅 {esc(_fecha_larga(fecha))}
-      <span class="badge badge-info">{len(asistencias)} personas</span></h2>
-    <div class="tscroll"><table>
-      <thead><tr>
-        <th></th><th>Usuario</th><th class="hide-sm">Turno</th>
-        <th>Entrada esp.</th><th>Entrada real</th>
-        <th class="hide-sm">Salida esp.</th><th>Salida real</th>
-        <th>Ancho</th><th>Tarde</th><th>Temprana</th><th>Estado</th>
-      </tr></thead>
-      <tbody>{''.join(filas)}</tbody>
-    </table></div>
+  <div class="card" style="margin-bottom:16px">
+    <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      {icono("clock")} {esc(_fecha_larga(fecha))}
+      <span class="badge badge--info">{len(asistencias)} personas</span></h2>
+    <div class="hint">{esc(fecha.isoformat())}</div>
+    <div class="list" style="margin-top:8px;max-height:min(56vh,520px);overflow:auto;min-height:0">
+      {filas}
+    </div>
   </div>"""
 
 
@@ -285,32 +329,38 @@ def _detalle(fecha, asistencias):
     if not filas:
         return ""
     return f"""
-  <div class="panel">
-    <h2>🔍 Evidencia <span class="badge badge-info">por qué cada veredicto</span></h2>
-    <div class="card-desc">Cuántos escaneos hubo ese día (la señal de que el
+  <div class="card" style="margin-bottom:16px">
+    <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      {icono("search")} Evidencia
+      <span class="badge badge--info">por qué cada veredicto</span></h2>
+    <div class="hint">Cuántos escaneos hubo ese día (la señal de que el
     sistema estaba vivo), el hueco más largo entre ellos, y la nota del cálculo.
     Un hueco grande es una caída del escáner, no una ausencia.</div>
-    <div class="tscroll"><table>
-      <thead><tr><th>Usuario</th><th>Estado</th><th>Escaneos</th>
-        <th>Hueco máx. (min)</th><th>Nota</th></tr></thead>
-      <tbody>{''.join(filas)}</tbody>
-    </table></div>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Usuario</th><th>Estado</th><th>Escaneos</th>
+          <th>Hueco máx. (min)</th><th>Nota</th></tr></thead>
+        <tbody>{''.join(filas)}</tbody>
+      </table>
+    </div>
   </div>"""
 
 
 def _calcular(fecha, csrf):
     """El botón de calcular. Es POST porque escribe en HUB_AsistenciaDiaria."""
     return f"""
-  <div class="panel">
-    <h2>🔄 Calcular</h2>
-    <div class="card-desc">Recalcula el {esc(fecha.strftime("%d/%m/%Y"))} para
+  <div class="card" style="margin-bottom:16px">
+    <h2 style="margin:0 0 8px;font-size:17px;display:flex;align-items:center;gap:8px">
+      {icono("refresh")} Calcular</h2>
+    <div class="hint">Recalcula el {esc(fecha.strftime("%d/%m/%Y"))} para
     todos los usuarios con turno, a partir de la evidencia de red que hay en la
     base. No borra nada: sobrescribe el registro de ese día.</div>
-    <form method="post" action="/asistencia" class="cfg-save">
+    <form method="post" action="/asistencia" style="margin-top:12px">
       {_csrf_field()}
       <input type="hidden" name="accion" value="calcular">
       <input type="hidden" name="fecha" value="{esc(fecha.isoformat())}">
-      <button class="btn btn-primary" type="submit">🔄 Calcular y guardar</button>
+      <button class="btn btn--primary" type="submit">
+        {icono("refresh")} Calcular y guardar</button>
     </form>
   </div>"""
 
@@ -345,7 +395,7 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
          for u in db.get_all_usuario_turnos() if u.get("IdUsuario")},
         key=lambda par: par[1].lower())
 
-    cuerpo = _tarjetas([_estado_de(a) for a in asistencias])
+    cuerpo = _tarjetas(asistencias)
     # Primero lo que invalida todo lo de abajo: si el escaner esta parado, los
     # estados de "en sitio / fuera" son de otra epoca y hay que decirlo.
     cuerpo += _banda_escaneo(db.get_ultimo_escaneo())
@@ -358,16 +408,20 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido",
     if resumen:
         por_estado = resumen.get("por_estado") or {}
         lineas = "".join(
-            f'<li>{ICONO_ESTADO.get(e, "•")} {esc(ESTADOS.get(e, ("", e))[1])}: '
+            f'<li>{esc(ESTADOS.get(e, ("", e))[1])}: '
             f'<b>{n}</b></li>' for e, n in sorted(por_estado.items(),
                                                   key=lambda kv: -kv[1]))
-        cuerpo += (f'<div class="panel"><h2>📊 Resultado del cálculo</h2>'
-                   f'<div class="card-desc">Se guardaron '
+        cuerpo += (f'<div class="card" style="margin-bottom:16px">'
+                   f'<h2 style="margin:0 0 8px;font-size:17px;display:flex;'
+                   f'align-items:center;gap:8px">{icono("check")} '
+                   f'Resultado del cálculo</h2>'
+                   f'<div class="hint">Se guardaron '
                    f'<b>{esc(resumen.get("guardados"))}</b> registros.'
                    f'</div><ul class="p desc" style="padding-left:1.4rem">'
                    f'{lineas}</ul></div>')
         if por_estado.get("SIN_DATOS"):
-            cuerpo += ('<div class="callout bad">⚠️ Hubo días <b>SIN DATOS</b>: '
+            cuerpo += ('<div class="callout bad">' + icono("alert", 18)
+                       + ' Hubo días <b>SIN DATOS</b>: '
                        'el escáner no cubrió esas ventanas. No son faltas; '
                        'revisa el worker del escáner antes de usar esto para '
                        'nómina.</div>')
