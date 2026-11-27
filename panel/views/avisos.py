@@ -46,6 +46,7 @@ Reglas de la vista:
 
 import notif_dispatch as nd
 
+from ..icons import icono
 from .. import db
 from ..templates import esc, page
 
@@ -91,11 +92,20 @@ def _csrf_field():
     return f'<input type="hidden" name="csrf" value="{esc(_CSRF["token"])}">'
 
 
-def _btn(accion, etiqueta, oculto=""):
+def _btn(accion, etiqueta, icono_nombre="play", oculto=""):
     return (f'<form method="post" action="{esc(accion)}" class="inline">'
             f'{_csrf_field()}{oculto}'
-            f'<button class="btn btn-sm btn-secondary" type="submit">{etiqueta}'
+            f'<button class="btn btn--primary" type="submit">'
+            f'{icono(icono_nombre, 18)}<span>{etiqueta}</span>'
             f'</button></form>')
+
+
+def _dato(etiqueta, valor_html, ayuda=""):
+    """Campo de solo lectura dentro de la tarjeta (etiqueta arriba)."""
+    return (f'<div class="field cfg-field"><label>{esc(etiqueta)}</label>'
+            f'<div class="ro">{valor_html}</div>'
+            + (f'<div class="help">{esc(ayuda)}</div>' if ayuda else "")
+            + '</div>')
 
 
 def _tarjeta_tipo(tipo, defn, cfg, subs, app):
@@ -107,24 +117,22 @@ def _tarjeta_tipo(tipo, defn, cfg, subs, app):
     # El interruptor es un formulario que lleva el estado CONTRARIO como valor: no
     # hay checkbox que mandar, hay un botón que dice lo que va a pasar.
     if on:
-        interruptor = _btn(f"/avisos/{tipo}/apagar", "🔴 Apagar")
+        interruptor = _btn(f"/avisos/{tipo}/apagar", "Apagar", "pause")
         estado = '<span class="badge badge-success">Encendido</span>'
     else:
-        interruptor = _btn(f"/avisos/{tipo}/encender", "🟢 Encender")
+        interruptor = _btn(f"/avisos/{tipo}/encender", "Encender", "play")
         estado = '<span class="badge badge-warning">Apagado</span>'
 
     cuerpo = (
-        '<div class="cfg-grid">'
-        f'<div class="field cfg-field"><label>Estado</label>'
-        f'<div class="ro">{estado}</div></div>'
-        f'<div class="field cfg-field"><label>A quién le llega</label>'
-        f'<div class="ro"><strong>{len(destino)}</strong> persona(s) · '
-        f'{subs} susceptor(es) en total</div></div>'
-        f'<div class="field cfg-field"><label>Permiso que lo habilita</label>'
-        f'<div class="ro">{esc(defn["permiso"])}</div></div>'
-        f'<div class="field cfg-field"><label>Destino</label>'
-        f'<div class="ro">{esc(defn["url"])}</div></div>'
-        '</div>'
+        '<div class="grid2">'
+        + _dato("A quién le llega",
+                f'<strong>{len(destino)}</strong> persona(s) · '
+                f'{subs} suscriptor(es) en total',
+                "Solo cuenta usuarios activos con el permiso y con un "
+                "dispositivo suscrito a esta app.")
+        + _dato("Permiso que lo habilita", esc(defn["permiso"]))
+        + _dato("Destino", esc(defn["url"]))
+        + '</div>'
     )
 
     # El aviso de "no llega a nadie" es el que más se pierde: con el interruptor
@@ -132,20 +140,54 @@ def _tarjeta_tipo(tipo, defn, cfg, subs, app):
     # verlo sin tener que cruzarse.
     aviso = ""
     if on and not destino:
-        aviso = ('<div class="wgroup"><span class="badge badge-danger">'
+        aviso = ('<div class="callout bad">'
+                 '<span class="badge badge-danger">'
                  'No le llegaría a nadie todavía</span> '
                  f'{sin_suscribir} persona(s) tienen el permiso pero ningún '
                  'dispositivo suscrito: hay que activarlas desde su app.'
                  '</div>')
     elif on and sin_suscribir:
-        aviso = ('<div class="wgroup"><span class="badge badge-info">'
-                 f'{sin_suscribir} con el permiso sin teléfono suscrito'
-                 '</span></div>')
+        aviso = ('<div class="callout">'
+                 f'<span class="badge badge-info">{sin_suscribir} con el permiso '
+                 'sin teléfono suscrito</span></div>')
 
-    return (f'<div class="card" style="margin-bottom:1rem">'
-            f'<h3>{esc(defn["titulo"])}</h3>{cuerpo}'
-            f'<div class="actions-cell" style="margin-top:.6rem">'
-            f'{interruptor}</div>{aviso}</div>')
+    return (f'<div class="card">'
+            f'<div class="wcard-top">'
+            f'<div class="wcard-name">{icono("bell", 20)} {esc(defn["titulo"])}</div>'
+            f'{estado}</div>'
+            f'{cuerpo}'
+            f'<div class="actions">{interruptor}</div>'
+            f'{aviso}</div>')
+
+
+def _resumen(subs, cola, plazo, plats, ultimo, ventana_badge):
+    """Cifras y horario: lo que explica por qué un aviso no ha salido."""
+    kpis = (
+        '<div class="grid">'
+        f'<div class="kpi"><span class="kpi__label">Suscripciones de '
+        f'{esc(nd.APP_ADMON)}</span>'
+        f'<span class="kpi__value">{subs}</span></div>'
+        f'<div class="kpi"><span class="kpi__label">Avisos en cola</span>'
+        f'<span class="kpi__value">{cola}</span></div>'
+        f'<div class="kpi"><span class="kpi__label">Tipos de aviso</span>'
+        f'<span class="kpi__value">{len(nd.TIPOS)}</span></div>'
+        '</div>'
+    )
+    filas = (
+        f'<li class="list__row"><span class="list__main">Horario</span>'
+        f'<span class="list__meta">{esc(plazo)}</span></li>'
+        f'<li class="list__row"><span class="list__main">Dispositivos</span>'
+        f'<span class="list__meta">{esc(plats)}</span></li>'
+        f'<li class="list__row"><span class="list__main">Último resumen '
+        f'entregado</span><span class="list__meta">{esc(ultimo or "sin registros")}'
+        f'</span></li>'
+    )
+    return (f'{kpis}'
+            f'<div class="card">'
+            f'<div class="wcard-top">'
+            f'<div class="wcard-name">{icono("clock", 20)} Horario de entrega</div>'
+            f'{ventana_badge}</div>'
+            f'<ul class="list">{filas}</ul></div>')
 
 
 # ── Vista ─────────────────────────────────────────────────────────────────────
@@ -171,37 +213,26 @@ def render(user, flash_ok="", flash_err="", csrf="", lugar="desconocido", ip="")
     horario_txt = (f'{nd.hora_legible(inicio)} – {nd.hora_legible(fin)} '
                    f'(lunes a viernes, hora de la Ciudad de México)')
     if abierto:
-        ventana = ('<span class="badge badge-success">Abierta ahora</span> '
-                   'los avisos salen en cuanto se detectan')
+        ventana_badge = ('<span class="badge badge-success">Abierta ahora</span>')
     else:
-        ventana = ('<span class="badge badge-warning">Cerrada</span> '
-                   f'lo que llegue se acumula y sale {nd.hora_legible(inicio)} '
-                   'del próximo día laboral'
-                   + (f' ({proximo.strftime("%d/%m %H:%M")})' if proximo else ''))
+        ventana_badge = ('<span class="badge badge-warning">Cerrada</span>')
+    ventana = (f'{horario_txt}. '
+               + ('Los avisos salen en cuanto se detectan.'
+                  if abierto else
+                  f'Lo que llegue se acumula y sale {nd.hora_legible(inicio)} '
+                  'del próximo día laboral'
+                  + (f' ({proximo.strftime("%d/%m %H:%M")})' if proximo else '')))
 
     plats = " · ".join(f"{n} {p}" for p, n in plataformas) or "ninguno"
+    ultimo = cfg.get("avisos_ultimo_resumen", "")
 
-    resumen = (
-        '<div class="cards">'
-        f'<div class="card blue"><div class="n">{subs}</div>'
-        f'<div class="l">Suscripciones de {esc(app)}</div></div>'
-        f'<div class="card orange"><div class="n">{cola}</div>'
-        f'<div class="l">Avisos en cola</div></div>'
-        f'<div class="card gray"><div class="n">{len(nd.TIPOS)}</div>'
-        f'<div class="l">Tipos de aviso</div></div>'
-        '</div>'
-        f'<div class="wgroup"><strong>Horario:</strong> {esc(horario_txt)} '
-        f'{ventana}</div>'
-        f'<div class="wgroup"><strong>Dispositivos:</strong> {esc(plats)}</div>'
-    )
-
-    cuerpo = (resumen
-              + '<h3>Tipos de aviso</h3>'
+    cuerpo = (_resumen(subs, cola, ventana, plats, ultimo, ventana_badge)
+              + '<h2 class="wgroup">Tipos de aviso</h2>'
               + tarjetas
-              + '<div class="wgroup"><strong>Dónde se decide quién recibe cada '
-                'aviso:</strong> de los permisos de cada usuario en HUB_Users, no '
-                'de una lista aquí. Un tipo encendido sin ningún teléfono '
-                'suscrito no llega a nadie, y por eso la tarjeta lo avisa.</div>')
+              + '<p class="help"><b>Dónde se decide quién recibe cada aviso:</b> '
+                'de los permisos de cada usuario en HUB_Users, no de una lista '
+                'aquí. Un tipo encendido sin ningún teléfono suscrito no llega a '
+                'nadie, y por eso la tarjeta lo avisa.</p>')
 
     return page("avisos", cuerpo, user=user, flash_ok=flash_ok, flash_err=flash_err,
                 lugar=lugar, ip=ip,
