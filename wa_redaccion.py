@@ -169,6 +169,12 @@ def se_pule(texto):
     bajo = texto.lower()
     if "partidas:" in bajo:
         return False
+    # El roast y la explicacion se mandan tal cual: la IA los suavizaba y
+    # borraba el "me dijiste ...", que es justo lo que hay que decir.
+    if "acepto la queja" in bajo or "me dijiste" in bajo:
+        return False
+    if "por qué:" in bajo or "por que:" in bajo:
+        return False
     renglones = [r.strip() for r in texto.splitlines() if r.strip()]
     lista = sum(1 for r in renglones if r.startswith(("-", "•", "*")))
     return lista < MAX_RENGLONES_LISTA
