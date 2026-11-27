@@ -678,7 +678,12 @@ def _sarcasmo_final(usuario_id, conn, kb):
     try:
         # La cache se tira: el hecho que se acaba de escribir tiene que salir.
         wa_persona.olvidar(usuario_id)
-        return wa_persona.sarcasmo(usuario_id, conn=conn)
+        datos = wa_persona.hechos(usuario_id, conn=conn)
+        frase = wa_persona.sarcasmo(usuario_id, hechos=datos, conn=conn)
+        if not frase:
+            return ""
+        razon = wa_persona.motivo(datos)
+        return f"{frase}\n\nPor qué: {razon}." if razon else frase
     except Exception as exc:
         print(f"[wa_bot] sin sarcasmo de {usuario_id}: {exc}")
         return ""

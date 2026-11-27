@@ -513,6 +513,42 @@ def _candidatas(datos):
     return lineas
 
 
+def motivo(datos):
+    """
+    Explica en una línea **por qué** el bot comenta eso, con el dato que lo
+    sostiene. `""` si no hay nada que explicar (o si el usuario está en racha
+    de ausencias, donde no se bromea).
+    """
+    datos = datos if isinstance(datos, dict) else {}
+    if datos.get("ausencias_seguidas"):
+        return ""
+
+    vales = datos.get("vales") or {}
+    if vales.get("total"):
+        total = int(vales["total"])
+        plural = "vales" if total != 1 else "vale"
+        return f"tienes {total} {plural} sin comprobante"
+
+    tardes = datos.get("tardes") or 0
+    dias = datos.get("tardes_dias") or 0
+    if tardes and dias:
+        return f"llevas {tardes} llegadas tarde en los últimos {dias} días hábiles"
+
+    reporte = datos.get("reporte") or {}
+    if reporte.get("fecha"):
+        return f"tu último reporte de servicio fue el {_fecha(reporte['fecha'])}"
+
+    tickets = datos.get("tickets_mes") or 0
+    if tickets:
+        return f"llevas {tickets} tickets de OxxoGas este mes"
+
+    km = datos.get("km_mes") or 0
+    if km:
+        return f"este mes acumulas {float(km):,.0f} km registrados"
+
+    return ""
+
+
 def sarcasmo(usuario_id, hechos=None, conn=None):
     """
     Una línea de sarcasmo con un hecho real del usuario, o `""` si no hay
@@ -582,4 +618,7 @@ def respuesta_insulto(persona, hechos, norm, con_roast=True):
         return reconocimiento
     if not frase:
         return f"{reconocimiento} {CIERRE_SECO}"
+    razon = motivo(datos)
+    if razon:
+        return f"{reconocimiento} {frase}\n\nPor qué: {razon}."
     return f"{reconocimiento} {frase}"

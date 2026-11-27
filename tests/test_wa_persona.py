@@ -330,7 +330,7 @@ class Insultos(unittest.TestCase):
             {"id": YO, "nombre": "Héctor Salas"}, datos, "bot menso")
         self.assertTrue(r.startswith("Acepto la queja"), r)
         self.assertIn("vale", r)
-        self.assertNotIn("\n", r)
+        self.assertIn("Por qué:", r)
 
     def test_sin_hechos_responde_seco(self):
         r = wa_persona.respuesta_insulto(

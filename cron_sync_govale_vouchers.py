@@ -478,21 +478,17 @@ def _marca_transacciones():
                     SELECT
                         (SELECT MAX(Id) FROM HUB_SolicitudVales
                           WHERE IdValeGoVale IS NOT NULL
-                            AND LTRIM(RTRIM(IdValeGoVale)) <> '') AS ValeId,
-                        (SELECT MAX(Id) FROM HUB_OxxoGasTickets) AS TicketId
+                            AND LTRIM(RTRIM(IdValeGoVale)) <> '') AS ValeId
                 """)
                 fila = cur.fetchone() or {}
     except Exception as e:
         print(f"[govale_sync] no se pudo leer la última transacción: {e}")
         return ''
 
-    if hasattr(fila, 'get'):
-        vale, ticket = fila.get('ValeId'), fila.get('TicketId')
-    else:
-        vale, ticket = (fila[0], fila[1]) if len(fila) >= 2 else (None, None)
-    if not vale and not ticket:
+    vale = fila.get('ValeId') if hasattr(fila, 'get') else (fila[0] if fila else None)
+    if not vale:
         return ''
-    return f"V{vale or 0}|T{ticket or 0}"
+    return f"V{vale}"
 
 
 def _enviar_aviso_saldo_bajo(saldo, umbral, saldo_fecha):
