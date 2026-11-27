@@ -551,19 +551,20 @@ def avisar_saldo_bajo(saldo=None, ahora=None):
     avisada = (db.get_govale_config('govale_aviso_saldo_ticket') or '').strip()
     nueva_transaccion = bool(marca) and marca != avisada
 
-    if not cruce and not nueva_transaccion:
+    if not nueva_transaccion:
+        # Solo avisa cuando se consumió un vale: un cruce de umbral sin
+        # transacción no manda nada.
         return 0
 
-    # Tope de 30 minutos: si se acaba de avisar, este ciclo no repite. No se
-    # marca el estado para que el cruce siga pendiente y salga al vencer.
+    # Una vez al día, pase lo que pase. Antes el tope era de 30 minutos y con
+    # vales seguidos llegaban varios avisos iguales el mismo día.
     fecha_aviso = (db.get_govale_config('govale_aviso_saldo_fecha') or '').strip()
     if fecha_aviso:
         try:
-            transcurrido = ahora - datetime.strptime(fecha_aviso, '%Y-%m-%d %H:%M:%S')
-            if transcurrido.total_seconds() < MINUTOS_TOPE_AVISO_SALDO * 60:
+            if datetime.strptime(fecha_aviso, '%Y-%m-%d %H:%M:%S').date() == ahora.date():
                 return 0
         except ValueError:
-            pass  # marca ilegible: se trata como si no hubiera aviso previo
+            pass
 
     saldo_fecha = db.get_govale_config('govale_saldo_fecha') or 'sin revisar'
     encolados = _enviar_aviso_saldo_bajo(saldo, umbral, saldo_fecha)

@@ -29,6 +29,31 @@ import openwa_client as ow
 SIN_ADJUNTO = 'sin adjunto'
 
 
+def _repetido_hoy(chat, texto):
+    """
+    ¿Ya se encoló exactamente este texto a este chat hoy?
+
+    Red de seguridad contra el spam: WhatsApp puede bloquear el número y a la
+    persona le suena el teléfono por un aviso que ya vio. Es independiente del
+    dedupe de cada worker.
+    """
+    texto = (texto or '').strip()
+    if not texto:
+        return False
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT TOP 1 1 FROM HUB_WhatsappQueue
+                    WHERE ChatId = %s AND Texto = %s
+                      AND Creado >= CAST(GETDATE() AS date)
+                """, (str(chat).strip(), texto))
+                return cur.fetchone() is not None
+    except Exception as e:
+        print(f"openwa_alerts: no se pudo revisar el historial de hoy ({e})")
+        return False
+
+
 def _encolar(id_evento, datos, adjunto=None, adjunto_nombre=None, adjunto_tipo=None):
     """
     Paso comun de todos los avisos: lee el evento, normaliza a quien va, arma el
@@ -74,6 +99,9 @@ def _encolar(id_evento, datos, adjunto=None, adjunto_nombre=None, adjunto_tipo=N
 
     encolados = 0
     for chat in chats:
+        if _repetido_hoy(chat, texto):
+            print(f"openwa_alerts: {id_evento} ya se mandó hoy a un chat; no se repite")
+            continue
         if db.queue_openwa_alerta(id_evento, chat, texto,
                                   adjunto, adjunto_nombre, adjunto_tipo):
             encolados += 1

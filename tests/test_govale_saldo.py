@@ -140,50 +140,47 @@ class Dedupe(unittest.TestCase):
         self.assertEqual(segundo, 0)
         self.assertEqual(len(llamadas), 1)
 
-    def test_1999_con_ticket_nuevo_avisa(self):
+    def test_no_avisa_dos_veces_el_mismo_dia(self):
         db = self._db(govale_aviso_saldo_estado='BAJO',
-                      govale_aviso_saldo_ticket='V0|T9',
+                      govale_aviso_saldo_ticket='V9',
                       govale_aviso_saldo_fecha='2026-11-27 07:00:00')
         llamadas = []
         with mock.patch.object(cg, 'db', db), \
-                mock.patch.object(cg, '_marca_transacciones', lambda: 'V0|T10'), \
+                mock.patch.object(cg, '_marca_transacciones', lambda: 'V10'), \
                 mock.patch.object(cg, '_enviar_aviso_saldo_bajo',
                                   _enviar_falso(llamadas)):
             n = cg.avisar_saldo_bajo(1999, ahora=AHORA)
 
-        self.assertEqual(n, 1)
-        self.assertEqual(db.config['govale_aviso_saldo_ticket'], 'V0|T10')
+        self.assertEqual(n, 0)
+        self.assertEqual(len(llamadas), 0)
 
-    def test_respeta_el_tope_de_30_minutos(self):
+    def test_tope_diario_aunque_pase_media_hora(self):
         db = self._db(govale_aviso_saldo_estado='BAJO',
-                      govale_aviso_saldo_ticket='V0|T9',
-                      govale_aviso_saldo_fecha='2026-11-27 09:50:00')
+                      govale_aviso_saldo_ticket='V9',
+                      govale_aviso_saldo_fecha='2026-11-27 08:00:00')
         llamadas = []
         enviar = _enviar_falso(llamadas)
         with mock.patch.object(cg, 'db', db), \
-                mock.patch.object(cg, '_marca_transacciones', lambda: 'V0|T10'), \
+                mock.patch.object(cg, '_marca_transacciones', lambda: 'V10'), \
                 mock.patch.object(cg, '_enviar_aviso_saldo_bajo', enviar):
-            temprano = cg.avisar_saldo_bajo(1999, ahora=AHORA)
-            # El cruce/transacción sigue pendiente; a los 31 min sí sale.
-            db.config['govale_aviso_saldo_fecha'] = '2026-11-27 09:29:00'
-            tarde = cg.avisar_saldo_bajo(1999, ahora=AHORA)
+            manana = cg.avisar_saldo_bajo(1999, ahora=AHORA + timedelta(days=1))
 
-        self.assertEqual(temprano, 0)
-        self.assertEqual(tarde, 1)
+        self.assertEqual(manana, 1)
+        self.assertEqual(len(llamadas), 1)
 
-    def test_volver_arriba_y_caer_otra_vez_es_un_cruce(self):
-        db = self._db(govale_aviso_saldo_estado='BAJO',
-                      govale_aviso_saldo_ticket='V0|T9',
-                      govale_aviso_saldo_fecha='2026-11-27 07:00:00')
+    def test_cruce_sin_transaccion_no_avisa(self):
+        db = self._db(govale_aviso_saldo_estado='OK',
+                      govale_aviso_saldo_ticket='V9',
+                      govale_aviso_saldo_fecha='2026-11-26 07:00:00')
         llamadas = []
         with mock.patch.object(cg, 'db', db), \
-                mock.patch.object(cg, '_marca_transacciones', lambda: 'V0|T9'), \
+                mock.patch.object(cg, '_marca_transacciones', lambda: 'V9'), \
                 mock.patch.object(cg, '_enviar_aviso_saldo_bajo',
                                   _enviar_falso(llamadas)):
             self.assertEqual(cg.avisar_saldo_bajo(2500, ahora=AHORA), 0)
-            self.assertEqual(cg.avisar_saldo_bajo(1999, ahora=AHORA), 1)
+            self.assertEqual(cg.avisar_saldo_bajo(1999, ahora=AHORA), 0)
 
-        self.assertEqual(len(llamadas), 1)
+        self.assertEqual(len(llamadas), 0)
 
 
 class Canales(unittest.TestCase):
