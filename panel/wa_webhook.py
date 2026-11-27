@@ -1,0 +1,263 @@
+"""
+panel/wa_webhook.py — receptor de mensajes entrantes de WhatsApp (OpenWA)
+=========================================================================
+OpenWA entrega un webhook por cada mensaje de la sesion de WhatsApp. La ruta
+es publica (sin sesion ni CSRF) porque quien llama es el gateway, no una
+persona: el secreto viaja en la propia ruta, `/api/wa/entrante/<token>`, ya
+que OpenWA no siempre conserva cabeceras propias.
+
+Esta fase SOLO guarda:
+
+  1. compara el token contra `HUB_Config.wa_bot_token` (tiempo constante);
+  2. ignora lo que manda el propio bot (`fromMe`) y los grupos (`@g.us`);
+  3. deduplica por id de mensaje (OpenWA reintenta si no recibe 200);
+  4. inserta en `HUB_WhatsappEntrante` y asegura la fila del chat en
+     `HUB_WhatsappConversaciones` (nueva en estado BOT);
+  5. responde 200 rapido con un JSON minimo.
+
+Reglas:
+  * NUNCA lanza hacia el servidor: un 500 hace que OpenWA reintente el mismo
+    mensaje y, peor, puede cortar la entrega de los siguientes.
+  * El cuerpo varia entre versiones de OpenWA: se guarda el JSON crudo y de ahi
+    se extrae lo que se pueda, sin exigir una forma exacta.
+
+El bot que contesta es la siguiente fase; aqui no se manda nada.
+"""
+import hmac
+import json
+from datetime import datetime, timezone
+
+from tz_mx import now_mx, to_mx
+
+from . import db
+
+CLAVE_TOKEN = "wa_bot_token"
+
+MAX_ID = 120          # HUB_WhatsappEntrante.IdMensaje
+MAX_CHAT = 80         # .ChatId
+MAX_TELEFONO = 20     # .Telefono
+MAX_NOMBRE = 120      # .Nombre
+MAX_TEXTO = 2000      # .Texto
+
+
+def _token_configurado():
+    """Valor de `wa_bot_token` en HUB_Config ("" si no existe o la BD falla)."""
+    try:
+        valores = db.get_config_values([CLAVE_TOKEN])
+    except Exception:
+        return ""
+    return (valores.get(CLAVE_TOKEN) or "").strip()
+
+
+def _mismo_token(recibido, esperado):
+    """Comparacion en tiempo constante (no filtra cuantos caracteres coinciden)."""
+    try:
+        return hmac.compare_digest(str(recibido or "").encode("utf-8"),
+                                   str(esperado or "").encode("utf-8"))
+    except Exception:
+        return False
+
+
+# ─── Extraccion tolerante del cuerpo ─────────────────────────────────────────
+def _candidato(cuerpo):
+    """
+    El mensaje suele venir dentro de `data`/`payload`, pero no siempre. Se
+    devuelve el diccionario que mas se parece a un mensaje; si no hay, el
+    propio cuerpo.
+    """
+    if not isinstance(cuerpo, dict):
+        return {}
+    for clave in ("data", "payload", "message"):
+        hijo = cuerpo.get(clave)
+        if isinstance(hijo, dict) and any(
+                k in hijo for k in ("body", "text", "from", "chatId", "fromMe")):
+            return hijo
+    return cuerpo
+
+
+def _buscar(msg, claves):
+    """Primer valor no vacio de `claves`, mirando tambien `_data` (whatsapp-web.js)."""
+    for origen in (msg, msg.get("_data") if isinstance(msg.get("_data"), dict) else {}):
+        for clave in claves:
+            valor = origen.get(clave)
+            if valor not in (None, "", [], {}):
+                return valor
+    return None
+
+
+def _texto(valor, limite):
+    """Cadena recortada al ancho de la columna (None si no hay nada)."""
+    if valor is None:
+        return None
+    if isinstance(valor, dict):
+        valor = valor.get("_serialized") or valor.get("id") or ""
+    texto = str(valor).strip()
+    return texto[:limite] if texto else None
+
+
+def _verdadero(msg, claves):
+    valor = _buscar(msg, claves)
+    if isinstance(valor, str):
+        return valor.strip().lower() in ("1", "true", "yes", "si", "sí")
+    return bool(valor)
+
+
+def _telefono(chat_id):
+    """Los digitos del chat (`521812...@c.us` -> `521812...`)."""
+    if not chat_id:
+        return None
+    digitos = "".join(c for c in str(chat_id).split("@")[0] if c.isdigit())
+    return digitos[:MAX_TELEFONO] or None
+
+
+def _fecha(valor):
+    """
+    `timestamp` de OpenWA suele ser epoch en segundos (a veces milisegundos, a
+    veces ISO). Si no se entiende, se usa la hora de Monterrey de ahora. Nunca
+    se escribe una fecha absurda: fuera de 2000-2100 se descarta.
+    """
+    try:
+        if isinstance(valor, str) and not valor.strip().isdigit():
+            dt = datetime.fromisoformat(valor.strip().replace("Z", "+00:00"))
+        else:
+            num = float(valor)
+            if num > 1e11:                 # milisegundos
+                num /= 1000.0
+            dt = datetime.fromtimestamp(num, tz=timezone.utc)
+        fecha = to_mx(dt)
+        if 2000 <= fecha.year <= 2100:
+            return fecha
+    except Exception:
+        pass
+    return now_mx()
+
+
+def _id_mensaje(msg):
+    valor = _buscar(msg, ("id", "messageId", "msgId"))
+    if isinstance(valor, dict):
+        valor = valor.get("_serialized") or valor.get("id")
+    return _texto(valor, MAX_ID)
+
+
+def _chat_id(msg):
+    valor = _buscar(msg, ("chatId", "chat_id", "from", "author"))
+    if valor is None:
+        chat = msg.get("chat")
+        if isinstance(chat, dict):
+            valor = chat.get("id") or chat.get("_serialized")
+    if isinstance(valor, dict):
+        valor = valor.get("_serialized") or valor.get("id")
+    return _texto(valor, MAX_CHAT)
+
+
+def _nombre(msg):
+    valor = _buscar(msg, ("notifyName", "senderName", "sender_name",
+                          "pushname", "pushName", "nombre", "name"))
+    if valor is None:
+        chat = msg.get("chat")
+        if isinstance(chat, dict):
+            valor = chat.get("name")
+    return _texto(valor, MAX_NOMBRE)
+
+
+def _extraer(cuerpo):
+    """Normaliza el mensaje a las columnas de HUB_WhatsappEntrante."""
+    msg = _candidato(cuerpo)
+    chat_id = _chat_id(msg)
+    return {
+        "id_mensaje": _id_mensaje(msg),
+        "chat_id": chat_id,
+        "telefono": _telefono(chat_id),
+        "nombre": _nombre(msg),
+        "texto": _texto(_buscar(msg, ("body", "text", "content", "caption")),
+                        MAX_TEXTO),
+        "fecha": _fecha(_buscar(msg, ("timestamp", "t", "time"))),
+        "propio": _verdadero(msg, ("fromMe", "from_me")),
+        "grupo": (_verdadero(msg, ("isGroup", "isGroupMsg", "isGroupChat"))
+                  or str(chat_id or "").endswith("@g.us")),
+    }
+
+
+# ─── Guardado ────────────────────────────────────────────────────────────────
+def _guardar(datos, crudo):
+    """
+    Inserta el mensaje y asegura la conversacion en UNA transaccion.
+    Devuelve "guardado" o "duplicado".
+    """
+    conn = db.get_connection()
+    try:
+        with conn.cursor() as cur:
+            if datos["id_mensaje"]:
+                cur.execute(
+                    "SELECT 1 FROM HUB_WhatsappEntrante WHERE IdMensaje = %s",
+                    (datos["id_mensaje"],))
+                if cur.fetchone():
+                    return "duplicado"
+
+            cur.execute(
+                "INSERT INTO HUB_WhatsappEntrante "
+                "(IdMensaje, ChatId, Telefono, Nombre, Texto, Fecha, "
+                " Estado, IdUsuario, IdCliente, Crudo) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'NUEVO', NULL, NULL, %s)",
+                (datos["id_mensaje"], datos["chat_id"], datos["telefono"],
+                 datos["nombre"], datos["texto"], datos["fecha"],
+                 json.dumps(crudo, ensure_ascii=False)))
+
+            # La conversacion nace en BOT; si ya existe solo se mueve `Ultima`
+            # (el estado y la asignacion los decide una persona, no el mensaje).
+            cur.execute(
+                "MERGE HUB_WhatsappConversaciones AS t "
+                "USING (SELECT %s AS ChatId) AS s ON t.ChatId = s.ChatId "
+                "WHEN MATCHED THEN UPDATE SET Ultima = %s "
+                "WHEN NOT MATCHED THEN INSERT (ChatId, Estado, Ultima) "
+                "VALUES (%s, 'BOT', %s);",
+                (datos["chat_id"], datos["fecha"],
+                 datos["chat_id"], datos["fecha"]))
+        conn.commit()
+        return "guardado"
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        # 2601/2627: el indice unico atrapo una segunda entrega simultanea.
+        mensaje = str(exc)
+        if "2601" in mensaje or "2627" in mensaje:
+            return "duplicado"
+        raise
+    finally:
+        conn.close()
+
+
+# ─── Entrada ─────────────────────────────────────────────────────────────────
+def atender(handler, token):
+    """
+    Atiende `POST /api/wa/entrante/<token>`. Siempre responde (200 normal, 404
+    token malo) y nunca deja escapar una excepcion.
+    """
+    esperado = _token_configurado()
+    if not esperado or not _mismo_token(token, esperado):
+        # 404, no 401: no se revela que la ruta existe.
+        handler._json({"ok": False}, 404)
+        return
+
+    try:
+        crudo = handler._read_json()
+        datos = _extraer(crudo)
+
+        if not datos["chat_id"]:
+            handler._json({"ok": True, "estado": "sin_chat"}, 200)
+            return
+        if datos["propio"] or datos["grupo"]:
+            handler._json({"ok": True, "estado": "ignorado"}, 200)
+            return
+
+        estado = _guardar(datos, crudo)
+        handler._json({"ok": True, "estado": estado}, 200)
+    except Exception:
+        # OpenWA reintenta si no recibe 200. El cuerpo ya pudo quedar guardado o
+        # no, pero un error aqui no debe tumbar la entrega de los siguientes.
+        try:
+            handler._json({"ok": False}, 200)
+        except Exception:
+            pass

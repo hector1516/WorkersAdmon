@@ -9,6 +9,7 @@ Routing (HTML puro, formularios POST + Post/Redirect/Get, sin JS obligatorio):
   POST /login                          → autentica y crea la sesión (HUB_Sessions)
   POST /passkey/begin                  → options + state del challenge (JSON)
   POST /passkey/finish                 → verifica la passkey y crea la sesión (JSON)
+  POST /api/wa/entrante/<token>        → webhook de OpenWA (público, sin sesión)
   POST /logout                         → cierra sesión
   GET  /                               → pestaña Workers (requiere sesión + permiso)
   GET  /workers/<nombre>/logs          → logs de un programa
@@ -34,7 +35,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import auth, config, db, envconf, probes, spec, webauthn, workers
+from . import auth, config, db, envconf, probes, spec, wa_webhook, webauthn, workers
 from .templates import (esc, forbidden_page, lugar_de, login_page,
                          offline_page, page, shell_banner, shell_actions)
 from .lugar import lugar_de_handler
@@ -447,6 +448,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/passkey/"):
             return self._passkey_action(path[len("/passkey/"):].strip("/"),
                                         self._read_json())
+
+        # Webhook de WhatsApp (OpenWA): público, el secreto va en la ruta y no
+        # hay sesión ni CSRF. Se atiende ANTES del gate. Token que no coincide
+        # = 404 (no 401) para no revelar que la ruta existe.
+        if path == "/api/wa/entrante":
+            return self._send(404, "No encontrado", "text/plain")
+        if path.startswith("/api/wa/entrante/"):
+            return wa_webhook.atender(
+                self, path[len("/api/wa/entrante/"):].strip("/"))
 
         # Todo el resto exige sesión + CSRF
         if not auth.check_csrf(self, form):
