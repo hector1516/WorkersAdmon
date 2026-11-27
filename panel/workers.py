@@ -216,6 +216,27 @@ CATALOGO = {
             "nada y nunca más de wa_rec_max_dia mensajes por usuario al día. El "
             "dedupe vive en HUB_WaRecordatorios (también los fallos, Ok=0)."),
     },
+    # ── Avisos de asistencia por WhatsApp (solo al propio empleado) ───────────
+    "wa_asistencia": {
+        "desc": "Avisos de asistencia (entrada, ausencia, salida, resumen)",
+        "cadencia": "cada 5 min · ventana 08:00-19:30 (sábado hasta 14:00)",
+        "app": "HUB",
+        "descripcion": (
+            "Convierte los escaneos de red en avisos al PROPIO empleado, nunca "
+            "a su jefe. (1) Entrada: primer escaneo del día; texto de puntual, "
+            "tarde (con memoria de ayer y de la semana) o temprano. (2) "
+            "Ausencia: sin escaneo avisa a los wa_asist_ausencia_min minutos "
+            "de la entrada y otra vez a las 13:00. (3) Salida: cuando lleva "
+            "wa_asist_salida_gap_min minutos sin escaneo pasadas las 17:00; si "
+            "el último escaneo fue 15 min o más antes de la salida, lo dice. "
+            "(4) Viernes 18:30: días presente, llegadas tarde y racha, si hay "
+            "datos. El horario es por persona (HUB_AsistenciaUsuarioHorario + "
+            "HUB_AsistenciaHorarioDias; descanso no avisa) y solo se escribe a "
+            "quien tiene WhatsApp en HUB_UsuariosWhatsapp y un dispositivo "
+            "activo en HUB_NetworkDevices. Máximo wa_asist_max_dia avisos por "
+            "persona al día (el resumen no cuenta). El dedupe vive en "
+            "HUB_WaAsistenciaAvisos (también los fallos, Ok=0)."),
+    },
     # ── Workers de Field (migrados de `field` el 2026-09-26, código en api/) ──
     "avisos": {
         "desc": "Avisos Field (push PWA) — APAGADO, muerto",

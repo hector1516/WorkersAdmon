@@ -158,6 +158,40 @@ WORKERS_SPEC = {
            ayuda="Fuera de la ventana no sale nada; el ciclo siguiente lo "
                  "recoge. El resumen del lunes sale sólo entre 09:00 y 09:30."),
     ],
+    "wa_asistencia": [
+        _f("WA_ASIST_CICLO_SEG", "Intervalo de revisión", "number", "env",
+           default=300, min=60, max=86400, unidad="seg",
+           ayuda="Cada cuántos segundos revisa los escaneos del día. La "
+                 "precisión se mide en minutos, así que 5 min basta."),
+        _f("wa_asist_activo", "Avisos activos", "bool", "hub_config",
+           clave="wa_asist_activo", default="1",
+           ayuda="Con No el worker late pero no manda ningún mensaje."),
+        _f("wa_asist_tolerancia_min", "Tolerancia de entrada", "number",
+           "hub_config", clave="wa_asist_tolerancia_min", default=10, min=0,
+           max=120, unidad="min",
+           ayuda="Pasada esta tolerancia, la llegada se avisa como tarde."),
+        _f("wa_asist_ausencia_min", "Minutos para la ausencia", "number",
+           "hub_config", clave="wa_asist_ausencia_min", default=150, min=1,
+           max=1440, unidad="min",
+           ayuda="Sin escaneo, pasado este tiempo desde la entrada se manda "
+                 "el primer aviso (08:00 → 10:30; 09:00 → 11:30)."),
+        _f("wa_asist_salida_gap_min", "Minutos sin escaneo para la salida",
+           "number", "hub_config", clave="wa_asist_salida_gap_min", default=30,
+           min=1, max=240, unidad="min",
+           ayuda="Pasadas las 17:00, este hueco sin escaneo se toma como "
+                 "salida."),
+        _f("wa_asist_max_dia", "Avisos por persona al día", "number",
+           "hub_config", clave="wa_asist_max_dia", default=3, min=1, max=20,
+           ayuda="Tope diario por persona; cuenta sólo lo enviado y el "
+                 "resumen del viernes no entra."),
+        _f("wa_asist_resumen", "Resumen del viernes", "bool", "hub_config",
+           clave="wa_asist_resumen", default="1",
+           ayuda="Con No se omite el resumen del viernes a las 18:30."),
+        _f("ventana", "Ventana de envío", "const", "const",
+           valor="08:00-19:30 (sábado hasta 14:00), hora México",
+           ayuda="Fuera de la ventana no sale nada. Solo al propio empleado y "
+                 "solo si tiene WhatsApp y un dispositivo activo."),
+    ],
     "oxxogas_worker": [
         _f("intervalo", "Cadencia de sincronización", "const", "const",
            valor="cada 1 h",
