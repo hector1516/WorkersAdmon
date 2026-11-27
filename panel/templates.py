@@ -10,18 +10,22 @@ import os
 import urllib.parse
 
 from . import config
+from .icons import icono
 from .lugar import lugar_de_ip
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CSS del panel = shell común (ECCSA-Shell) + CSS propio del panel
+# CSS del panel: sistema propio, lenguaje Apple/HIG
 # ═════════════════════════════════════════════════════════════════════════════
-# · panel/shell.css  → copia CANÓNICA que propaga tools/sync_shell.py del repo
-#                      ECCSA-Shell (tokens, base, banner, tab bar, componentes).
-#                      NO se edita a mano.
-# · panel/panel.css  → lo propio del panel (wcard, chklist, cfg-*, pk-*, …).
-# Se leen de disco para que el shell se pueda actualizar sin tocar este código;
-# si faltaran, el panel sigue viéndose (usa solo lo que encuentre).
-_CSS_FILES = ("shell.css", "panel.css")
+# · panel/apple.css → TODO el diseño (tokens, layout, componentes y la capa de
+#                     compatibilidad con las clases viejas de las vistas que
+#                     todavía se están migrando). Ver panel/DESIGN.md.
+# Ya NO se carga panel/shell.css: el panel dejó de seguir el look de Field y
+# Admon. panel/panel.css tampoco se carga (sus clases se traducen en apple.css),
+# pero el archivo se queda: el script de chequeo del shell y algunas pruebas lo
+# leen del disco.
+# Se lee de disco para poder ajustar el diseño sin tocar Python; si el archivo
+# faltara, el panel sigue sirviendo HTML (solo se vería sin estilos).
+_CSS_FILES = ("apple.css",)
 
 
 def _read_css():
@@ -88,6 +92,96 @@ def flash(message, kind="ok"):
     if not message:
         return ""
     return f'<div class="flash {kind}">{esc(message)}</div>'
+
+
+# ─── Navegación del panel ────────────────────────────────────────────────────
+# Icono de cada destino (panel/DESIGN.md → Iconos). El texto visible es el
+# `modulo` del tab (sin emoji), no el `label` viejo, que existía para la barra
+# inferior del shell.
+NAV_ICONS = {
+    "estado": "dashboard",
+    "logs": "logs",
+    "config": "settings",
+    "apps": "apps",
+    "notificaciones": "bell",
+    "whatsapp": "whatsapp",
+    "avisos": "send",
+    "asistencia": "clock",
+    "correo": "mail",
+    "triaje": "ticket",
+}
+
+# Los cuatro destinos diarios de la barra inferior; el resto cabe en «Más».
+NAV_INFERIOR = ("estado", "logs", "whatsapp", "notificaciones")
+
+
+def _puede_ver(user, tab):
+    """Si el usuario puede abrir el destino. Sin usuario, todo se pinta normal
+    (el login no tiene sesión y no debe enseñar módulos en gris)."""
+    perm = tab.get("perm")
+    if not perm or user is None:
+        return True
+    from . import auth          # import tardío: templates no debe depender de auth
+    try:
+        return auth.has_perm(user, perm)
+    except Exception:
+        return False
+
+
+def _etiqueta(tab):
+    return tab.get("modulo") or (tab.get("label") or "").strip(" 📊📄⚙️🔔💬📦🕒✉️📣🛡️")
+
+
+def _nav_item(tab, active, user):
+    """Un destino: enlace si se puede abrir, texto apagado si falta permiso.
+
+    Las clases se escriben `rail__link nav-item` (no al revés) porque
+    `rail__link` es la que manda en el CSS nuevo y `nav-item` se conserva como
+    nombre del contrato de DESIGN.md.
+    """
+    icono_html = icono(NAV_ICONS.get(tab["id"], "folder"))
+    label = f'<span class="nav-item__text">{esc(_etiqueta(tab))}</span>'
+    activo = tab["id"] == active
+    clases = "rail__link nav-item" + (" is-active" if activo else "")
+    if not _puede_ver(user, tab):
+        return (f'<span class="{clases} is-off" aria-disabled="true" '
+                f'title="Requiere el permiso {esc(tab.get("perm"))}">'
+                f'{icono_html}{label}</span>')
+    aria = ' aria-current="page"' if activo else ""
+    return (f'<a class="{clases}" href="{esc(tab["href"])}"{aria}>'
+            f'{icono_html}{label}</a>')
+
+
+def _nav(active, user=None, inferior=False):
+    """El `<nav>` de navegación.
+
+    inferior=False → barra lateral (escritorio y tableta), con todos los
+    destinos. inferior=True → barra inferior del teléfono: los cuatro destinos
+    de siempre y una hoja «Más» con el resto, hecha con `<details>` para no
+    necesitar JavaScript.
+    """
+    tabs = [t for t in config.TABS if t.get("enabled", True)]
+    if not inferior:
+        items = "".join(_nav_item(t, active, user) for t in tabs)
+        return (f'<nav class="rail__nav" aria-label="Navegación principal">'
+                f'{items}</nav>')
+
+    diarios = [t for t in tabs if t["id"] in NAV_INFERIOR]
+    resto = [t for t in tabs if t["id"] not in NAV_INFERIOR]
+    items = "".join(_nav_item(t, active, user) for t in diarios)
+    mas = "".join(_nav_item(t, active, user) for t in resto)
+    abierto = ' open' if active in {t["id"] for t in resto} else ''
+    salir = ('<a class="rail__link nav-item" href="/logout">'
+             f'{icono("logout")}<span class="nav-item__text">Salir</span></a>')
+    return (f'<nav class="rail rail--bottom" aria-label="Navegación inferior">'
+            f'{items}'
+            f'<details class="rail__more"{abierto}>'
+            f'<summary class="rail__link nav-item" aria-label="Más destinos">'
+            f'{icono("chevron")}<span class="nav-item__text">Más</span>'
+            f'</summary>'
+            f'<div class="sheet rail__sheet">{mas}{salir}</div>'
+            f'</details>'
+            f'</nav>')
 
 
 # ─── Banner común (ECCSA-Shell · ver docs/CONTRATO.md en el repo) ───────────
@@ -271,8 +365,11 @@ def lugar_de(request_ip):
 # escritorio/celular desde https://worker.ecc-sa.com.mx.
 PWA_HEAD = """
 <meta name="theme-color" content="#0F172A">
+<meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Workers Admon">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Panel de control de workers, notificaciones y configuración ECCSA">
@@ -331,123 +428,120 @@ AUTO_REFRESH_JS = """
 VIEWPORT = ('<meta name="viewport" content="width=device-width,initial-scale=1,'
             'maximum-scale=1,user-scalable=no,viewport-fit=cover">')
 
-# La fuente del shell. El token --font-family del shell pide 'Outfit', y Field
-# (src/app.html) y Admon (index.html) la CARGAN desde Google Fonts. El panel
-# solo la nominaba en el fallback stack, sin cargarla nunca: por eso se veía en
-# Segoe UI mientras las otras dos apps se veían en Outfit. Mismo href que ellas.
-FUENTES = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
-           '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-           '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
-           'family=Outfit:wght@300;400;500;600;700&display=swap">')
+# Tipografía: la del sistema (DESIGN.md). No se carga ninguna fuente externa:
+# el panel usa -apple-system / Segoe UI / Roboto, que ya están en el equipo y
+# no hacen una petición de red (antes se nominaba Outfit de Google Fonts).
+
+
+def _toast(message, kind="ok"):
+    """Aviso dentro del flujo (no fixed): se lee donde ocurrió la acción."""
+    if not message:
+        return ""
+    return (f'<div class="toast toast--{kind}" role="status">'
+            f'{icono("check" if kind == "ok" else "alert")}'
+            f'<span>{esc(message)}</span></div>')
 
 
 def page(active, body, user=None, flash_ok="", flash_err="", subtitle="", refresh=0,
          conn=None, banner="", sync="idle", lugar="desconocido", ip="",
          back_href=None, back_label="← Volver al panel"):
-    """Layout general: banner + header + botón de volver + contenido.
+    """Layout general: barra lateral, barra superior y contenido.
 
-    back_href: a dónde vuelve el botón "← …" que abre el bloque del módulo.
-    None = la home (es el menú, no tiene a dónde volver). Las vistas que están
-    dentro de un módulo lo dejan en None y se resuelve abajo contra el módulo
-    al que pertenecen; solo se pasa a mano cuando el destino es otro (p.ej. el
-    log de un worker vuelve a Estado).
+    `back_href`: a dónde vuelve la flecha del bloque del módulo. None = la home
+    (es el menú, no tiene a dónde volver); las vistas que están dentro de un
+    módulo lo dejan en None y se resuelve abajo contra el módulo al que
+    pertenecen. Solo se pasa a mano cuando el destino es otro (p.ej. el log de
+    un worker vuelve a Estado).
+
+    `banner`, `sync`, `lugar` e `ip` se conservan en la firma porque las vistas
+    ya las pasan (las vistas se migran en paralelo), pero el banner del shell
+    se retiró: el lugar y la IP ahora son el `title` del usuario en la barra
+    superior, y `sync`/`banner` no se pintan.
     """
-    if not banner:
-        banner = shell_banner(user, sync=sync, lugar=lugar, ip=ip)
     refresh_js = (AUTO_REFRESH_JS.replace("__SECS__", str(int(refresh)))
                   if refresh else "")
-    # Barra de acciones del shell (⚙️ config · 🚪 salir). El panel ya tiene
-    # Configuración y Notificaciones como pestañas, así que solo va 🚪.
-    # Reemplaza el "Cerrar sesión" suelto que estaba en el <header>.
-    actions_html = shell_actions(user)
-    # El usuario NO va en el header: en Field y Admon aparece solo en el
-    # banner (.sync-header .who). Tenerlo en los dos lados era una diferencia
-    # mas con las otras dos apps, y ademas duplicaba el mismo dato.
-    user_html = ""
-    # conn: "online" (verde) / "offline" (rojo) — lo pasa la vista de Workers
-    live_cls = "" if conn is None else ("" if conn == "online" else " off")
-    live_txt = "● CONECTADO" if conn != "offline" else "● SIN CONEXIÓN"
-    # El banner es fijo (position: fixed), así que el contenido necesita apartarse.
-    # Va en un contenedor PROPIO, no en el mismo elemento que .wrap: las dos
-    # clases son de la misma especificidad y .wrap carga después en panel.css, así
-    # que su atajo de padding borraba el padding-top de .shell-below-banner y la
-    # página empezaba debajo del banner. Field y Admon lo resuelven con dos
-    # elementos anidados, y ahora el panel también.
-    banner_cls = "shell-below-banner" if banner else ""
-
-    # Encabezado del MÓDULO. El header de arriba es la marca (identidad de la
-    # app, igual que en Field y Admon) y acá va de qué módulo se trata y qué
-    # hace. Antes el nombre de la sección solo se veía en la barra inferior,
-    # que es lo último en mirarse; con el contenido de una vistaarga larga no
-    # se sabía dónde estabas.
     tab = config.tab_por_id(active)
-    if tab and tab.get("modulo"):
-        # El subtitulo que pasa cada vista (p.ej. "config central por app")
-        # antes vivia en el header. Field y Admon no lo tienen ahi — su header
-        # es solo la marca — asi que bajo al bloque de modulo, que es donde
-        # aporta: el titulo de la seccion, su descripcion y este detalle.
-        # esc_sub, no esc: el subtitulo trae <code> con las rutas y escaparlo
-        # los mostraba como texto literal.
-        extra = (f'<div class="sub">{esc_sub(subtitle)}</div>' if subtitle else "")
-        # Volver al menú. La home ES el módulo inicial, así que ahí no va: no
-        # habría a qué volver. Antes la única vuelta era la flecha diminuta del
-        # log de un worker (y apuntaba a la home, no a Estado).
-        if back_href is None and active != config.MODULO_INICIO["id"]:
-            back_href = "/"  # la home es el menú: cualquier módulo vuelve ahí
-        volver = ""
-        if back_href:
-            volver = (f'<a class="btn btn-sm btn-secondary modulo-back" '
-                      f'href="{esc(back_href)}" title="Volver atrás">'
-                      f'{esc(back_label)}</a>')
-        modulo_html = (
-            f'<div class="modulo">'
-            f'{volver}'
-            f'<h2 class="modulo-titulo">{esc(tab["modulo"])}</h2>'
-            f'<div class="sub">{esc_sub(tab.get("desc", ""))}</div>'
-            f'{extra}'
-            f'</div>')
-    else:
-        modulo_html = ""
+    titulo = (tab or {}).get("modulo") or config.TITLE
+    es_inicio = active == config.MODULO_INICIO["id"]
+    # El subtítulo de la vista manda; si no hay, se usa la descripción del
+    # módulo (la home no: su descripción repetía el título del menú).
+    detalle = subtitle or ("" if es_inicio or tab is None else tab.get("desc", ""))
+    # esc_sub, no esc: los subtítulos traen <code> con rutas y escaparlo los
+    # mostraba como texto literal.
+    detalle_html = (f'<p class="topbar__sub">{esc_sub(detalle)}</p>'
+                    if detalle else "")
+    if back_href is None and not es_inicio:
+        back_href = "/"
+    volver = ""
+    if back_href:
+        volver = (f'<a class="btn btn-sm btn-secondary modulo-back" '
+                  f'href="{esc(back_href)}" title="Volver atrás">'
+                  f'{esc(back_label)}</a>')
+    # conn: "online" (verde) / "offline" (rojo) — lo pasa la vista de Workers.
+    # La clase `badge-live` se conserva: es el piloto de conexión de siempre.
+    live = ""
+    if conn:
+        ok = conn != "offline"
+        live = (f'<span class="badge badge-live {"badge--ok" if ok else "badge--bad"}">'
+                f'{esc("Conectado" if ok else "Sin conexión")}</span>')
+    usuario = ""
+    salir = ""
+    if user is not None:
+        nombre = user.get("nombre") or user.get("email") or ""
+        donde = "" if lugar in ("", "desconocido") else f' · {esc(lugar)}'
+        usuario = (f'<span class="topbar__user" title="{esc(ip or nombre)}">'
+                   f'{esc(nombre)}{donde}</span>')
+        salir = (f'<a class="btn btn-sm btn-secondary btn--quiet" href="/logout" '
+                 f'title="Cerrar sesión">{icono("logout")}<span>Salir</span></a>')
     return f"""<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 {VIEWPORT}
-<title>{esc(config.TITLE)}</title>
+<title>{esc(config.TITLE)} · {esc(titulo)}</title>
 {PWA_HEAD}
-{FUENTES}
 <link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
 <body>
-{banner}
-<div class="{banner_cls}">
-<div class="wrap">
-  <header class="header">
-    <div class="brand-col">
-      <a class="logo-link" href="/"
-         title="Volver al inicio"><h1 class="brand">
-        <img class="brand-logo" src="/logo.png" alt="">
-        <span class="brand-name">{esc(config.TITLE)}</span>
-      </h1></a>
+<div class="app">
+<aside class="rail">
+  <a class="logo-link" href="/" title="Volver al inicio">
+    {icono("dashboard", 22)}<span class="rail__brand-name">Workers</span>
+  </a>
+  {_nav(active, user)}
+  <div class="rail__foot">
+    <span class="rail__version">v{esc(config.APP_VERSION)}</span>
+    {salir}
+  </div>
+</aside>
+<main class="main">
+  <header class="topbar">
+    <div class="topbar__titles">
+      {volver}
+      <h1 class="topbar__title">{esc(titulo)}</h1>
+      {detalle_html}
     </div>
-    {actions_html}
+    <div class="shell-actions topbar__actions">
+      {live}
+      {usuario}
+      {salir}
+    </div>
   </header>
-  {f'<div class="badge-live badge {live_cls}">{live_txt}</div>' if conn else ''}
-  {modulo_html}
-  {flash(flash_ok, "ok")}
-  {flash(flash_err, "err")}
-  {body}
-  <footer>
-    <span>WorkersAdmon · config central de workers, notificaciones y apps</span>
-    <span>API JSON en <a href="/api/status">/api/status</a></span>
-  </footer>
-  <div class="version-badge">WorkersAdmon v{esc(config.APP_VERSION)}</div>
+  <div class="content">
+    {_toast(flash_ok, "ok")}
+    {_toast(flash_err, "err")}
+    {body}
+    <footer class="foot">
+      <span>WorkersAdmon · config central de workers, notificaciones y apps</span>
+      <span>API JSON en <a href="/api/status">/api/status</a></span>
+      <span class="foot__version">v{esc(config.APP_VERSION)}</span>
+    </footer>
+  </div>
+</main>
+{_nav(active, user, inferior=True)}
 </div>
-</div>
-{changelog_modal()}
 {refresh_js}
-{CHANGELOG_JS}
 {PWA_JS}
 </body>
 </html>"""
@@ -465,32 +559,21 @@ def login_page(error="", csrf="", locked=False):
 {VIEWPORT}
 <title>Iniciar sesión — {esc(config.TITLE)}</title>
 {PWA_HEAD}
-{FUENTES}
 <link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
-<body>
-<div class="wrap login-page">
-  <header class="header">
-    <div class="brand-col">
-      <div class="brand">
-        <h1 class="brand">
-          <img class="brand-logo" src="/logo.png" alt="">
-          <span class="brand-name">{esc(config.TITLE)}</span>
-        </h1>
-      </div>
-    </div>
-  </header>
-
-  <div class="card login-card">
-    <div class="modulo">
-      <h2 class="modulo-titulo">🔐 Entrar</h2>
-      <div class="sub">Con tu cuenta del HUB.</div>
-    </div>
+<body class="auth">
+<main class="auth__wrap">
+  <div class="auth__brand">
+    {icono("dashboard", 24)}<span>Workers</span>
+  </div>
+  <div class="card auth__card login-card">
+    <h1 class="auth__title">Entrar</h1>
+    <p class="auth__sub">Con tu cuenta del HUB.</p>
 
     <div class="pk" id="pk" hidden>
-      <button class="btn btn-secondary btn-block" type="button" id="pk_btn">
-        🔐 Entrar con passkey</button>
+      <button class="btn btn--primary btn-block" type="button" id="pk_btn">
+        {icono("check")}<span>Entrar con passkey</span></button>
       <div class="pk-status" id="pk_status" role="status"></div>
       <div class="pk-note muted" id="pk_note" hidden></div>
       <div class="pk-divider"><span>o con contraseña</span></div>
@@ -508,11 +591,12 @@ def login_page(error="", csrf="", locked=False):
         <input class="input" id="password" type="password" name="password"
                autocomplete="current-password" required>
       </div>
-      <button class="btn btn-primary btn-block" type="submit"{disabled}>Entrar</button>
+      <button class="btn btn--primary btn-block" type="submit"{disabled}>Entrar</button>
     </form>
-    {f'<div class="flash err">{esc(error)}</div>' if error else ''}
+    {f'<div class="toast toast--err" role="alert">{esc(error)}</div>' if error else ''}
   </div>
-</div>
+  <p class="auth__foot">WorkersAdmon · v{esc(config.APP_VERSION)}</p>
+</main>
 <script>
 /* Login con passkey: se muestra SOLO si el navegador lo soporta y la página
    está en contexto seguro (https://worker.ecc-sa.com.mx). */
@@ -622,32 +706,25 @@ def offline_page():
 {VIEWPORT}
 <title>Sin conexión — {esc(config.TITLE)}</title>
 {PWA_HEAD}
-{FUENTES}
 <link rel="icon" type="image/png" href="/logo.png">
 <style>{CSS}</style>
 </head>
-<body>
-<div class="wrap login-page">
-  <header class="header">
-    <div class="brand-col">
-      <div class="brand">
-        <h1 class="brand">
-          <img class="brand-logo" src="/logo.png" alt="">
-          <span class="brand-name">{esc(config.TITLE)}</span>
-        </h1>
-      </div>
-    </div>
-  </header>
-  <div class="card login-card">
-    <div class="modulo">
-      <h2 class="modulo-titulo">📡 Sin conexión</h2>
-      <div class="sub">No se pudo contactar con el panel. Revisa tu red y
-        vuelve a intentar.</div>
-    </div>
-    <button class="btn btn-primary btn-block" type="button" onclick="location.reload()">
-      🔄 Reintentar</button>
+<body class="auth">
+<main class="auth__wrap">
+  <div class="auth__brand">
+    {icono("dashboard", 24)}<span>Workers</span>
   </div>
-</div>
+  <div class="card auth__card">
+    <div class="empty">
+      {icono("alert", 28)}
+      <h1 class="auth__title">Sin conexión</h1>
+      <p class="auth__sub">No se pudo contactar con el panel. Revisa tu red y
+        vuelve a intentar.</p>
+      <button class="btn btn--primary btn-block" type="button" onclick="location.reload()">
+        {icono("refresh")}<span>Reintentar</span></button>
+    </div>
+  </div>
+</main>
 {PWA_JS}
 </body>
 </html>"""
@@ -655,7 +732,8 @@ def offline_page():
 
 def forbidden_page(reason, csrf=""):
     """Página de 'sin permiso' (usuario válido pero sin acceso a la sección)."""
-    body = (f'<div class="card"><div class="empty">⛔ {esc(reason)}<br><br>'
-            f'<a class="btn btn-sm btn-secondary" href="/">← Volver al panel</a>'
+    body = (f'<div class="card"><div class="empty">'
+            f'{icono("alert", 28)}<p>{esc(reason)}</p>'
+            f'<a class="btn btn--quiet" href="/">← Volver al panel</a>'
             f'</div></div>')
     return page("forbidden", body)
