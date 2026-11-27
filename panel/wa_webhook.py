@@ -181,6 +181,10 @@ def _nombre(msg):
         chat = msg.get("chat")
         if isinstance(chat, dict):
             valor = chat.get("name")
+    if valor is None:
+        # Ultimo recurso: el author/participant. Antes quedaba NULL y la
+        # cronica pintaba "(sin nombre)" aunque el autor fuera identificable.
+        valor = _autor(msg)
     return _texto(valor, MAX_NOMBRE)
 
 

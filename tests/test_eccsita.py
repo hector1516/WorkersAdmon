@@ -12,7 +12,9 @@ Se vigila lo que duele si falla:
   · generar arma la crónica determinista y deja Estado=RESUMIDA;
   · revisar deja Estado=REVISADA;
   · el export responde con su `Content-Disposition`, en md y en json;
-  · un chatId que no termina en `@g.us` se rechaza.
+  · un chatId que no termina en `@g.us` se rechaza;
+  · el aviso de consentimiento sale UNA vez, y no sale sin grupo, con
+    WhatsApp apagado ni con el interruptor apagado.
 
 Ejecución:  python -m unittest tests.test_eccsita -v
 """
@@ -28,6 +30,7 @@ sys.path.insert(0, REPO)
 
 from panel import api as panel_api  # noqa: E402
 from panel import api_eccsita, db, eccsita, wa_webhook  # noqa: E402
+import canales  # noqa: E402
 
 TOKEN = "token-de-prueba-123"
 GRUPO = "120363407857907731@g.us"
@@ -487,6 +490,100 @@ class Api(BaseConDobles):
         self.assertEqual(h.code, 200)
         self.assertEqual(h.payload["items"], [])
         self.assertIn("sin conexión", h.payload["error"])
+
+    def test_aviso_desde_el_panel(self):
+        self.doblar(eccsita, "enviar_aviso",
+                    lambda: (True, "Aviso de consentimiento enviado."))
+        h = self._post("/api/panel/eccsita/aviso", {})
+        self.assertEqual(h.code, 200)
+        self.assertTrue(h.payload["ok"])
+
+    def test_aviso_ya_enviado_es_400(self):
+        self.doblar(eccsita, "enviar_aviso",
+                    lambda: (False, "El aviso de consentimiento ya se mandó "
+                                    "a ese grupo."))
+        h = self._post("/api/panel/eccsita/aviso", {})
+        self.assertEqual(h.code, 400)
+        self.assertIn("ya se mandó", h.payload["error"])
+
+
+# ─── aviso de consentimiento (modulo) ───────────────────────────────────────
+class AvisoConsentimiento(BaseConDobles):
+    """Dobles de la config, del canal y de OpenWA: no se manda nada real."""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg = {"grupo": GRUPO, "aviso": True, "aviso_enviado": ""}
+        self.enviados = []
+        self.guardado = {}
+        self.doblar(eccsita, "config", lambda: dict(self.cfg))
+        self.doblar(canales, "activo", lambda canal: True)
+        self.doblar(db, "set_config_values", self._guardar_valores)
+
+        falso = types.ModuleType("openwa_client")
+        falso.enviar_texto = self._enviar
+        self._previo_openwa = sys.modules.get("openwa_client")
+        sys.modules["openwa_client"] = falso
+
+    def tearDown(self):
+        super().tearDown()
+        if self._previo_openwa is None:
+            sys.modules.pop("openwa_client", None)
+        else:
+            sys.modules["openwa_client"] = self._previo_openwa
+
+    def _enviar(self, chat, texto):
+        self.enviados.append((chat, texto))
+        return True, "enviado"
+
+    def _guardar_valores(self, valores):
+        self.guardado.update(valores)
+        return True, ""
+
+    def test_manda_una_sola_vez(self):
+        ok, detalle = eccsita.enviar_aviso()
+        self.assertTrue(ok, detalle)
+        self.assertEqual(len(self.enviados), 1)
+        self.assertEqual(self.enviados[0][0], GRUPO)
+        self.assertEqual(self.enviados[0][1], eccsita.AVISO_CONSENTIMIENTO)
+        self.assertIn(eccsita.CLAVE_AVISO_ENVIADO, self.guardado)
+
+        self.cfg["aviso_enviado"] = self.guardado[eccsita.CLAVE_AVISO_ENVIADO]
+        ok, detalle = eccsita.enviar_aviso()
+        self.assertFalse(ok)
+        self.assertIn("ya se mandó", detalle)
+        self.assertEqual(len(self.enviados), 1)
+
+    def test_whatsapp_apagado_no_manda(self):
+        self.doblar(canales, "activo", lambda canal: False)
+        ok, detalle = eccsita.enviar_aviso()
+        self.assertFalse(ok)
+        self.assertIn("WhatsApp está apagado", detalle)
+        self.assertEqual(self.enviados, [])
+        self.assertEqual(self.guardado, {})
+
+    def test_sin_grupo_no_manda(self):
+        self.cfg["grupo"] = ""
+        ok, detalle = eccsita.enviar_aviso()
+        self.assertFalse(ok)
+        self.assertIn("grupo", detalle)
+        self.assertEqual(self.enviados, [])
+
+    def test_aviso_apagado_no_manda(self):
+        self.cfg["aviso"] = False
+        ok, detalle = eccsita.enviar_aviso()
+        self.assertFalse(ok)
+        self.assertEqual(self.enviados, [])
+
+    def test_fallo_de_openwa_no_marca_enviado(self):
+        def falla(chat, texto):
+            return False, "sin sesión"
+
+        self.doblar(sys.modules["openwa_client"], "enviar_texto", falla)
+        ok, detalle = eccsita.enviar_aviso()
+        self.assertFalse(ok)
+        self.assertIn("sin sesión", detalle)
+        self.assertEqual(self.guardado, {})
 
 
 if __name__ == "__main__":

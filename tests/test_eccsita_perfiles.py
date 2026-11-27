@@ -9,6 +9,8 @@ Se vigila lo que duele si falla:
   · el alias se detecta con acentos y mayúsculas, y como palabra completa
     («hectoreo» no cuenta como «hector»);
   · los alias extra de `HUB_Config.wa_grupo_alias` también cuentan;
+  · el panel lista y guarda alias, y rechaza uno de menos de 3 letras o ya
+    usado por otra persona;
   · no se guarda lo que la persona escribe de sí misma;
   · la misma mención no se guarda dos veces (Hash + índice único);
   · APODO / INSISTENCIA / BROMA se clasifican en ese orden;
@@ -20,6 +22,7 @@ Se vigila lo que duele si falla:
 Ejecución:  python -m unittest tests.test_eccsita_perfiles -v
 """
 import datetime
+import json
 import os
 import sys
 import types
@@ -123,6 +126,14 @@ class CursorFalso:
             antes = len(base.perfiles)
             base.perfiles = [p for p in base.perfiles if p["Id"] != params[0]]
             self.rowcount = antes - len(base.perfiles)
+
+        elif q.startswith("MERGE HUB_CONFIG"):
+            clave, valor = params[0], params[1]
+            if clave == eccsita_perfiles.CLAVE_ALIAS:
+                base.alias_cfg = valor
+            else:
+                base.config[clave] = valor
+            self.rowcount = 1
 
         elif q.startswith("SELECT TOP 50 TEXTO"):
             uid, desde = params
@@ -263,6 +274,70 @@ class Extraccion(unittest.TestCase):
         self.assertEqual(self.base.perfiles, [])
 
 
+# ─── alias de la config (extraccion y panel) ─────────────────────────────────
+class Alias(unittest.TestCase):
+    def setUp(self):
+        self.base = BaseFalsa()
+        self.conn = ConexionFalsa(self.base)
+
+    def extraer(self, texto, **extra):
+        return eccsita_perfiles.extraer(self.conn, mensaje(texto, **extra))
+
+    def test_alias_de_la_config_con_acento_y_mayusculas(self):
+        self.base.alias_cfg = '{"2": ["El Jéfe"]}'
+        self.assertEqual(self.extraer("EL JEFE llegó tarde."), 1)
+        self.assertEqual(self.base.perfiles[0]["IdUsuario"], YO)
+
+    def test_sin_la_clave_solo_cuentan_los_nombres(self):
+        self.base.alias_cfg = None
+        self.assertEqual(self.extraer("el jefe no llegó."), 0)
+        self.assertEqual(self.extraer("Héctor llegó tarde."), 1)
+
+    def test_lista_incluye_a_todos_y_sus_alias(self):
+        self.base.alias_cfg = '{"2": ["hech", "El Compa"]}'
+        items = eccsita_perfiles.alias_lista(self.conn)
+        por_uid = {i["idUsuario"]: i for i in items}
+        self.assertEqual(set(por_uid), {YO, OTRO})
+        self.assertEqual(sorted(por_uid[YO]["alias"]), ["El Compa", "hech"])
+        self.assertEqual(por_uid[OTRO]["alias"], [])
+
+    def test_guardar_alias_escribe_la_clave_completa(self):
+        self.base.alias_cfg = '{"5": ["pris"]}'
+        ok, err = eccsita_perfiles.guardar_alias(self.conn, YO, ["hech"])
+        self.assertTrue(ok, err)
+        datos = json.loads(self.base.alias_cfg)
+        self.assertEqual(datos["2"], ["hech"])
+        self.assertEqual(datos["5"], ["pris"])       # el otro no se toca
+
+    def test_guardar_alias_vacio_quita_solo_a_ese_usuario(self):
+        self.base.alias_cfg = '{"2": ["hech"], "5": ["pris"]}'
+        ok, err = eccsita_perfiles.guardar_alias(self.conn, YO, [])
+        self.assertTrue(ok, err)
+        self.assertEqual(json.loads(self.base.alias_cfg), {"5": ["pris"]})
+
+    def test_alias_duplicado_entre_usuarios_se_rechaza(self):
+        ok, err = eccsita_perfiles.guardar_alias(self.conn, YO, ["Luis"])
+        self.assertFalse(ok)
+        self.assertIn("ya lo usa", err)
+        self.assertIsNone(self.base.alias_cfg)
+
+    def test_alias_igual_al_nombre_completo_ajeno_se_rechaza(self):
+        ok, err = eccsita_perfiles.guardar_alias(
+            self.conn, YO, ["Luis Pérez"])
+        self.assertFalse(ok)
+        self.assertIn("ya lo usa", err)
+
+    def test_alias_corto_se_rechaza(self):
+        ok, err = eccsita_perfiles.guardar_alias(self.conn, YO, ["he"])
+        self.assertFalse(ok)
+        self.assertIn("3 letras", err)
+
+    def test_alias_de_usuario_inexistente_se_rechaza(self):
+        ok, err = eccsita_perfiles.guardar_alias(self.conn, 99, ["hech"])
+        self.assertFalse(ok)
+        self.assertIn("no existe", err)
+
+
 # ─── hechos y sarcasmo del bot ───────────────────────────────────────────────
 class ConHechos(BaseConDobles):
     def setUp(self):
@@ -373,7 +448,14 @@ class Api(BaseConDobles):
             aprobar=lambda conn, pid, valor: (
                 self.llamadas.append(("aprobar", pid, valor)) or True),
             borrar=lambda conn, pid: (
-                self.llamadas.append(("borrar", pid)) or True))
+                self.llamadas.append(("borrar", pid)) or True),
+            alias_lista=lambda conn: (
+                self.llamadas.append(("alias_lista", None)) or [
+                    {"idUsuario": YO, "nombre": "Héctor Salas",
+                     "alias": ["hech"]}]),
+            guardar_alias=lambda conn, uid, alias: (
+                self.llamadas.append(("guardar_alias", uid, alias))
+                or (True, "")))
 
         self.doblar(panel_api, "_sesion", lambda h: (dict(USER), None))
         self.doblar(api_eccsita, "_log", lambda *a: None)
@@ -444,6 +526,31 @@ class Api(BaseConDobles):
                          csrf=False)
         self.assertTrue(panel_api.atender(h))
         self.assertEqual(h.code, 403)
+
+    def test_lista_alias(self):
+        h = self._get("/api/panel/eccsita/alias")
+        self.assertEqual(h.code, 200)
+        self.assertEqual(h.payload["total"], 1)
+        self.assertEqual(h.payload["items"][0]["alias"], ["hech"])
+
+    def test_guarda_alias(self):
+        h = self._post("/api/panel/eccsita/alias",
+                       {"idUsuario": YO, "alias": ["hech", "compa"]})
+        self.assertEqual(h.code, 200)
+        self.assertIn(("guardar_alias", YO, ["hech", "compa"]), self.llamadas)
+
+    def test_alias_duplicado_por_api_es_400(self):
+        self.modulo.guardar_alias = lambda conn, uid, alias: (
+            False, "El alias «luis» ya lo usa Luis Pérez.")
+        h = self._post("/api/panel/eccsita/alias",
+                       {"idUsuario": YO, "alias": ["luis"]})
+        self.assertEqual(h.code, 400)
+        self.assertIn("ya lo usa", h.payload["error"])
+
+    def test_alias_sin_usuario_es_400(self):
+        h = self._post("/api/panel/eccsita/alias",
+                       {"idUsuario": 0, "alias": ["hech"]})
+        self.assertEqual(h.code, 400)
 
 
 if __name__ == "__main__":

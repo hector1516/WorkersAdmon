@@ -194,6 +194,16 @@ class WebhookWa(unittest.TestCase):
         self.assertEqual(datos["nombre"], "Lic. Priscila Urbina")
         self.assertIn("247339298115756", datos.get("autor_id") or "")
 
+    def test_grupo_sin_contacto_usa_el_author_como_nombre(self):
+        """Sin `contact` el autor no puede quedar NULL en HUB_GrupoMensajes."""
+        datos = wa_webhook._extraer(mensaje(
+            **{"isGroup": True,
+               "chatId": "120363407857907731@g.us",
+               "from": "120363407857907731@g.us",
+               "author": "5218123211516@c.us"}))
+        self.assertEqual(datos["autor_nombre"], "5218123211516@c.us")
+        self.assertEqual(datos["autor_id"], "5218123211516@c.us")
+
     def test_lid_se_resuelve_al_telefono_real(self):
         import types
 

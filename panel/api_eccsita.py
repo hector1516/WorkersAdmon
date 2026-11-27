@@ -16,6 +16,9 @@ Rutas (todas bajo la sesion del panel y CSRF en los POST):
   GET  /api/panel/eccsita/grupo
   POST /api/panel/eccsita/grupo
   GET  /api/panel/eccsita/grupos
+  GET  /api/panel/eccsita/alias
+  POST /api/panel/eccsita/alias
+  POST /api/panel/eccsita/aviso
   GET  /api/panel/eccsita/personas
   GET  /api/panel/eccsita/personas/{idUsuario}
   POST /api/panel/eccsita/perfiles/{id}
@@ -314,6 +317,61 @@ def _grupos(handler, params, cuerpo):
     return 200, {"items": items}
 
 
+# ─── alias de las menciones ──────────────────────────────────────────────────
+def _alias(handler, params, cuerpo):
+    """`{items:[{idUsuario, nombre, alias}]}` de las personas activas."""
+    user, error = _api._sesion(handler)
+    if error:
+        return error
+
+    modulo = _modulo_perfiles()
+    items = _con_perfiles(lambda conn: modulo.alias_lista(conn)) or []
+    return 200, {"items": items, "total": len(items)}
+
+
+def _alias_post(handler, params, cuerpo):
+    """Guarda los alias extra de UNA persona (la clave completa)."""
+    user, error = _api._sesion(handler)
+    if error:
+        return error
+
+    cuerpo = cuerpo if isinstance(cuerpo, dict) else {}
+    try:
+        uid = int(cuerpo.get("idUsuario") or 0)
+    except (TypeError, ValueError):
+        uid = 0
+    if uid <= 0:
+        return 400, {"error": "Usuario no válido."}
+
+    alias = cuerpo.get("alias")
+    if alias is None:
+        alias = []
+
+    modulo = _modulo_perfiles()
+    ok, err = _con_perfiles(
+        lambda conn: modulo.guardar_alias(conn, uid, alias))
+    if not ok:
+        return 400, {"error": err or "No se pudieron guardar los alias."}
+
+    items = _con_perfiles(lambda conn: modulo.alias_lista(conn)) or []
+    _log(user, f"ECCSita: alias del usuario {uid} actualizados")
+    return 200, {"ok": True, "items": items, "mensaje": "Alias guardados."}
+
+
+# ─── aviso de consentimiento ─────────────────────────────────────────────────
+def _aviso_post(handler, params, cuerpo):
+    """Manda el aviso una sola vez (`eccsita.enviar_aviso` hace el dedupe)."""
+    user, error = _api._sesion(handler)
+    if error:
+        return error
+
+    ok, detalle = eccsita.enviar_aviso()
+    if not ok:
+        return 400, {"error": detalle}
+    _log(user, "ECCSita: aviso de consentimiento enviado")
+    return 200, {"ok": True, "mensaje": detalle}
+
+
 # ─── perfiles del grupo (roast) ──────────────────────────────────────────────
 ACCIONES_PERFIL = ("aprobar", "ocultar", "borrar")
 
@@ -421,6 +479,9 @@ _api.registrar("GET", _SEMANA + r"/export", _export)
 _api.registrar("GET", r"/api/panel/eccsita/grupo", _grupo_get)
 _api.registrar("POST", r"/api/panel/eccsita/grupo", _grupo_post)
 _api.registrar("GET", r"/api/panel/eccsita/grupos", _grupos)
+_api.registrar("GET", r"/api/panel/eccsita/alias", _alias)
+_api.registrar("POST", r"/api/panel/eccsita/alias", _alias_post)
+_api.registrar("POST", r"/api/panel/eccsita/aviso", _aviso_post)
 _api.registrar("GET", r"/api/panel/eccsita/personas", _personas)
 _api.registrar("GET", r"/api/panel/eccsita/personas/(?P<idUsuario>\d+)",
                _persona)

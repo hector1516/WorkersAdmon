@@ -15,6 +15,10 @@ completa:
   · lo que diga `HUB_Config.wa_grupo_alias`, un JSON opcional
     `{"2":["hector","hech"], ...}` (IdUsuario -> lista de alias).
 
+`alias_lista(conn)` y `guardar_alias(conn, id_usuario, alias)` son lo que edita
+el panel (`/api/panel/eccsita/alias`): la clave se guarda completa y cada alias
+necesita 3+ letras, sin repetirse entre personas.
+
 Cada oracion se clasifica:
 
   · APODO       -> trae «apod», «le dicen» o «alias»;
@@ -52,6 +56,9 @@ CLAVE_ALIAS = "wa_grupo_alias"
 MAX_TEXTO = 500
 MIN_ORACION = 8          # una mencion mas corta no dice nada util
 MAX_AUTOR = 120
+MIN_ALIAS = 3            # un alias de dos letras atrapa media conversacion
+MAX_ALIAS = 40
+MAX_ALIAS_JSON = 500     # HUB_Config.Valor es NVARCHAR(500)
 
 TIPOS = ("BROMA", "APODO", "INSISTENCIA")
 
@@ -89,6 +96,13 @@ SQL_DETALLE = """
 """
 SQL_APROBAR = "UPDATE HUB_GrupoPerfiles SET Aprobado = %s WHERE Id = %s"
 SQL_BORRAR = "DELETE FROM HUB_GrupoPerfiles WHERE Id = %s"
+SQL_GUARDAR_ALIAS = """
+    MERGE HUB_Config AS target
+    USING (SELECT %s AS Clave) AS source
+    ON target.Clave = source.Clave
+    WHEN MATCHED THEN UPDATE SET Valor = %s, Actualizado = GETDATE()
+    WHEN NOT MATCHED THEN INSERT (Clave, Valor) VALUES (%s, %s);
+"""
 
 
 # ─── utilidades ──────────────────────────────────────────────────────────────
@@ -169,22 +183,33 @@ def _insulto(oracion_norm):
     return any(palabra in oracion_norm for palabra in INSULTOS)
 
 
-def _alias_extra(conn):
-    """{IdUsuario: [alias]} de `HUB_Config.wa_grupo_alias` (o {})."""
+def _alias_texto(conn):
+    """Valor crudo de `HUB_Config.wa_grupo_alias` ("" si no existe)."""
     try:
         fila = _una(conn, SQL_ALIAS, (CLAVE_ALIAS,))
     except Exception:
-        return {}
+        return ""
     if not fila or fila[0] in (None, ""):
+        return ""
+    return str(fila[0])
+
+
+def _alias_crudo(conn):
+    """JSON de la config tal cual ({} si falta o esta roto)."""
+    texto = _alias_texto(conn)
+    if not texto:
         return {}
     try:
-        datos = json.loads(str(fila[0]))
+        datos = json.loads(texto)
     except (TypeError, ValueError):
         return {}
-    if not isinstance(datos, dict):
-        return {}
+    return datos if isinstance(datos, dict) else {}
+
+
+def _alias_extra(conn):
+    """{IdUsuario: {alias normalizados}} de `HUB_Config.wa_grupo_alias` (o {})."""
     alias = {}
-    for clave, lista in datos.items():
+    for clave, lista in _alias_crudo(conn).items():
         try:
             uid = int(clave)
         except (TypeError, ValueError):
@@ -197,6 +222,18 @@ def _alias_extra(conn):
     return alias
 
 
+def _usuarios(conn):
+    """[(idUsuario, nombre)] de `HUB_Users` activos, sin ids repetidos."""
+    usuarios = []
+    for fila in _filas(conn, SQL_USUARIOS):
+        try:
+            uid = int(fila[0])
+        except (TypeError, ValueError):
+            continue
+        usuarios.append((uid, str(fila[1] or "").strip()))
+    return usuarios
+
+
 def _alias_por_usuario(conn):
     """
     {IdUsuario: (nombre_normalizado, {alias})} de HUB_Users + la config.
@@ -204,12 +241,8 @@ def _alias_por_usuario(conn):
     Todo normalizado: la comparacion contra la oracion es directa.
     """
     mapa = {}
-    for fila in _filas(conn, SQL_USUARIOS):
-        try:
-            uid = int(fila[0])
-        except (TypeError, ValueError):
-            continue
-        nombre = _normalizar(fila[1])
+    for uid, nombre_completo in _usuarios(conn):
+        nombre = _normalizar(nombre_completo)
         if not nombre:
             continue
         piezas = nombre.split()
@@ -310,6 +343,139 @@ def extraer(conn, mensaje):
             pass
         raise
     return guardadas
+
+
+# ─── alias editables desde el panel ──────────────────────────────────────────
+def alias_lista(conn):
+    """
+    `[{idUsuario, nombre, alias}]` de las personas activas.
+
+    `alias` son SOLO los alias extra de `HUB_Config.wa_grupo_alias` (lo que el
+    panel edita); el primer nombre y el nombre completo los deduce `extraer`.
+    """
+    crudo = _alias_crudo(conn)
+    extras = {}
+    for clave, lista in crudo.items():
+        try:
+            uid = int(clave)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(lista, (list, tuple)):
+            lista = [lista]
+        limpios = [str(a).strip() for a in lista if str(a or "").strip()]
+        if limpios:
+            extras[uid] = limpios
+
+    items = [{
+        "idUsuario": uid,
+        "nombre": nombre,
+        "alias": extras.get(uid, []),
+    } for uid, nombre in _usuarios(conn)]
+    items.sort(key=lambda i: i["nombre"].lower())
+    return items
+
+
+def _alias_de_otros(conn, uid):
+    """{alias normalizado: idUsuario} de todos MENOS `uid`."""
+    ajenos = {}
+    for otro, (_nombre, alias) in _alias_por_usuario(conn).items():
+        if otro == uid:
+            continue
+        for a in alias:
+            ajenos.setdefault(a, otro)
+    return ajenos
+
+
+def guardar_alias(conn, id_usuario, alias):
+    """
+    Guarda los alias extra de una persona. Devuelve (ok, error).
+
+    Cada alias necesita 3+ letras y no puede ser el nombre ni el alias de OTRA
+    persona: con dos duenos la mencion se guardaria en los dos perfiles.
+    """
+    try:
+        uid = int(id_usuario)
+    except (TypeError, ValueError):
+        return False, "Usuario no válido."
+    if uid <= 0:
+        return False, "Usuario no válido."
+
+    if isinstance(alias, str):
+        alias = [alias]
+    if not isinstance(alias, (list, tuple)):
+        return False, "Los alias deben venir en una lista."
+
+    nombres = dict(_usuarios(conn))
+    if uid not in nombres:
+        return False, "Ese usuario no existe o está inactivo."
+
+    limpios = []
+    vistos = set()
+    for valor in alias:
+        texto = str(valor or "").strip()
+        if not texto:
+            continue
+        norm = _normalizar(texto)
+        if len(norm) < MIN_ALIAS:
+            return False, f"El alias «{texto}» necesita al menos 3 letras."
+        if len(texto) > MAX_ALIAS:
+            return False, f"El alias «{texto[:20]}…» es demasiado largo."
+        if norm in vistos:
+            continue
+        vistos.add(norm)
+        limpios.append(texto)
+
+    ajenos = _alias_de_otros(conn, uid)
+    for texto in limpios:
+        otro = ajenos.get(_normalizar(texto))
+        if otro is not None:
+            return False, (f"El alias «{texto}» ya lo usa "
+                           f"{nombres.get(otro) or 'otra persona'}.")
+
+    # Se reescribe la clave COMPLETA: los demas usuarios conservan sus alias.
+    texto_previo = _alias_texto(conn)
+    if texto_previo:
+        try:
+            crudo = json.loads(texto_previo)
+        except (TypeError, ValueError):
+            return False, "La config de alias está rota; corrígela a mano."
+        if not isinstance(crudo, dict):
+            crudo = {}
+    else:
+        crudo = {}
+
+    nuevo = {}
+    for clave, lista in crudo.items():
+        try:
+            mismo = int(clave) == uid
+        except (TypeError, ValueError):
+            mismo = False
+        if not mismo:
+            nuevo[clave] = lista
+    if limpios:
+        nuevo[str(uid)] = limpios
+
+    texto = json.dumps(nuevo, ensure_ascii=False)
+    if len(texto) > MAX_ALIAS_JSON:
+        return False, ("Se pasó del límite de la config (500 caracteres): "
+                       "quita alias o acórtalos.")
+
+    cur = conn.cursor()
+    try:
+        cur.execute(SQL_GUARDAR_ALIAS, (CLAVE_ALIAS, texto, CLAVE_ALIAS, texto))
+        conn.commit()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False, str(exc)
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+    return True, ""
 
 
 # ─── lectura y moderacion (panel) ────────────────────────────────────────────

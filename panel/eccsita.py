@@ -13,6 +13,10 @@ es la misma que guarda el webhook. Este modulo arma la cronica determinista
 (`GeneradoPor='BASICO'`); la version con IA vive en `panel/eccsita_cronica.py`,
 que reusa `_guardar_semana()` para escribir (`GeneradoPor='IA'`).
 
+`enviar_aviso()` manda UNA vez el aviso de consentimiento al grupo (lo dispara
+`POST /api/panel/eccsita/aviso`); el dedupe vive en
+`HUB_Config.wa_grupo_aviso_enviado`.
+
 Reglas:
 
   * La captura nunca lanza hacia el webhook: OpenWA necesita su 200.
@@ -32,6 +36,15 @@ log = logging.getLogger("panel.eccsita")
 
 CLAVE_GRUPO = "wa_grupo_eccsita_id"
 CLAVE_CAPTURA = "wa_grupo_captura"
+CLAVE_AVISO = "wa_grupo_aviso_consentimiento"
+CLAVE_AVISO_ENVIADO = "wa_grupo_aviso_enviado"
+
+# Aviso fijo que el grupo recibe UNA vez: el texto no se configura desde el
+# panel a proposito, para que nadie lo reescriba y deje de avisar.
+AVISO_CONSENTIMIENTO = (
+    "Este grupo guarda la conversación para hacer la crónica semanal. "
+    "Si no quieres aparecer, dilo y se borra tu parte."
+)
 
 CLAVES_CONFIG = (
     CLAVE_GRUPO,
@@ -43,6 +56,8 @@ CLAVES_CONFIG = (
     "wa_grupo_ia",
     "wa_grupo_semana_dia",
     "wa_grupo_semana_hora",
+    CLAVE_AVISO,
+    CLAVE_AVISO_ENVIADO,
 )
 
 MAX_LIMITE = 52
@@ -76,7 +91,60 @@ def config():
         "ia": _si(valores.get("wa_grupo_ia"), True),
         "semana_dia": valores.get("wa_grupo_semana_dia") or "1",
         "semana_hora": valores.get("wa_grupo_semana_hora") or "09:00",
+        # Aviso de consentimiento: encendido por omision y guarda la fecha en
+        # que se mando (vacio = todavia no se manda).
+        "aviso": _si(valores.get(CLAVE_AVISO), True),
+        "aviso_enviado": (valores.get(CLAVE_AVISO_ENVIADO) or "").strip(),
     }
+
+
+def enviar_aviso():
+    """
+    Manda UNA sola vez el aviso de consentimiento al grupo.
+
+    No se manda si falta el grupo, si WhatsApp esta apagado
+    (`canales.activo("whatsapp")`), si el aviso esta apagado o si
+    `wa_grupo_aviso_enviado` ya tiene fecha. Devuelve (ok, mensaje|error).
+
+    La clave guarda solo la fecha (no el grupo): para volver a avisar a otro
+    grupo hay que borrarla a mano, nunca se manda solo.
+    """
+    cfg = config()
+    grupo = cfg.get("grupo") or ""
+    if not grupo:
+        return False, "Primero elige el grupo de ECCSita."
+    if cfg.get("aviso_enviado"):
+        return False, "El aviso de consentimiento ya se mandó a ese grupo."
+    if not cfg.get("aviso"):
+        return False, ("El aviso de consentimiento está apagado "
+                       "(wa_grupo_aviso_consentimiento = 0).")
+
+    try:
+        import canales
+        whatsapp = canales.activo("whatsapp")
+    except Exception as exc:
+        # Igual que `canales`: un fallo de lectura no deja mudo al sistema.
+        log.warning("no se pudo leer el canal de WhatsApp: %s", exc)
+        whatsapp = True
+    if not whatsapp:
+        return False, "WhatsApp está apagado; el aviso no se mandó."
+
+    try:
+        from openwa_client import enviar_texto
+        ok, detalle = enviar_texto(grupo, AVISO_CONSENTIMIENTO)
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    if not ok:
+        return False, f"No se pudo enviar el aviso: {detalle}"
+
+    guardado, error = db.set_config_values({
+        CLAVE_AVISO_ENVIADO: now_mx().isoformat(timespec="seconds")})
+    if not guardado:
+        # El aviso SI salio: se avisa del riesgo de repetirlo, no se miente.
+        log.warning("aviso enviado pero no se pudo marcar: %s", error)
+        return True, ("El aviso salió, pero no se pudo marcar como enviado "
+                      f"({error}); revísalo antes de volver a dispararlo.")
+    return True, "Aviso de consentimiento enviado."
 
 
 def set_grupo(chat_id):
