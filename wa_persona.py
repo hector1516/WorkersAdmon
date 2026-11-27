@@ -579,19 +579,24 @@ def sarcasmo(usuario_id, hechos=None, conn=None):
 
 # ─── Insultos ────────────────────────────────────────────────────────────────
 
+def insulto_detectado(norm):
+    """La palabra o frase que disparó el roast, o `""`."""
+    texto = _sin_acentos(norm)
+    if not texto:
+        return ""
+    for frase in _INSULTOS_NORM:
+        if re.search(r"\b" + re.escape(frase) + r"\b", texto):
+            return frase
+    return ""
+
+
 def es_insulto(norm):
     """
     True si el mensaje insulta o se burla del bot. Acepta texto normalizado o
     crudo (lo normaliza igual) y exige palabra o frase completa, para que
     «inmenso» no cuente como «menso».
     """
-    texto = _sin_acentos(norm)
-    if not texto:
-        return False
-    for frase in _INSULTOS_NORM:
-        if re.search(r"\b" + re.escape(frase) + r"\b", texto):
-            return True
-    return False
+    return bool(insulto_detectado(norm))
 
 
 def respuesta_insulto(persona, hechos, norm, con_roast=True):
@@ -606,19 +611,23 @@ def respuesta_insulto(persona, hechos, norm, con_roast=True):
     datos = hechos if isinstance(hechos, dict) else {}
     nombre = _pila(datos.get("nombre") or (persona or {}).get("nombre"))
     quien = f", {nombre}" if nombre else ""
-
-    frase = sarcasmo((persona or {}).get("id"), hechos=datos) if con_roast else ""
-    # Si la frase ya trae el nombre, no se repite en el reconocimiento.
-    if frase and nombre and nombre.lower() in frase.lower():
-        reconocimiento = f"{RECONOCIMIENTO}."
-    else:
-        reconocimiento = f"{RECONOCIMIENTO}{quien}."
+    dicho = insulto_detectado(norm)
 
     if not con_roast:
-        return reconocimiento
+        return f"{RECONOCIMIENTO}{quien}."
+
+    frase = sarcasmo((persona or {}).get("id"), hechos=datos)
+    # La razón del roast es el propio mensaje: se dice para que la persona
+    # entienda por qué el bot le contesta así.
+    motivo_msg = (f"Me dijiste «{dicho}»" if dicho else "Contesto con datos")
+
     if not frase:
-        return f"{reconocimiento} {CIERRE_SECO}"
-    razon = motivo(datos)
-    if razon:
-        return f"{reconocimiento} {frase}\n\nPor qué: {razon}."
-    return f"{reconocimiento} {frase}"
+        if dicho:
+            return (f"{RECONOCIMIENTO}{quien}. {motivo_msg}, y hoy no tengo "
+                    "nada que echarte en cara.")
+        return f"{RECONOCIMIENTO}{quien}. {CIERRE_SECO}"
+
+    base = f"{RECONOCIMIENTO}."
+    if not (nombre and nombre.lower() in frase.lower()):
+        base = f"{RECONOCIMIENTO}{quien}."
+    return f"{base} {motivo_msg}, así que contesto con datos: {frase}"

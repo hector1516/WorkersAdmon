@@ -329,14 +329,14 @@ class Insultos(unittest.TestCase):
         r = wa_persona.respuesta_insulto(
             {"id": YO, "nombre": "Héctor Salas"}, datos, "bot menso")
         self.assertTrue(r.startswith("Acepto la queja"), r)
+        self.assertIn("Me dijiste", r)
         self.assertIn("vale", r)
-        self.assertIn("Por qué:", r)
 
     def test_sin_hechos_responde_seco(self):
         r = wa_persona.respuesta_insulto(
             {"id": YO, "nombre": "Héctor Salas"}, {}, "menso")
         self.assertIn("Acepto la queja, Héctor", r)
-        self.assertIn(wa_persona.CIERRE_SECO, r)
+        self.assertIn("Me dijiste", r)
 
     def test_con_roast_apagado_solo_reconoce(self):
         datos = {"usuario_id": YO, "nombre": "Héctor Salas",

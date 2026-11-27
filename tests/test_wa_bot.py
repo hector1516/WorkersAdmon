@@ -545,7 +545,7 @@ class InsultoEnBot(unittest.TestCase):
     def test_insulto_sin_datos_responde_seco(self):
         r = self.responder(self.MENSAJE)
         self.assertIn("Acepto la queja, Héctor", r)
-        self.assertIn(wa_persona.CIERRE_SECO, r)
+        self.assertIn("Me dijiste", r)
 
     def test_menso_dentro_de_otra_palabra_no_dispara(self):
         r = self.responder("inmenso trabajo el de hoy")
