@@ -573,8 +573,8 @@ def _wa_contexto(eid, validos, ultimos, nombres):
     """
     tel = [c for c in validos if c.endswith("@c.us")]
     grupos = [c for c in validos if c.endswith("@g.us")]
-    partes = [f'<div><b>Quién lo manda:</b> {esc(PRODUCTORES.get(
-        eid, "origen no documentado"))}</div>']
+    quien = esc(PRODUCTORES.get(eid, "origen no documentado"))
+    partes = [f'<div><b>Quién lo manda:</b> {quien}</div>']
 
     if tel:
         destinos = esc(", ".join(tel))
