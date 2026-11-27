@@ -49,8 +49,6 @@ DRY_RUN = (os.environ.get('WA_FIRMADOS_DRY_RUN') or '').strip().lower() in (
 CLAVE_CURSOR = 'wa_firmados_ultimo_id'
 CLAVE_GRUPO = 'whatsapp_grupo_servicios'
 
-# Firma del mensaje: el grupo sabe que el aviso lo manda el bot, no una persona.
-FIRMA = 'The Penguin'
 
 
 # ── HUB_Config ───────────────────────────────────────────────────────────────
@@ -149,11 +147,11 @@ def texto_reporte(datos):
         '📄 *Reporte firmado*',
         f"Folio: {datos.get('Folio') or '—'}",
         f"Cliente: {datos.get('Cliente') or '—'}",
-        f"Técnico: {datos.get('Tecnicos') or '—'}",
+        f"Ingeniero: {datos.get('Tecnicos') or '—'}",
     ]
     if fecha:
         lineas.append(f"Fecha: {fecha}")
-    lineas += ['', 'PDF adjunto.', f"🐧 {FIRMA}"]
+    lineas += ['', 'PDF adjunto.']
     return '\n'.join(lineas)
 
 
