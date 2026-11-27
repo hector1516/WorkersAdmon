@@ -24,7 +24,9 @@ on:
 
 concurrency:
   group: check-shell-workersadmon
-  cancel-in-progress: false
+  # Un push nuevo cancela el check anterior. Antes se quedaba encolado detrás
+  # de un run colgado y frenaba el despliegue por 15 o 20 minutos.
+  cancel-in-progress: true
 
 jobs:
   check:
