@@ -173,6 +173,11 @@ def _nombre(msg):
     valor = _buscar(msg, ("notifyName", "senderName", "sender_name",
                           "pushname", "pushName", "nombre", "name"))
     if valor is None:
+        # En los grupos OpenWA pone el nombre del autor dentro de `contact`.
+        contacto = msg.get("contact")
+        if isinstance(contacto, dict):
+            valor = contacto.get("pushName") or contacto.get("name")
+    if valor is None:
         chat = msg.get("chat")
         if isinstance(chat, dict):
             valor = chat.get("name")

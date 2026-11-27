@@ -184,6 +184,16 @@ class WebhookWa(unittest.TestCase):
         self.assertEqual(self.base.filas[0][0], "wamid-2")
 
     # ── LID: WhatsApp manda un id largo en vez del telefono ──────────────────
+    def test_nombre_del_autor_en_contacto_del_grupo(self):
+        datos = wa_webhook._extraer(mensaje(
+            **{"isGroup": True,
+               "chatId": "120363407857907731@g.us",
+               "from": "120363407857907731@g.us",
+               "author": "247339298115756@lid",
+               "contact": {"pushName": "Lic. Priscila Urbina"}}))
+        self.assertEqual(datos["nombre"], "Lic. Priscila Urbina")
+        self.assertIn("247339298115756", datos.get("autor_id") or "")
+
     def test_lid_se_resuelve_al_telefono_real(self):
         import types
 
