@@ -316,16 +316,24 @@ def _triaje_mod():
     return triaje_mod
 
 
+def _numero_json(valor, defecto=0):
+    """pymssql devuelve Decimal en confianza y resumen; json no lo serializa."""
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return defecto
+
+
 def _pendiente_json(c):
     """Un correo por revisar, con lo necesario para aprobar o bloquear."""
     return {
-        "id": c.get("Id"),
+        "id": int(c.get("Id") or 0),
         "de": c.get("RemitenteEmail") or "",
         "asunto": c.get("Asunto") or "(sin asunto)",
         "fecha": _fecha_iso(c.get("Creado")) or "",
         "estado": (c.get("Estado") or "NUEVA"),
         "categoria": (c.get("Categoria") or "").lower(),
-        "confianza": c.get("Confianza"),
+        "confianza": _numero_json(c.get("Confianza")),
         "cuenta": c.get("CuentaEmail") or "",
         "destinatario": c.get("Destinatario") or "",
         "destino": c.get("DestinoSugerido") or "",
@@ -343,11 +351,10 @@ def _triaje_get(handler, params, cuerpo):
         return error
 
     triaje_mod = _triaje_mod()
-    pendientes = triaje_mod.pendientes(100)
-    return 200, {
-        "pendientes": [_pendiente_json(c) for c in pendientes],
-        "resumen": triaje_mod.resumen(),
-    }
+    pendientes = [_pendiente_json(c) for c in triaje_mod.pendientes(100)]
+    resumen = {clave: _numero_json(valor)
+               for clave, valor in (triaje_mod.resumen() or {}).items()}
+    return 200, {"pendientes": pendientes, "resumen": resumen}
 
 
 def _triaje_post(handler, params, cuerpo):
