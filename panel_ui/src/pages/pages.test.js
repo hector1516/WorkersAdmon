@@ -83,8 +83,59 @@ describe('Dashboard', () => {
 		expect(el.querySelectorAll('svg.chart--line').length).toBe(1);
 		expect(el.querySelectorAll('svg.chart--bars').length).toBe(1);
 		expect(el.querySelector('svg.chart--line title')?.textContent).toContain('Workers corriendo');
-		expect(el.querySelector('svg.chart--bars title')?.textContent).toContain('Avisos por estado');
+		expect(el.querySelector('svg.chart--bars title')?.textContent).toContain('Workers con error');
 		expect(el.querySelector('a[href="/logs/aviso"]')).not.toBeNull();
+	});
+
+	it('abre las acciones del worker y llama a la API de control', async () => {
+		const llamadas = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (url, opciones = {}) => {
+				llamadas.push([String(url), opciones]);
+				return respuesta({
+					kpis: [],
+					series: { corriendo: [1], error: [0] },
+					workers: {
+						grupos: [
+							{
+								nombre: 'HUB',
+								items: [
+									{
+										nombre: 'aviso',
+										estado: 'RUNNING',
+										latido: 'hace 0 s',
+										corriendo: true,
+										habilitado: true,
+										protegido: false
+									}
+								]
+							}
+						]
+					},
+					avisos: []
+				});
+			})
+		);
+
+		const el = pintar(Dashboard);
+		await esperar();
+
+		const boton = el.querySelector('.wacc__toggle');
+		expect(boton).not.toBeNull();
+		boton.click();
+		await esperar();
+
+		const reiniciar = [...el.querySelectorAll('.wacc button')].find((b) =>
+			b.textContent.includes('Reiniciar')
+		);
+		expect(reiniciar).toBeDefined();
+		reiniciar.click();
+		await esperar();
+
+		const control = llamadas.find(([u]) => u.includes('/workers/aviso/restart'));
+		expect(control).toBeDefined();
+		expect(control[1].method).toBe('POST');
 	});
 
 	it('muestra el error y el botón Reintentar', async () => {
@@ -297,7 +348,7 @@ describe('Eccsita', () => {
 		expect(el.textContent).toContain('Semana 44');
 		expect(el.querySelector('.ecc-week')).not.toBeNull();
 		expect(el.textContent).toContain('Resumida');
-		expect(el.textContent).toContain('2 mensaje(s)');
+		expect(el.textContent).toContain('2 mensajes');
 		expect(el.textContent).toContain('Grupo configurado');
 
 		el.querySelector('.ecc-week').click();

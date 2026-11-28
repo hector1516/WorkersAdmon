@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { get, post } from '../lib/api.js';
+	import { plural } from '../lib/texto.js';
 	import Card from '../lib/components/Card.svelte';
 	import Badge from '../lib/components/Badge.svelte';
 	import Button from '../lib/components/Button.svelte';
@@ -8,7 +9,6 @@
 	import Skeleton from '../lib/components/Skeleton.svelte';
 	import Empty from '../lib/components/Empty.svelte';
 	import Toast from '../lib/components/Toast.svelte';
-	import Icon from '../lib/components/Icon.svelte';
 
 	const TIPOS = [
 		{ valor: 'text', texto: 'TEXTO' },
@@ -166,7 +166,6 @@
 </script>
 
 <div>
-	<h2 class="page-title"><Icon name="apps" size={20} /> Apps</h2>
 	<p class="desc">
 		Catálogo de metadatos en <code>HUB_ConfigCatalogo</code> y valores en
 		<code>HUB_Config</code>: lo que guardes aquí lo ve al instante la app que
@@ -200,7 +199,7 @@
 		</Card>
 	{:else}
 		{#each apps as app (app.clave)}
-			<Card titulo={app.clave} sub={`${app.claves.length} clave(s)`}>
+			<Card titulo={app.clave} sub={plural(app.claves.length, 'clave', 'claves')}>
 				<div class="table-wrap">
 					<table class="table">
 						<thead>
@@ -281,7 +280,7 @@
 		{/each}
 
 		{#if libres.length}
-			<Card titulo="Sin clasificar" sub={`${libres.length} clave(s) fuera del catálogo`}>
+			<Card titulo="Sin clasificar" sub={`${plural(libres.length, 'clave', 'claves')} fuera del catálogo`}>
 				<p class="help">
 					Sus valores no se muestran hasta clasificarlas (pueden ser secretas).
 				</p>

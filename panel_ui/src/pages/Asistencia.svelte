@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { get, post } from '../lib/api.js';
+	import { plural } from '../lib/texto.js';
 	import Badge from '../lib/components/Badge.svelte';
 	import Button from '../lib/components/Button.svelte';
 	import Card from '../lib/components/Card.svelte';
@@ -114,7 +115,7 @@
 			{/each}
 		</div>
 
-		<Card titulo={diaLargo || 'Asistencias'} sub={`${datos.filas.length} persona(s)`}>
+		<Card titulo={diaLargo || 'Asistencias'} sub={plural(datos.filas.length, 'persona', 'personas')}>
 			{#if datos.filas.length === 0}
 				<Empty
 					icono="clock"

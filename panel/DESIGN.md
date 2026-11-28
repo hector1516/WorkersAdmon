@@ -82,23 +82,33 @@ cifras.
 Es la **raíz**: al abrir `/` se ve el tablero (y `/estado` sigue sirviendo lo
 mismo). Por eso el módulo no muestra «Volver al panel».
 
-- **Sin scroll** ni horizontal ni vertical en ningún tamaño: `overflow: hidden`
-  en `.dash`, `min-height: 0` en hijos, tipografía y gráficas con `clamp()`.
+- **Sin scroll de página en escritorio**: `overflow: hidden` en `.dash`,
+  `min-height: 0` en hijos, tipografía y gráficas con `clamp()`. En el teléfono
+  el tablero **sí fluye** (`.content:has(.dash)` vuelve a bloque): con tarjetas
+  de alto natural nada queda recortado a media fila y los avisos no viven en
+  una caja de dos renglones. El hueco de la barra inferior se reserva en
+  `.content`, no en el padding del contenedor con scroll (Chrome no lo suma al
+  área desplazable).
 - **Cuatro KPIs exactos** en una fila: Corriendo, Con error, Detenidos y
   Latidos viejos. Avisos no es un quinto KPI (creaba una segunda fila y hacía
-  scroll): su cifra va como badge en la cabecera de la tarjeta Control.
+  scroll): su cifra va como badge en la cabecera de la tarjeta Avisos.
 - Rejilla de **2 columnas** (`minmax(0, 1fr)`): Workers ocupa las dos filas de
-  la izquierda; Avisos y Control se reparten la derecha. El `Avisos` de la
-  tarjeta es su lista; el badge de Control es el conteo.
-- La fila de un worker muestra **estado, último latido y Logs**. La descripción
-  («qué hace») vive en Configuración y las acciones (Reiniciar, Deshabilitar,
-  Activar, Config) en la tarjeta Control.
-- En móvil: KPIs 2×2, una columna de tarjetas y la lista de workers con el
-  doble de alto; solo las listas internas se desplazan, la página no.
+  la izquierda; Actividad y Avisos se reparten la derecha.
+- La fila de un worker muestra **estado, último latido y Logs**. Con el botón
+  «⋯» se abre, en la misma fila, el control del worker (Reiniciar o Arrancar,
+  Deshabilitar o Activar, Configuración) contra
+  `POST /api/panel/workers/<nombre>/<accion>`. El worker protegido (el propio
+  panel) no ofrece acciones y se marca «Este panel». Las descripciones («qué
+  hace») viven en Configuración.
+- `Actividad` grafica dos series del tablero: workers corriendo (línea) y
+  workers con error (barras). Las cifras por estado de los avisos no se
+  grafican: la lista de Avisos ya las muestra con su badge.
+- En móvil: KPIs 2×2, una columna de tarjetas y la página desplaza con
+  normalidad; ninguna lista queda recortada.
 
-## Comprobación manual (sin scroll)
+## Comprobación manual
 
-Con el panel servido, en `/` y `/estado`, a **1440×900** y **390×844**:
+Con el panel servido, en `/` y `/estado`, a **1440×900**:
 
 ```js
 document.documentElement.scrollHeight <= window.innerHeight + 1   // true
@@ -106,11 +116,14 @@ document.querySelectorAll('.dash--estado').length                  // 1
 document.querySelectorAll('.kpi').length                           // 4
 ```
 
-`tests/test_ui_estado.py` fija la estructura (`.dash`, 4 `.kpi`, badge de
-avisos en Control, fila de worker sin ruido) y `tests/test_panel.py` las rutas
-y la barra inferior (4 enlaces + «Más»). Medido el 2026-11-27 en Chrome:
-`scrollHeight` = `innerHeight` (900) en escritorio y (844) en móvil, en las
-dos rutas.
+En **390×844** el documento sigue sin scrollear (el desplazamiento vive en
+`.main`), pero el tablero crece a su alto natural: al llegar al final, la última
+tarjeta queda por encima de la barra inferior.
+
+`tests/test_ui_estado.py` fija la estructura del tablero SSR (`.dash`, 4 `.kpi`)
+y `tests/test_panel.py` las rutas y la barra inferior (4 enlaces + «Más»). El
+SPA se prueba en `panel_ui` (`npm test`): KPIs, gráficos, log y control de un
+worker.
 
 ## Componentes (clases)
 

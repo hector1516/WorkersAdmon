@@ -1,22 +1,30 @@
 <script>
 	import { onMount } from 'svelte';
-	import { get } from '../lib/api.js';
+	import { get, post } from '../lib/api.js';
+	import { plural } from '../lib/texto.js';
 	import Badge from '../lib/components/Badge.svelte';
 	import Button from '../lib/components/Button.svelte';
 	import Card from '../lib/components/Card.svelte';
 	import ChartBars from '../lib/components/ChartBars.svelte';
 	import ChartLine from '../lib/components/ChartLine.svelte';
 	import Empty from '../lib/components/Empty.svelte';
+	import Icon from '../lib/components/Icon.svelte';
 	import Kpi from '../lib/components/Kpi.svelte';
 	import Skeleton from '../lib/components/Skeleton.svelte';
 	import Toast from '../lib/components/Toast.svelte';
 
-	// Tablero de Estado. Consume GET /api/panel/estado y NO deja que la página
-	// scrollee: la rejilla ocupa el alto restante y solo las listas internas se
-	// desplazan (app.css: .content:has(.dash)).
+	// Tablero de Estado. Consume GET /api/panel/estado. En escritorio la
+	// rejilla ocupa el alto restante y solo las listas internas se desplazan;
+	// en el teléfono fluye y la página desplaza (app.css: .content:has(.dash)).
 	let cargando = $state(true);
 	let error = $state('');
 	let datos = $state(null);
+	// Control de un worker: la fila abierta y la acción en curso. El tablero
+	// recupera aquí las acciones que el panel clásico tenía en la tarjeta
+	// Control (POST /api/panel/workers/{nombre}/{accion}).
+	let abierto = $state('');
+	let accionando = $state('');
+	let aviso = $state(null);
 
 	onMount(cargar);
 
@@ -36,21 +44,34 @@
 	const grupos = $derived(datos?.workers?.grupos ?? []);
 	const avisos = $derived(datos?.avisos ?? []);
 	const serieCorriendo = $derived(datos?.series?.corriendo ?? []);
+	const serieError = $derived(datos?.series?.error ?? []);
 	const pendientes = $derived(avisos.filter((a) => !a.ok).length);
 	const totalWorkers = $derived(
 		grupos.reduce((n, g) => n + (g.items?.length || 0), 0)
 	);
-	const conteoAvisos = $derived({
-		ok: avisos.filter((a) => a.nivel === 'ok' || a.ok).length,
-		warn: avisos.filter((a) => !a.ok && a.nivel === 'warn').length,
-		bad: avisos.filter((a) => !a.ok && a.nivel !== 'warn').length
-	});
-	const barsTone = $derived(
-		conteoAvisos.bad ? 'bad' : conteoAvisos.warn ? 'warn' : 'ok'
-	);
 	const ultimaCorrida = $derived(
 		serieCorriendo.length ? serieCorriendo[serieCorriendo.length - 1] : 0
 	);
+	const ultimoError = $derived(
+		serieError.length ? serieError[serieError.length - 1] : 0
+	);
+
+	async function accionWorker(w, accion) {
+		if (accionando) return;
+		if (accion === 'disable' && !confirm(`¿Deshabilitar ${w.nombre}?`)) return;
+		accionando = w.nombre;
+		aviso = null;
+		try {
+			const r = await post(`/workers/${encodeURIComponent(w.nombre)}/${accion}`);
+			aviso = { tipo: 'ok', mensaje: r?.mensaje || `Worker ${w.nombre} actualizado.` };
+			abierto = '';
+			await cargar();
+		} catch (e) {
+			aviso = { tipo: 'err', mensaje: e.message || `No se pudo actualizar ${w.nombre}.` };
+		} finally {
+			accionando = '';
+		}
+	}
 
 	function estadoTono(estado) {
 		switch (estado) {
@@ -144,10 +165,13 @@
 		{/if}
 	</div>
 {:else}
+	{#if error}
+		<Toast tipo="err" mensaje={error} oncerrar={() => (error = '')} />
+	{/if}
+	{#if aviso}
+		<Toast tipo={aviso.tipo} mensaje={aviso.mensaje} oncerrar={() => (aviso = null)} />
+	{/if}
 	<div class="dash dash--estado">
-		{#if error}
-			<Toast tipo="err" mensaje={error} oncerrar={() => (error = '')} />
-		{/if}
 
 		<div
 			class="grid dashx__kpis dash__kpis"
@@ -163,7 +187,7 @@
 			<Card
 				clase="wcard dashx__card"
 				titulo="Workers"
-				sub={`${totalWorkers} programa(s)${datos.actualizado ? ` · ${hora(datos.actualizado)}` : ''}`}
+				sub={`${plural(totalWorkers, 'programa', 'programas')}${datos.actualizado ? ` · ${hora(datos.actualizado)}` : ''}`}
 			>
 				{#if grupos.length === 0}
 					<Empty icono="users" titulo="Sin workers" texto="No hay programas en el contenedor." />
@@ -173,14 +197,82 @@
 							<div class="wgroup">{g.nombre}</div>
 							<ul class="list" aria-label={`Workers de ${g.nombre}`}>
 								{#each g.items as w (w.nombre)}
-									<li class="list__row">
+									<li class="list__row" class:is-open={abierto === w.nombre}>
 										<div class="list__main">
 											<a href={`/logs/${w.nombre}`}>{w.nombre}</a>
-											<div class="muted dashx__sub">Último latido {w.latido || 'sin latido'}</div>
+											<div class="muted dashx__sub">
+												{w.latido ? `Último latido ${w.latido}` : 'Sin latidos registrados'}
+											</div>
 										</div>
 										<div class="dashx__rowmeta">
 											<Badge tone={estadoTono(w.estado)}>{estadoTexto(w.estado)}</Badge>
+											{#if !w.protegido}
+												<button
+													class="btn btn--quiet btn--sm wacc__toggle"
+													type="button"
+													aria-expanded={abierto === w.nombre}
+													aria-label={`Acciones de ${w.nombre}`}
+													title={`Acciones de ${w.nombre}`}
+													disabled={accionando === w.nombre}
+													onclick={() => (abierto = abierto === w.nombre ? '' : w.nombre)}
+												>
+													<Icon name="more" size={16} />
+												</button>
+											{:else}
+												<Badge tone="info">Este panel</Badge>
+											{/if}
 										</div>
+										{#if abierto === w.nombre}
+											<div class="wacc">
+												{#if w.habilitado}
+													{#if w.corriendo}
+														<Button
+															variant="quiet"
+															tam="sm"
+															icono="refresh"
+															disabled={!!accionando}
+															onclick={() => accionWorker(w, 'restart')}
+														>
+															Reiniciar
+														</Button>
+													{:else}
+														<Button
+															variant="quiet"
+															tam="sm"
+															icono="play"
+															disabled={!!accionando}
+															onclick={() => accionWorker(w, 'start')}
+														>
+															Arrancar
+														</Button>
+													{/if}
+												{/if}
+												{#if w.habilitado}
+													<Button
+														variant="danger-quiet"
+														tam="sm"
+														icono="pause"
+														disabled={!!accionando}
+														onclick={() => accionWorker(w, 'disable')}
+													>
+														Deshabilitar
+													</Button>
+												{:else}
+													<Button
+														variant="primary"
+														tam="sm"
+														icono="play"
+														disabled={!!accionando}
+														onclick={() => accionWorker(w, 'enable')}
+													>
+														Activar
+													</Button>
+												{/if}
+												<Button variant="quiet" tam="sm" icono="settings" href="/configuracion">
+													Configuración
+												</Button>
+											</div>
+										{/if}
 									</li>
 								{/each}
 							</ul>
@@ -202,23 +294,27 @@
 							tono="ok"
 							alto="clamp(36px, 5.5vh, 96px)"
 						/>
-						<p class="dashx__legend">Últimas {serieCorriendo.length} lectura(s)</p>
+						<p class="dashx__legend">
+							{serieCorriendo.length === 1
+								? 'Última lectura'
+								: `Últimas ${serieCorriendo.length} lecturas`}
+						</p>
 					</div>
 					<div class="dashx__chart">
 						<h3>
-							<span>Avisos</span>
-							<span>{pendientes} pend.</span>
+							<span>Errores</span>
+							<span>{ultimoError}</span>
 						</h3>
 						<ChartBars
-							datos={[conteoAvisos.ok, conteoAvisos.warn, conteoAvisos.bad]}
-							etiqueta="Avisos por estado: correctos, atención y fallos"
-							tono={barsTone}
+							datos={serieError}
+							etiqueta="Workers con error en el tiempo"
+							tono={serieError.some((n) => n > 0) ? 'bad' : 'ok'}
 							alto="clamp(36px, 5.5vh, 96px)"
 						/>
-						<p class="dashx__legend" aria-label="Leyenda de avisos">
-							<span><i class="dashx__dot dashx__dot--ok"></i>OK {conteoAvisos.ok}</span>
-							<span><i class="dashx__dot dashx__dot--warn"></i>Atención {conteoAvisos.warn}</span>
-							<span><i class="dashx__dot dashx__dot--bad"></i>Fallo {conteoAvisos.bad}</span>
+						<p class="dashx__legend">
+							{serieError.length === 1
+								? 'Última lectura'
+								: `Últimas ${serieError.length} lecturas`}
 						</p>
 					</div>
 				</div>
@@ -227,7 +323,7 @@
 			<Card
 				clase="wcard dashx__card"
 				titulo="Avisos"
-				sub={`${pendientes} por revisar`}
+				sub={pendientes ? `${plural(pendientes, 'aviso', 'avisos')} por revisar` : 'Todo en orden'}
 			>
 				{#snippet acciones()}
 					<Badge tone={pendientes ? 'bad' : 'ok'}>{pendientes || 'OK'}</Badge>

@@ -1,6 +1,7 @@
 <script>
 	import { onMount, tick } from 'svelte';
 	import { get, post } from '../lib/api.js';
+	import { plural } from '../lib/texto.js';
 	import Icon from '../lib/components/Icon.svelte';
 	import Card from '../lib/components/Card.svelte';
 	import Field from '../lib/components/Field.svelte';
@@ -423,7 +424,7 @@
 								{#if !ev.destinatarios?.length}
 									<Badge tone="warn">sin teléfonos: no se enviará nada</Badge>
 								{:else}
-									<Badge tone="ok">{ev.destinatarios.length} destinatario(s)</Badge>
+									<Badge tone="ok">{plural(ev.destinatarios.length, 'destinatario', 'destinatarios')}</Badge>
 								{/if}
 								{#if ev.ultimo}
 									<Badge tone={ev.ultimo.estado === 'ENVIADO' ? 'ok' : 'bad'}>
@@ -493,7 +494,7 @@
 								<b>{g.nombre || '(sin nombre)'}</b>
 								<span class="help">{g.id}</span>
 							</span>
-							<span class="list__meta">{g.participantes || 0} participante(s)</span>
+							<span class="list__meta">{plural(g.participantes || 0, 'participante', 'participantes')}</span>
 						</li>
 					{/each}
 				</ul>

@@ -6,7 +6,6 @@
 	import Skeleton from '../lib/components/Skeleton.svelte';
 	import Empty from '../lib/components/Empty.svelte';
 	import Toast from '../lib/components/Toast.svelte';
-	import Icon from '../lib/components/Icon.svelte';
 
 	let cargando = $state(true);
 	let error = $state('');
@@ -45,7 +44,6 @@
 </script>
 
 <div>
-	<h2 class="page-title"><Icon name="megaphone" size={20} /> Avisos</h2>
 	<p class="desc">
 		Estado del ecosistema: workers, shell y versiones. Un aviso en rojo es
 		algo que hay que revisar, no un simple registro.
@@ -100,7 +98,7 @@
 
 		{#if grupos.length}
 			{#each grupos as g (g.nombre)}
-				<Card titulo={g.nombre} sub={`${g.items.length} worker(s)`}>
+				<Card titulo={g.nombre} sub={`${g.items.length} ${g.items.length === 1 ? 'worker' : 'workers'}`}>
 					<ul class="list">
 						{#each g.items as w (w.nombre)}
 							<li class="list__row">

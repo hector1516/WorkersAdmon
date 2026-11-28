@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { get, post } from '../lib/api.js';
+	import { plural } from '../lib/texto.js';
 	import Badge from '../lib/components/Badge.svelte';
 	import Button from '../lib/components/Button.svelte';
 	import Card from '../lib/components/Card.svelte';
@@ -169,7 +170,7 @@
 							</div>
 							<div class="list__meta row-meta">
 								<Badge tone={TONOS_BUZON[b.estado] ?? ''}>{b.estado}</Badge>
-								<Badge>{b.usuarios} usuario(s)</Badge>
+								<Badge>{plural(b.usuarios, 'usuario', 'usuarios')}</Badge>
 								<Badge>{b.sin_leer} sin leer</Badge>
 							</div>
 						</div>

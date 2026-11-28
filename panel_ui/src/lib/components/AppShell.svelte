@@ -52,12 +52,6 @@
 				</a>
 			{/each}
 		</nav>
-		<div class="rail__foot">
-			<button class="btn btn--quiet btn--sm" type="button" onclick={salir} aria-label="Cerrar sesión">
-				<Icon name="logout" size={18} />
-				<span class="nav-item__text">Salir</span>
-			</button>
-		</div>
 	</aside>
 
 	<main class="main">

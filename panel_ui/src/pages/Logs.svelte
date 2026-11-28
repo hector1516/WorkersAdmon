@@ -5,7 +5,6 @@
 	import Button from '../lib/components/Button.svelte';
 	import Card from '../lib/components/Card.svelte';
 	import Empty from '../lib/components/Empty.svelte';
-	import Icon from '../lib/components/Icon.svelte';
 	import Skeleton from '../lib/components/Skeleton.svelte';
 	import Toast from '../lib/components/Toast.svelte';
 
@@ -71,7 +70,7 @@
 	}
 
 	function ultimo(iso) {
-		if (!iso) return 'sin registro';
+		if (!iso) return '';
 		try {
 			return new Intl.DateTimeFormat('es-MX', {
 				dateStyle: 'medium',
@@ -84,9 +83,6 @@
 </script>
 
 <div>
-	<h2 class="page-title"><Icon name="logs" size={20} /> Logs</h2>
-	<p class="desc">Últimas líneas de cada worker. Abre uno para ver el log completo.</p>
-
 	{#if error}
 		<Toast tipo="err" mensaje={error} oncerrar={() => (error = '')} />
 	{/if}
@@ -104,14 +100,16 @@
 			</Empty>
 		</Card>
 	{:else}
-		<Card titulo="Workers" sub={`${items.length} programa(s)`}>
+		<Card titulo="Workers" sub={`${items.length} ${items.length === 1 ? 'programa' : 'programas'}`}>
 			<ul class="list" aria-label="Workers con log">
 				{#each items as w (w.nombre)}
 					<li class="list__row">
 						<div class="list__main">
-							<a href={`/logs/${w.nombre}`}>{w.nombre}</a>
+							<strong>{w.nombre}</strong>
 							<div class="muted dashx__sub">
-								{#if w.descripcion}{w.descripcion} · {/if}Último registro {ultimo(w.ultimo)}
+								{#if w.descripcion}{w.descripcion} · {/if}{w.ultimo
+									? `Último registro ${ultimo(w.ultimo)}`
+									: 'Sin registros todavía'}
 							</div>
 						</div>
 						<div class="dashx__rowmeta">

@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { get, post } from '../lib/api.js';
+	import { plural } from '../lib/texto.js';
 	import Icon from '../lib/components/Icon.svelte';
 	import Card from '../lib/components/Card.svelte';
 	import Field from '../lib/components/Field.svelte';
@@ -219,7 +220,7 @@
 						/>
 					</div>
 					<div class="ro">
-						{datos.suscriptores ?? 0} navegador(es) suscrito(s)
+						{plural(datos.suscriptores ?? 0, 'navegador suscrito', 'navegadores suscritos')}
 						{datos.actualizado ? ` · actualizado ${datos.actualizado}` : ''}
 					</div>
 					<div class="form-foot">

@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { get, post } from '../lib/api.js';
+	import { plural } from '../lib/texto.js';
 	import { path, matchPath, navigate } from '../lib/router.js';
 	import Icon from '../lib/components/Icon.svelte';
 	import Card from '../lib/components/Card.svelte';
@@ -110,7 +111,7 @@
 		grupos.map((g) => ({
 			valor: String(g.id || g.chat_id || ''),
 			texto: `${g.nombre || g.name || '(sin nombre)'}${
-				g.participantes ? ` · ${g.participantes} participante(s)` : ''
+				g.participantes ? ` · ${plural(g.participantes, 'participante', 'participantes')}` : ''
 			}`
 		}))
 	);
@@ -605,7 +606,7 @@
 								<span class="ecc-week__title">Semana {w.semana} · {w.anio}</span>
 								<span class="ecc-week__rango">{rango(w)}</span>
 								<span class="ecc-week__meta">
-									{w.mensajes} mensaje(s) · {w.participantes} persona(s)
+									{plural(w.mensajes, 'mensaje', 'mensajes')} · {plural(w.participantes, 'persona', 'personas')}
 								</span>
 							</span>
 							<Badge tone={est.tone}>{est.texto}</Badge>
@@ -650,7 +651,7 @@
 				<div class="ecc-detail__titles">
 					<h2 class="ecc-detail__title">Semana {detalle.semana} · {detalle.anio}</h2>
 					<p class="ecc-detail__sub">
-						{rango(detalle)} · {detalle.total} mensaje(s)
+						{rango(detalle)} · {plural(detalle.total, 'mensaje', 'mensajes')}
 						{#if detalle.generado_por}· {detalle.generado_por}{/if}
 					</p>
 				</div>
