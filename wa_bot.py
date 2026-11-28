@@ -879,16 +879,15 @@ def _cabe(texto, frase):
 
 def _respuesta_sin_intencion(nombre, obtener):
     """
-    Usuario registrado con un mensaje que no se entiende: en vez del menu seco,
-    una frase con un hecho real suyo y el menu corto. Si no hay hecho, o no
-    cabe, se dice sin adornos.
+    Usuario registrado con un mensaje que no se entiende.
+
+    Antes soltaba un hecho suyo (kilómetros, vales) sin venir a cuento y
+    después el menú; parecía un mensaje random. Ahora se dice claro que no se
+    entendió y se ofrece el menú. El sarcasmo queda para el saludo y para
+    cuando la persona insulta al bot, no para respuestas que no vienen al caso.
     """
-    frase = obtener() if obtener is not None else ""
-    if _cabe(MENU_CORTO, frase):
-        return f"{frase}\n\n{MENU_CORTO}"
-    if nombre:
-        return f"{nombre}, no entendí ese mensaje. {MENU_CORTO}"
-    return f"No entendí ese mensaje. {MENU_CORTO}"
+    quien = f"{nombre}, " if nombre else ""
+    return f"{quien}no entendí ese mensaje. {MENU_CORTO}"
 
 
 def _respuesta_insulto(persona, norm, kb, conn=None, permitido=True):

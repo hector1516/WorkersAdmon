@@ -441,11 +441,12 @@ class SarcasmoEnBot(unittest.TestCase):
                                 kb=self.kb if kb is None else kb,
                                 ahora=ahora, conn=self.base)
 
-    def test_mensaje_sin_intencion_usa_un_hecho_y_el_menu_corto(self):
+    def test_mensaje_sin_intencion_pide_aclarar_y_ofrece_menu(self):
         r = self.responder("Esta bien eso bot, son cada lunes")
-        self.assertIn(self.FRASE, r)
+        self.assertIn("no entendí ese mensaje", r)
         self.assertIn(wa_bot.MENU_CORTO, r)
-        self.assertNotIn("1. Horario", r)      # ya no es el menú seco
+        self.assertNotIn(self.FRASE, r)        # ya no suelta un hecho random
+        self.assertNotIn("1. Horario", r)      # ni el menú seco
         self.assertNotIn("¡Hola, Héctor!", r)  # ni el saludo genérico
 
     def test_el_dato_va_primero_y_el_sarcasmo_al_final(self):
